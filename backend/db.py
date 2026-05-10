@@ -4,6 +4,7 @@
 """
 import json
 import sqlite3
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -366,3 +367,64 @@ def delete_mistake(mistake_id: str):
     c.execute("UPDATE mistake_book_item SET deleted_at = datetime('now') WHERE id = ?", (mistake_id,))
     c.commit()
     c.close()
+
+# ═══════════════════════════════════════════════════════════════
+# 激活码管理
+# ═══════════════════════════════════════════════════════════════
+
+def create_activation_code(code: str, credit_amount: int = 100, expires_days: int = 365):
+    "注册新激活码"
+    c = _conn()
+    c.execute(
+        "INSERT OR IGNORE INTO activation_codes (code, code_type, credit_amount, status, expires_at) "
+        "VALUES (?, 'credit', ?, 'unused', datetime('now', ?))",
+        (code, credit_amount, f'+{expires_days} days'),
+    )
+    c.commit()
+    c.close()
+
+def redeem_activation_code(code: str, parent_user_id: str) -> dict | None:
+    "核销激活码，返回 {credit_amount, code} 或 None（无效/已用/过期）"
+    c = _conn()
+    row = c.execute(
+        "SELECT * FROM activation_codes WHERE code = ?", (code,)
+    ).fetchone()
+    if not row:
+        c.close()
+        return None
+    if row["status"] != "unused":
+        c.close()
+        return None
+    if row["expires_at"] and row["expires_at"] < datetime.now().isoformat():
+        c.close()
+        return None
+    # 核销
+    c.execute(
+        "UPDATE activation_codes SET status='used', used_by_parent_user_id=? WHERE code=?",
+        (parent_user_id, code),
+    )
+    c.commit()
+    result = {"credit_amount": row["credit_amount"], "code": code}
+    c.close()
+    return result
+
+def add_credit_ledger_entry(parent_user_id: str, child_id: str, amount: int, reason_code: str, reason_desc: str = "", related_id: str = ""):
+    "写学豆流水"
+    import uuid
+    c = _conn()
+    # 更新余额
+    bal_row = c.execute("SELECT balance FROM credit_account WHERE parent_user_id = ?", (parent_user_id,)).fetchone()
+    current = bal_row["balance"] if bal_row else 50
+    new_balance = current + amount
+    c.execute(
+        "INSERT OR REPLACE INTO credit_account (parent_user_id, balance, updated_at) VALUES (?, ?, datetime('now'))",
+        (parent_user_id, new_balance),
+    )
+    c.execute(
+        "INSERT INTO credit_ledger (id, parent_user_id, child_id, change_amount, balance_after, reason_code, reason_desc, related_id) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (uuid.uuid4().hex[:12], parent_user_id, child_id, amount, new_balance, reason_code, reason_desc, related_id),
+    )
+    c.commit()
+    c.close()
+    return new_balance

@@ -832,10 +832,19 @@ async def redeem_activation(body: ActivationRequest, request: Request):
                 content={"ok": False, "code": "activation_locked", "message": f"尝试次数过多，请 {remaining} 秒后再试", "request_id": uuid.uuid4().hex},
             )
         await asyncio.sleep(0.3)
-        if body.code == "YOMI-FREE-2024":
-            # 成功 — 清除输错记录
+        # 真实核销：查询数据库
+        result = _db.redeem_activation_code(body.code, "demo_parent_001")  # TODO: 从 JWT 取 parent_id
+        if result:
+            # 写学豆流水
+            _db.add_credit_ledger_entry(
+                "demo_parent_001", "",
+                result["credit_amount"],
+                "activation_reward",
+                f"激活码核销: {body.code}",
+                result["code"],
+            )
             _activation_attempts.pop(ip, None)
-            return {"ok": True, "data": {"activated": True, "message": "激活成功，获得 100 学豆", "credit_added": 100}, "request_id": uuid.uuid4().hex}
+            return {"ok": True, "data": {"activated": True, "message": f"激活成功，获得 {result['credit_amount']} 学豆", "credit_added": result["credit_amount"]}, "request_id": uuid.uuid4().hex}
         # 输错 — 累加计数
         count = attempt["count"] + 1 if attempt else 1
         locked_until = now_ts + 3600 if count >= 5 else 0
