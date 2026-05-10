@@ -106,7 +106,6 @@
 |------|------|--------|
 | 账号/child 鉴权 | JWT + X-Child-Id 真实鉴权替代占位 | 🔴 高 |
 | 真实 AI 解析 | 替换 Mock，接 v4-flash / Qwen-VL | 🔴 高 |
-| 云端数据库 | PostgreSQL/Supabase 替代 Mock 数据 | 🟡 中 |
 | 激活码核销 | 真实核销替代 Mock | 🟡 中 |
 | 对象存储 | R2/OSS 存储图片，7天生命周期 | 🟢 低 |
 | FastAPI 云部署 | CORS + 限流 + 日志 | 🟡 中 |
