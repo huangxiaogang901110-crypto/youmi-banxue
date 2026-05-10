@@ -7,6 +7,7 @@ import Link from "next/link";
 import { ArrowLeft, Send, Lightbulb, List, Eye, CheckCircle, Bookmark, Loader2, Scan } from "lucide-react";
 import { useTypewriter } from "@/hooks/useTypewriter";
 import { tutorApi, visionApi, questionApi } from "@/lib/api";
+import { questionStatusApi } from "@/lib/api";
 import { useEntitlementStore } from "@/stores/entitlementStore";
 import { saveTutorResult, loadTutorResult, saveVisionResult, loadVisionResult } from "@/lib/localCache";
 import KaTeXText from "@/components/tutoring/KaTeXText";
@@ -217,13 +218,13 @@ function QuestionPageInner() {
 
       {/* Bottom actions */}
       <div className="flex gap-3 pb-2">
-        <button onClick={() => setMarked(marked === "mastered" ? "none" : "mastered")}
+        <button onClick={() => { setMarked(marked === "mastered" ? "none" : "mastered"); questionStatusApi.update(id, "mastered"); }}
           className={`flex-1 flex items-center justify-center gap-1.5 rounded-xl border py-2.5 text-sm transition ${
             marked === "mastered" ? "border-green-400 bg-green-50 text-green-700" : "border-green-200 bg-green-50 text-green-700 hover:bg-green-100"
           }`}>
           <CheckCircle className="w-4 h-4" /> 我会了
         </button>
-        <button onClick={() => setMarked(marked === "mistake" ? "none" : "mistake")}
+        <button onClick={() => { setMarked(marked === "mistake" ? "none" : "mistake"); questionStatusApi.update(id, "mistake_book"); }}
           className={`flex-1 flex items-center justify-center gap-1.5 rounded-xl border py-2.5 text-sm transition ${
             marked === "mistake" ? "border-border bg-card text-foreground ring-1 ring-primary" : "border-border bg-card text-foreground hover:bg-muted"
           }`}>

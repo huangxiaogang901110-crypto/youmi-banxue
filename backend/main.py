@@ -557,13 +557,19 @@ async def get_question_detail(question_id: str):
 # ─── 3.6. POST /api/questions/{question_id}/status ──────────
 class QuestionStatusRequest(BaseModel):
     status: str  # mastered | mistake_book | needs_review
+    child_answer: str = ""
 
 @app.post("/api/questions/{question_id}/status")
-async def update_question_status(question_id: str, body: QuestionStatusRequest):
+async def update_question_status(question_id: str, body: QuestionStatusRequest, user: tuple = Depends(get_current_user)):
     """更新题目状态：已掌握 / 加入错题本"""
     try:
+        _, child_id = user
         if body.status not in ("mastered", "mistake_book", "needs_review"):
             return {"ok": False, "code": "invalid_status", "message": "无效状态", "request_id": uuid.uuid4().hex}
+        # 加入错题本 → 持久化到 SQLite
+        if body.status == "mistake_book":
+            mid = _db.save_mistake(child_id, question_id, "unknown", body.child_answer or "")
+            return {"ok": True, "data": {"question_id": question_id, "status": body.status, "mistake_id": mid}, "request_id": uuid.uuid4().hex}
         return {"ok": True, "data": {"question_id": question_id, "status": body.status}, "request_id": uuid.uuid4().hex}
     except Exception as e:
         return {"ok": False, "code": "status_error", "message": str(e), "request_id": uuid.uuid4().hex}
@@ -869,6 +875,34 @@ async def payment_callback():
 async def get_credit_ledger():
     """学豆流水查询占位"""
     return {"ok": True, "data": {"entries": [], "total": 0}, "request_id": uuid.uuid4().hex}
+
+# ─── 13. GET /api/mistakes ──────────────────────────────────
+@app.get("/api/mistakes")
+async def get_mistakes(user: tuple = Depends(get_current_user)):
+    """获取当前孩子的错题列表"""
+    try:
+        _, child_id = user
+        mistakes = _db.get_mistakes(child_id)
+        return {"ok": True, "data": mistakes, "request_id": uuid.uuid4().hex}
+    except Exception as e:
+        return {"ok": False, "code": "mistakes_error", "message": str(e), "request_id": uuid.uuid4().hex}
+
+# ─── 14. POST /api/auth/switch-child ────────────────────────
+class SwitchChildRequest(BaseModel):
+    child_id: str
+
+@app.post("/api/auth/switch-child")
+async def switch_child(body: SwitchChildRequest, user: tuple = Depends(get_current_user)):
+    """切换活跃孩子，返回新 JWT"""
+    try:
+        parent_id, _ = user
+        parent = next((p for p in _parents.values() if p.id == parent_id), None)
+        if not parent:
+            return {"ok": False, "code": "not_found", "message": "用户不存在", "request_id": uuid.uuid4().hex}
+        token = create_token({"parent_id": parent_id, "child_id": body.child_id, "phone": parent.phone})
+        return {"ok": True, "data": {"token": token, "active_child_id": body.child_id}, "request_id": uuid.uuid4().hex}
+    except Exception as e:
+        return {"ok": False, "code": "switch_error", "message": str(e), "request_id": uuid.uuid4().hex}
 
 # 启动: uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
 

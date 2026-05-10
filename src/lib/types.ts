@@ -162,3 +162,16 @@ export interface AuthRegisterResponse {
   children: { id: string; name: string }[];
   active_child_id: string;
 }
+
+// ─── 错题本类型 ──────────────────────────────────────────────
+
+export interface MistakeItem {
+  id: string;
+  child_id: string;
+  question_id: string;
+  error_type_code: string;
+  reason_desc: string;
+  mastery_status: string;
+  next_review_at?: string;
+  created_at?: string;
+}

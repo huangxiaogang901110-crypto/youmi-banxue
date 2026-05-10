@@ -360,3 +360,28 @@ function mockParseHomework(text: string): import("./types").HomeworkParseData {
 
   return { subjects, raw_text: text };
 }
+
+// ─── 错题本 API ─────────────────────────────────────────────
+
+export const mistakesApi = {
+  list: (): Promise<ApiResponse<import("./types").MistakeItem[]>> =>
+    typedFetch<import("./types").MistakeItem[]>(`${API_BASE_URL}/api/mistakes`),
+};
+
+export const authSwitchApi = {
+  switchChild: (childId: string): Promise<ApiResponse<{ token: string; active_child_id: string }>> =>
+    typedFetch<{ token: string; active_child_id: string }>(`${API_BASE_URL}/api/auth/switch-child`, {
+      method: "POST",
+      body: JSON.stringify({ child_id: childId }),
+    }),
+};
+
+// ─── 题目状态 API ───────────────────────────────────────────
+
+export const questionStatusApi = {
+  update: (questionId: string, status: string, childAnswer?: string): Promise<ApiResponse<{ question_id: string; status: string }>> =>
+    typedFetch<{ question_id: string; status: string }>(`${API_BASE_URL}/api/questions/${encodeURIComponent(questionId)}/status`, {
+      method: "POST",
+      body: JSON.stringify({ status, child_answer: childAnswer || "" }),
+    }),
+};

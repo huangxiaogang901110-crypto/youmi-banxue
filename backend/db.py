@@ -118,6 +118,19 @@ def init():
             expires_at TEXT NOT NULL,
             expired INTEGER DEFAULT 0
         );
+
+        -- ── Phase 1 错题本 ───────────────────────────────
+        CREATE TABLE IF NOT EXISTS mistake_book_item (
+            id TEXT PRIMARY KEY,
+            child_id TEXT NOT NULL,
+            question_id TEXT NOT NULL,
+            error_type_code TEXT DEFAULT 'unknown',
+            reason_desc TEXT DEFAULT '',
+            mastery_status TEXT DEFAULT 'pending',
+            next_review_at TEXT,
+            created_at TEXT DEFAULT (datetime('now')),
+            deleted_at TEXT
+        );
     """)
     c.commit()
 
@@ -154,6 +167,9 @@ def init():
         "CREATE INDEX IF NOT EXISTS idx_payment_order_parent ON payment_order(parent_user_id)",
         # 图片过期扫描
         "CREATE INDEX IF NOT EXISTS idx_image_expires ON image_registry(expires_at, expired)",
+        # 错题查询
+        "CREATE INDEX IF NOT EXISTS idx_mistake_child ON mistake_book_item(child_id, mastery_status)",
+        "CREATE INDEX IF NOT EXISTS idx_mistake_question ON mistake_book_item(question_id, child_id)",
     ]
     for sql in indexes:
         c.execute(sql)
@@ -316,3 +332,37 @@ def cleanup_expired_images() -> list[str]:
     c.commit()
     c.close()
     return deleted
+
+
+# ═══════════════════════════════════════════════════════════════
+# 错题本
+# ═══════════════════════════════════════════════════════════════
+
+def save_mistake(child_id: str, question_id: str, error_type: str = "unknown", reason: str = ""):
+    c = _conn()
+    import uuid
+    mid = uuid.uuid4().hex[:12]
+    c.execute(
+        "INSERT OR REPLACE INTO mistake_book_item (id, child_id, question_id, error_type_code, reason_desc, mastery_status, next_review_at) "
+        "VALUES (?, ?, ?, ?, ?, 'pending', datetime('now', '+1 day'))",
+        (mid, child_id, question_id, error_type, reason),
+    )
+    c.commit()
+    c.close()
+    return mid
+
+def get_mistakes(child_id: str) -> list[dict]:
+    c = _conn()
+    rows = c.execute(
+        "SELECT * FROM mistake_book_item WHERE child_id = ? AND deleted_at IS NULL ORDER BY created_at DESC",
+        (child_id,),
+    ).fetchall()
+    result = [dict(r) for r in rows]
+    c.close()
+    return result
+
+def delete_mistake(mistake_id: str):
+    c = _conn()
+    c.execute("UPDATE mistake_book_item SET deleted_at = datetime('now') WHERE id = ?", (mistake_id,))
+    c.commit()
+    c.close()
