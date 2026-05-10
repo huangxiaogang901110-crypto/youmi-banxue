@@ -1,0 +1,5 @@
+fastapi
+uvicorn[standard]
+pydantic
+alibabacloud_ocr_api20210707
+alibabacloud_tea_openapi
