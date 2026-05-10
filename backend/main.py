@@ -19,6 +19,8 @@ from model_logger import make_log_entry
 from vision_client import QwenVLClient
 from deepseek_client import DeepSeekClient
 from tutor_prompt import build_tutor_messages
+from tutor_prompt import build_tutor_messages
+import db as _db
 
 # Load .env
 from pathlib import Path
@@ -33,6 +35,8 @@ if env_path.exists():
 from enum import Enum
 
 app = FastAPI(title="悠米伴学 API", version="0.1.0")
+init_db()
+print("[DB] SQLite initialized", flush=True)
 
 # ─── CORS ──────────────────────────────────────────────────
 app.add_middleware(
@@ -150,24 +154,99 @@ MOCK_QUESTIONS = [
 def _ts() -> str:
     return datetime.now(timezone.utc).isoformat()
 
-# job 状态存储（内存）
-_jobs: dict[str, dict] = {}
-_model_calls: list[dict] = []
-_tutor_chats: dict[str, list[dict]] = {}  # question_id -> chat history
-_credit_balances: dict[str, int] = {}  # child_id -> remaining credits (Phase 0 Mock, 后端独立计数)
+# job 状态存储（SQLite 持久化 + 内存缓存）
+_db.init()
+_jobs, _model_calls, _tutor_chats, _credit_balances = _db.load_all()
+# 兼容旧内存模式：load_all 返回的类型
+_jobs: dict[str, dict]
+_model_calls: list[dict]
+_tutor_chats: dict[str, list[dict]]  # question_id -> chat history
+_credit_balances: dict[str, int]  # child_id -> remaining credits (Phase 0 Mock, 后端独立计数)
 # ─── 管线边界函数（基准 Table 22 R1）────────────────────────
 def enqueue_parse_job(jid: str, job_entry: dict):
-    """将任务注册到内存队列。Phase 0 不使用 Redis。"""
+    """将任务注册到内存队列 + SQLite 持久化。"""
     _jobs[jid] = job_entry
+    _db.save_job(jid, job_entry)
+
+
+# ─── DB 持久化辅助函数 ─────────────────────────────────────
+
+def _persist_log(entry: dict):
+    """落盘 model_call_log"""
+    try:
+        s = get_session()
+        db_entry = {k: v for k, v in entry.items() if k != "blocks_count"}
+        s.add(ModelCallLog(**db_entry))
+        s.commit()
+        s.close()
+    except Exception as e:
+        print(f"[DB] log persist failed: {e}", flush=True)
+
+
+def _persist_job(jid: str, questions: list, status):
+    """落盘 parse_job + question_item"""
+    try:
+        s = get_session()
+        job_entry = _jobs.get(jid, {})
+        job = job_entry.get("job")
+        if job:
+            db_job = s.query(DBParseJob).filter_by(id=jid).first()
+            status_val = status.value if hasattr(status, "value") else status
+            if db_job:
+                db_job.status = status_val
+                db_job.questions_count = len(questions)
+                db_job.updated_at = datetime.now(timezone.utc)
+            else:
+                s.add(DBParseJob(
+                    id=jid,
+                    client_task_id=job_entry.get("client_task_id"),
+                    status=status_val,
+                    questions_count=len(questions),
+                    file_name=job.file_name if job else "",
+                ))
+            for q in questions:
+                existing = s.query(QuestionItem).filter_by(id=q.question_id).first()
+                if not existing:
+                    q_status = q.status.value if hasattr(q.status, "value") else q.status
+                    s.add(QuestionItem(
+                        id=q.question_id,
+                        parse_job_id=jid,
+                        question_number=q.question_number,
+                        question_text=q.question_text,
+                        bbox_json=q.bbox,
+                        visual_description=q.visual_description,
+                        status=q_status,
+                    ))
+            s.commit()
+        s.close()
+    except Exception as e:
+        print(f"[DB] job persist failed: {e}", flush=True)
+
 
 def save_result(jid: str, questions: list, now: str, file, status: JobStatus):
-    """保存任务最终结果"""
+    """保存任务最终结果 — SQLite 持久化"""
     _jobs[jid]["job"] = ParseJob(
         job_id=jid, status=status,
         questions_count=len(questions),
         created_at=now, updated_at=_ts(), file_name=file.filename if file else "",
     )
     _jobs[jid]["questions"] = questions
+    # 持久化：把 Pydantic 对象序列化
+    _db.save_job(jid, {
+        "job_id": jid,
+        "status": status.value,
+        "questions_count": len(questions),
+        "created_at": now,
+        "updated_at": _ts(),
+        "file_name": file.filename if file else "",
+        "questions": [q.model_dump() for q in questions],
+        "poll_count": _jobs[jid].get("poll_count", 0),
+        "child_id": _jobs[jid].get("child_id", ""),
+        "parent_id": _jobs[jid].get("parent_id", ""),
+        "client_task_id": _jobs[jid].get("client_task_id", ""),
+    })
+    # Persist to DB
+    _persist_job(jid, questions, status)
 
 
 # ─── 健康检查 ──────────────────────────────────────────────
@@ -239,17 +318,19 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str):
         extracted = ocr.extract_text_and_blocks(result)
         latency_ms = int((time.time() - t_start) * 1000)
 
-        _model_calls.append(make_log_entry(
-            task_id=jid,
-            provider_name="aliyun_ocr",
-            model_name="ocr_api20210707",
-            feature_code="ocr",
-            latency_ms=latency_ms,
-            success=True,
-            request_id=result.get("RequestId", ""),
-            billing_status="free_tier",
-            blocks_count=len(extracted["blocks"]),
-        ))
+                _log = make_log_entry(
+                    task_id=jid,
+                    provider_name="aliyun_ocr",
+                    model_name="ocr_api20210707",
+                    feature_code="ocr",
+                    latency_ms=latency_ms,
+                    success=True,
+                    request_id=result.get("RequestId", ""),
+                    billing_status="free_tier",
+                    blocks_count=len(extracted["blocks"]),
+                )
+                _model_calls.append(_log)
+                _db.save_model_call(_log)
 
         # Stage: cutting — 智能切题（题号规则 + 版面规则）
         _jobs[jid]["job"].status = JobStatus.cutting
@@ -281,18 +362,20 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str):
                 vl_ms = int((time.time() - t_vs) * 1000)
                 q.visual_description = vl_result["visual_description"]
 
-                _model_calls.append(make_log_entry(
-                    task_id=jid,
-                    question_id=q.question_id,
-                    provider_name="dashscope",
-                    model_name="qwen-vl-plus",
-                    feature_code="vision_cutting",
-                    latency_ms=vl_ms,
-                    success=vl_result["success"],
-                    error_code=vl_result.get("error"),
-                    billing_status="free_tier" if vl_result["success"] else "failed",
-                    prompt_name="qwen_vl_analyze",
-                ))
+                        _vlog = make_log_entry(
+                            task_id=jid,
+                            question_id=q.question_id,
+                            provider_name="dashscope",
+                            model_name="qwen-vl-plus",
+                            feature_code="vision_cutting",
+                            latency_ms=vl_ms,
+                            success=vl_result["success"],
+                            error_code=vl_result.get("error"),
+                            billing_status="free_tier" if vl_result["success"] else "failed",
+                            prompt_name="qwen_vl_analyze",
+                        )
+                        _model_calls.append(_vlog)
+                        _db.save_model_call(_vlog)
                 print(f"[BG] Vision #{qi}: {vl_ms}ms success={vl_result['success']}", flush=True)
             except Exception as ve:
                 print(f"[BG] Vision #{qi} FAILED: {ve}", flush=True)
@@ -318,16 +401,18 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str):
 
     except Exception as e:
         latency_ms = int((time.time() - t_start) * 1000)
-        _model_calls.append(make_log_entry(
-            task_id=jid,
-            provider_name="aliyun_ocr",
-            model_name="ocr_api20210707",
-            feature_code="ocr",
-            latency_ms=latency_ms,
-            success=False,
-            error_code=str(e)[:100],
-            billing_status="failed",
-        ))
+                _flog = make_log_entry(
+                    task_id=jid,
+                    provider_name="aliyun_ocr",
+                    model_name="ocr_api20210707",
+                    feature_code="ocr",
+                    latency_ms=latency_ms,
+                    success=False,
+                    error_code=str(e)[:100],
+                    billing_status="failed",
+                )
+                _model_calls.append(_flog)
+                _db.save_model_call(_flog)
         print(f"[BG] OCR FAILED: {e}", flush=True)
         _jobs[jid]["job"].status = JobStatus.failed
 
@@ -447,14 +532,16 @@ async def tutor_question(question_id: str, body: TutorRequest):
         result = ds.tutor(messages)
         latency_ms = int((time.time() - t_start) * 1000)
 
-        # Save to chat history + deduct credit
+        # Save to chat history + deduct credit — SQLite 持久化
         history.append({"role": "user", "content": body.message or q_found.question_text})
         history.append({"role": "assistant", "content": result["reply_text"]})
         _tutor_chats[question_id] = history
         _credit_balances[child_id_for_credit] = credits - 1
+        _db.save_tutor_chat(question_id, history)
+        _db.save_credit_balance(child_id_for_credit, credits - 1)
 
-        # Log model call
-        _model_calls.append(make_log_entry(
+        # Log model call — SQLite 持久化
+        _tlog = make_log_entry(
             task_id="tutor",
             question_id=question_id,
             provider_name="deepseek",
@@ -468,7 +555,11 @@ async def tutor_question(question_id: str, body: TutorRequest):
             input_tokens=(result.get("usage") or {}).get("input_tokens", 0),
             output_tokens=(result.get("usage") or {}).get("output_tokens", 0),
             estimated_cost=0.0,
-        ))
+        )
+        _model_calls.append(_tlog)
+        _db.save_model_call(_tlog)
+        _model_calls.append(log_entry)
+        _persist_log(log_entry)
 
         remaining = MAX_ROUNDS - len(history) // 2
         return {

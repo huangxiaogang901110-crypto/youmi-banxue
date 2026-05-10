@@ -96,7 +96,7 @@
 | 6 | 智能切题（题号规则+版面规则） | ✅ 完成 | `question_cutter.py`：7种题号模式 + gap fallback。259块→13题。禁止大模型直接画框 |
 | 7 | Qwen-VL 视觉理解（识别图形/公式） | ✅ 完成 | `vision_client.py`：DashScope Qwen-VL-Plus。key 为空时优雅降级。集成到管线 vision_reviewing 阶段。model_call_log 工厂函数已提取 |
 | 8 | DeepSeek 辅导讲解 | ✅ 完成 | `deepseek_client.py`：空 key 优雅降级（sk- 前缀校验）。`tutor_prompt.py`：initial/followup 双模式。对话上下文 + 轮数上限 + model_call_log |
-| 9 | DB schema（model_call_log + 结果持久化） | ⬜ 待做 | |
+| 9 | DB schema（model_call_log + 结果持久化） | ✅ 完成 | `db.py`：SQLAlchemy + SQLite。4 表 + 索引。`_persist_log`/`_persist_job` 在写入点落盘，内存缓存不丢 |
 
 ---
 
