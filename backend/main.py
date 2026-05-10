@@ -382,6 +382,15 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
     else:
         print(f"[BG] OSS unavailable, using local only", flush=True)
 
+    # ── 创建 assignment + page（基准 Table 12）──
+    import uuid as _uuid
+    aid = _uuid.uuid4().hex[:12]
+    _db.create_assignment(aid, parent_id, child_id, "web_upload", file.filename)
+    page_id = _uuid.uuid4().hex[:12]
+    _db.create_assignment_page(page_id, aid, 1, oss_key or f"/tmp/yomi/{jid}.jpg")
+    _jobs[jid]["assignment_id"] = aid
+    _jobs[jid]["page_id"] = page_id
+
     try:
         # Stage: enhancing
         _jobs[jid]["job"].status = JobStatus.enhancing
@@ -423,15 +432,19 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
                 visual_description=None,
                 status=QuestionStatus.completed,
             ))
+            # 写入 question_item 独立表（基准 Table 12）
+            _db.create_question_item(qid, aid, page_id, cq["question_number"], cq["question_text"], cq["bbox"])
         print(f"[BG] Cut {len(extracted['blocks'])} blocks → {len(questions)} questions", flush=True)
 
-        # Stage: vision_reviewing - Qwen-VL (Table 11 R3), 失败重试最多 2 次 (Table 14)
+        # Stage: vision_reviewing - Qwen-VL (Table 11 R3), 失败重试分流 (Table 14)
         _jobs[jid]["job"].status = JobStatus.vision_reviewing
-        MAX_RETRIES = 2
+        MAX_SCHEMA_RETRIES = 2     # Schema 校验失败
+        MAX_NETWORK_RETRIES = 3    # 网络超时（指数退避）
         qwen_vl = QwenVLClient()
         for qi, q in enumerate(questions):
-            retry_count = 0
-            while retry_count <= MAX_RETRIES:
+            schema_retries = 0
+            network_retries = 0
+            while True:
                 try:
                     t_vs = time.time()
                     vl_result = qwen_vl.analyze_question(
@@ -442,6 +455,8 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
                     vl_ms = int((time.time() - t_vs) * 1000)
                     q.visual_description = vl_result["visual_description"]
                     q.status = QuestionStatus.completed
+                    # 同时更新 question_item 的 visual_description
+                    _db.create_question_item(q.question_id, aid, page_id, q.question_number, q.question_text, q.bbox or [], q.visual_description or "")
 
                     _vlog = make_log_entry(
                         task_id=jid,
@@ -456,20 +471,38 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
                         error_code=vl_result.get("error"),
                         billing_status="free_tier" if vl_result["success"] else "failed",
                         prompt_name="qwen_vl_analyze",
-                        retry_count=retry_count,
+                        retry_count=schema_retries + network_retries,
                     )
                     _model_calls.append(_vlog)
                     _db.save_model_call(_vlog)
-                    print(f"[BG] Vision #{qi}: {vl_ms}ms success={vl_result['success']} retries={retry_count}", flush=True)
-                    break  # 成功，退出重试循环
+                    print(f"[BG] Vision #{qi}: {vl_ms}ms success={vl_result['success']} retries={schema_retries + network_retries}", flush=True)
+                    break
                 except Exception as ve:
-                    retry_count += 1
-                    if retry_count > MAX_RETRIES:
-                        print(f"[BG] Vision #{qi} FAILED after {MAX_RETRIES} retries: {ve}", flush=True)
-                        q.status = QuestionStatus.failed
+                    err_str = str(ve).lower()
+                    # 429 / rate_limit → 不立即重试，延后 5s
+                    if "429" in err_str or "rate_limit" in err_str or "too many requests" in err_str:
+                        print(f"[BG] Vision #{qi} RATE LIMITED, sleeping 5s: {ve}", flush=True)
+                        await asyncio.sleep(5)
+                        network_retries += 1
+                    # 网络超时 → 指数退避，最多 3 次
+                    elif "timeout" in err_str or "connection" in err_str or "timed out" in err_str:
+                        network_retries += 1
+                        if network_retries > MAX_NETWORK_RETRIES:
+                            print(f"[BG] Vision #{qi} NETWORK FAILED after {MAX_NETWORK_RETRIES} retries: {ve}", flush=True)
+                            q.status = QuestionStatus.failed
+                            break
+                        wait_s = 2 ** network_retries
+                        print(f"[BG] Vision #{qi} network retry {network_retries}/{MAX_NETWORK_RETRIES}, waiting {wait_s}s: {ve}", flush=True)
+                        await asyncio.sleep(wait_s)
+                    # Schema 校验失败 → 最多 2 次
                     else:
-                        print(f"[BG] Vision #{qi} retry {retry_count}/{MAX_RETRIES}: {ve}", flush=True)
-                        await asyncio.sleep(1)  # 退避
+                        schema_retries += 1
+                        if schema_retries > MAX_SCHEMA_RETRIES:
+                            print(f"[BG] Vision #{qi} SCHEMA FAILED after {MAX_SCHEMA_RETRIES} retries: {ve}", flush=True)
+                            q.status = QuestionStatus.failed
+                            break
+                        print(f"[BG] Vision #{qi} schema retry {schema_retries}/{MAX_SCHEMA_RETRIES}: {ve}", flush=True)
+                        await asyncio.sleep(1)
 
         # Stage: schema_validating — 基准 Table 21
         _jobs[jid]["job"].status = JobStatus.schema_validating
@@ -566,11 +599,14 @@ async def update_question_status(question_id: str, body: QuestionStatusRequest, 
         _, child_id = user
         if body.status not in ("mastered", "mistake_book", "needs_review"):
             return {"ok": False, "code": "invalid_status", "message": "无效状态", "request_id": uuid.uuid4().hex}
+        # 写入 question_attempt（基准 Table 12）
+        attempt_id = uuid.uuid4().hex[:12]
+        _db.save_question_attempt(attempt_id, question_id, child_id, body.status, body.child_answer or "")
         # 加入错题本 → 持久化到 SQLite
         if body.status == "mistake_book":
             mid = _db.save_mistake(child_id, question_id, "unknown", body.child_answer or "")
-            return {"ok": True, "data": {"question_id": question_id, "status": body.status, "mistake_id": mid}, "request_id": uuid.uuid4().hex}
-        return {"ok": True, "data": {"question_id": question_id, "status": body.status}, "request_id": uuid.uuid4().hex}
+            return {"ok": True, "data": {"question_id": question_id, "status": body.status, "mistake_id": mid, "attempt_id": attempt_id}, "request_id": uuid.uuid4().hex}
+        return {"ok": True, "data": {"question_id": question_id, "status": body.status, "attempt_id": attempt_id}, "request_id": uuid.uuid4().hex}
     except Exception as e:
         return {"ok": False, "code": "status_error", "message": str(e), "request_id": uuid.uuid4().hex}
 
@@ -595,7 +631,7 @@ async def tutor_question(question_id: str, body: TutorRequest, request: Request,
             })
 
         # Credit check — 基准 Table 24: 后端二次校验
-        _, child_id_for_credit = user
+        parent_id, child_id_for_credit = user
         credits = _credit_balances.setdefault(child_id_for_credit, 50)
         if credits <= 0:
             return {
@@ -654,6 +690,15 @@ async def tutor_question(question_id: str, body: TutorRequest, request: Request,
         _credit_balances[child_id_for_credit] = credits - 1
         _db.save_tutor_chat(question_id, history)
         _db.save_credit_balance(child_id_for_credit, credits - 1)
+
+        # 写 credit_ledger 流水（基准 Table 12）
+        _db.add_credit_ledger_entry(parent_id, child_id_for_credit, -1, "tutor_call", f"辅导: {question_id}", question_id)
+
+        # 写入结构化 ai_tutoring_chat（基准 Table 12，按 sequence_number）
+        seq = len(history)
+        call_id = uuid.uuid4().hex[:12]
+        _db.save_tutor_message(uuid.uuid4().hex[:12], question_id, child_id_for_credit, seq - 1, "user", body.message or q_found.question_text)
+        _db.save_tutor_message(call_id, question_id, child_id_for_credit, seq, "assistant", result["reply_text"], call_id)
 
         # Log model call — SQLite 持久化
         _tlog = make_log_entry(
@@ -803,10 +848,32 @@ async def vision_retry(question_id: str, request: Request = None):
 
 # ─── 6. GET /api/me/entitlement ────────────────────────────
 @app.get("/api/me/entitlement")
-async def get_entitlement():
+async def get_entitlement(user: tuple = Depends(get_current_user)):
     try:
-        await asyncio.sleep(0.2)
-        return {"ok": True, "data": MOCK_ENTITLEMENT.model_dump(), "request_id": uuid.uuid4().hex}
+        parent_id, child_id = user
+        # 从 credit_account 真实读取余额
+        c = _db._conn()
+        bal_row = c.execute("SELECT balance FROM credit_account WHERE parent_user_id = ?", (parent_id,)).fetchone()
+        c.close()
+        balance = bal_row["balance"] if bal_row else 50
+        # 状态判断
+        if balance > 10:
+            estatus = EntitlementStatus.credit_enough
+        elif balance > 0:
+            estatus = EntitlementStatus.credit_low
+        else:
+            estatus = EntitlementStatus.credit_empty
+        return {
+            "ok": True,
+            "data": Entitlement(
+                user_id=parent_id,
+                child_id=child_id,
+                is_member=False,
+                credit_balance=balance,
+                status=estatus,
+            ).model_dump(),
+            "request_id": uuid.uuid4().hex,
+        }
     except Exception as e:
         return {"ok": False, "code": "entitlement_error", "message": str(e), "request_id": uuid.uuid4().hex}
 

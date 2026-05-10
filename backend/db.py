@@ -132,6 +132,66 @@ def init():
             created_at TEXT DEFAULT (datetime('now')),
             deleted_at TEXT
         );
+
+        -- ── Phase 1 ai_tutoring_chat 结构化（基准 Table 12）──
+        CREATE TABLE IF NOT EXISTS ai_tutoring_chat (
+            id TEXT PRIMARY KEY,
+            question_id TEXT NOT NULL,
+            child_id TEXT DEFAULT '',
+            sequence_number INTEGER NOT NULL DEFAULT 1,
+            role TEXT NOT NULL,
+            content TEXT NOT NULL,
+            summary TEXT DEFAULT '',
+            model_call_id TEXT DEFAULT '',
+            created_at TEXT DEFAULT (datetime('now'))
+        );
+
+        -- ── Phase 1 作业/页面/题目/尝试（基准 Table 12）────
+        CREATE TABLE IF NOT EXISTS assignment (
+            id TEXT PRIMARY KEY,
+            parent_user_id TEXT NOT NULL,
+            child_id TEXT NOT NULL,
+            source_type TEXT DEFAULT 'web_upload',
+            source_name TEXT DEFAULT '',
+            status TEXT DEFAULT 'pending',
+            created_at TEXT DEFAULT (datetime('now')),
+            deleted_at TEXT
+        );
+        CREATE TABLE IF NOT EXISTS assignment_page (
+            id TEXT PRIMARY KEY,
+            assignment_id TEXT NOT NULL,
+            page_no INTEGER DEFAULT 1,
+            original_image_url TEXT,
+            enhanced_image_url TEXT,
+            image_expired INTEGER DEFAULT 0,
+            image_expires_at TEXT,
+            created_at TEXT DEFAULT (datetime('now'))
+        );
+        CREATE TABLE IF NOT EXISTS question_item (
+            id TEXT PRIMARY KEY,
+            assignment_id TEXT NOT NULL,
+            page_id TEXT DEFAULT '',
+            question_no INTEGER NOT NULL,
+            bbox_json TEXT DEFAULT '[]',
+            question_text TEXT DEFAULT '',
+            visual_description TEXT DEFAULT '',
+            structured_conditions TEXT DEFAULT '',
+            crop_url TEXT,
+            image_expired INTEGER DEFAULT 0,
+            image_expires_at TEXT
+        );
+        CREATE TABLE IF NOT EXISTS question_attempt (
+            id TEXT PRIMARY KEY,
+            question_id TEXT NOT NULL,
+            child_id TEXT NOT NULL,
+            status TEXT DEFAULT 'pending',
+            child_answer TEXT DEFAULT '',
+            correct_answer TEXT DEFAULT '',
+            first_attempt_result TEXT DEFAULT '',
+            time_spent_seconds INTEGER DEFAULT 0,
+            confidence_self_reported TEXT DEFAULT '',
+            created_at TEXT DEFAULT (datetime('now'))
+        );
     """)
     c.commit()
 
@@ -142,6 +202,14 @@ def init():
         "ALTER TABLE parse_jobs ADD COLUMN client_task_id TEXT DEFAULT ''",
         "ALTER TABLE model_calls ADD COLUMN task_id TEXT DEFAULT ''",
         "ALTER TABLE model_calls ADD COLUMN feature_code TEXT DEFAULT ''",
+        "ALTER TABLE model_calls ADD COLUMN prompt_version TEXT DEFAULT ''",
+        "ALTER TABLE model_calls ADD COLUMN schema_version TEXT DEFAULT ''",
+        "ALTER TABLE model_calls ADD COLUMN credit_cost REAL DEFAULT 0.0",
+        "ALTER TABLE model_calls ADD COLUMN retry_count INTEGER DEFAULT 0",
+        "ALTER TABLE child_profiles ADD COLUMN grade TEXT DEFAULT ''",
+        "ALTER TABLE child_profiles ADD COLUMN semester TEXT DEFAULT ''",
+        "ALTER TABLE child_profiles ADD COLUMN textbook_version TEXT DEFAULT ''",
+        "ALTER TABLE child_profiles ADD COLUMN deleted_at TEXT",
         "ALTER TABLE image_registry ADD COLUMN oss_key TEXT DEFAULT ''",
     ]
     for sql in migrations:
@@ -155,7 +223,7 @@ def init():
     indexes = [
         # parse_jobs 查询加速
         "CREATE INDEX IF NOT EXISTS idx_parse_jobs_child_id ON parse_jobs(child_id)",
-        "CREATE INDEX IF NOT EXISTS idx_parse_jobs_client_task ON parse_jobs(client_task_id)",
+        "CREATE INDEX IF NOT EXISTS idx_parse_jobs_client_task ON parse_jobs(child_id, client_task_id)",
         # model_calls 查询加速
         "CREATE INDEX IF NOT EXISTS idx_model_calls_created ON model_calls(created_at)",
         "CREATE INDEX IF NOT EXISTS idx_model_calls_feature ON model_calls(feature_code)",
@@ -171,6 +239,12 @@ def init():
         # 错题查询
         "CREATE INDEX IF NOT EXISTS idx_mistake_child ON mistake_book_item(child_id, mastery_status)",
         "CREATE INDEX IF NOT EXISTS idx_mistake_question ON mistake_book_item(question_id, child_id)",
+        # 作业查询（基准 Table 21）
+        "CREATE INDEX IF NOT EXISTS idx_assignment_child_created ON assignment(child_id, created_at)",
+        "CREATE INDEX IF NOT EXISTS idx_assignment_page_assignment ON assignment_page(assignment_id)",
+        "CREATE INDEX IF NOT EXISTS idx_question_item_assignment ON question_item(assignment_id)",
+        "CREATE INDEX IF NOT EXISTS idx_question_attempt_question ON question_attempt(question_id, child_id)",
+        "CREATE INDEX IF NOT EXISTS idx_ai_chat_question_seq ON tutor_chats(question_id)",
     ]
     for sql in indexes:
         c.execute(sql)
@@ -201,9 +275,14 @@ def save_model_call(data: dict):
     call_id = data.get("id", "")
     task_id = data.get("task_id", "")
     feature_code = data.get("feature_code", "")
+    prompt_version = data.get("prompt_version", data.get("prompt_name", ""))
+    schema_version = data.get("schema_version", "")
+    credit_cost = data.get("credit_cost", data.get("estimated_cost", 0.0))
+    retry_count = data.get("retry_count", 0)
     c.execute(
-        "INSERT OR REPLACE INTO model_calls (id, task_id, feature_code, data) VALUES (?, ?, ?, ?)",
-        (call_id, task_id, feature_code, json.dumps(data, default=str)),
+        "INSERT OR REPLACE INTO model_calls (id, task_id, feature_code, prompt_version, schema_version, credit_cost, retry_count, data) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (call_id, task_id, feature_code, prompt_version, schema_version, float(credit_cost), int(retry_count), json.dumps(data, default=str)),
     )
     c.commit()
     c.close()
@@ -367,6 +446,87 @@ def delete_mistake(mistake_id: str):
     c.execute("UPDATE mistake_book_item SET deleted_at = datetime('now') WHERE id = ?", (mistake_id,))
     c.commit()
     c.close()
+
+# ═══════════════════════════════════════════════════════════════
+# ai_tutoring_chat 结构化
+# ═══════════════════════════════════════════════════════════════
+
+def save_tutor_message(msg_id: str, question_id: str, child_id: str, seq: int, role: str, content: str, model_call_id: str = ""):
+    c = _conn()
+    c.execute(
+        "INSERT INTO ai_tutoring_chat (id, question_id, child_id, sequence_number, role, content, model_call_id) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (msg_id, question_id, child_id, seq, role, content, model_call_id),
+    )
+    c.commit()
+    c.close()
+
+def get_tutor_chat(question_id: str) -> list[dict]:
+    "按 sequence_number 排序获取对话"
+    c = _conn()
+    rows = c.execute(
+        "SELECT * FROM ai_tutoring_chat WHERE question_id = ? ORDER BY sequence_number",
+        (question_id,),
+    ).fetchall()
+    result = [dict(r) for r in rows]
+    c.close()
+    return result
+
+# ═══════════════════════════════════════════════════════════════
+# 作业/页面/题目/尝试
+# ═══════════════════════════════════════════════════════════════
+
+def create_assignment(aid: str, parent_id: str, child_id: str, source_type: str = "web_upload", source_name: str = ""):
+    c = _conn()
+    c.execute(
+        "INSERT OR REPLACE INTO assignment (id, parent_user_id, child_id, source_type, source_name, status) VALUES (?, ?, ?, ?, ?, 'pending')",
+        (aid, parent_id, child_id, source_type, source_name),
+    )
+    c.commit()
+    c.close()
+    return aid
+
+def create_assignment_page(pid: str, assignment_id: str, page_no: int = 1, oss_key: str = ""):
+    c = _conn()
+    c.execute(
+        "INSERT INTO assignment_page (id, assignment_id, page_no, original_image_url, image_expires_at) "
+        "VALUES (?, ?, ?, ?, datetime('now', '+7 days'))",
+        (pid, assignment_id, page_no, oss_key),
+    )
+    c.commit()
+    c.close()
+    return pid
+
+def create_question_item(qid: str, assignment_id: str, page_id: str, question_no: int, question_text: str, bbox: list, visual_description: str = ""):
+    c = _conn()
+    c.execute(
+        "INSERT INTO question_item (id, assignment_id, page_id, question_no, bbox_json, question_text, visual_description) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (qid, assignment_id, page_id, question_no, json.dumps(bbox or []), question_text, visual_description or ""),
+    )
+    c.commit()
+    c.close()
+    return qid
+
+def save_question_attempt(attempt_id: str, question_id: str, child_id: str, status: str, child_answer: str = ""):
+    c = _conn()
+    c.execute(
+        "INSERT OR REPLACE INTO question_attempt (id, question_id, child_id, status, child_answer) VALUES (?, ?, ?, ?, ?)",
+        (attempt_id, question_id, child_id, status, child_answer),
+    )
+    c.commit()
+    c.close()
+    return attempt_id
+
+def get_assignments(child_id: str) -> list[dict]:
+    c = _conn()
+    rows = c.execute(
+        "SELECT * FROM assignment WHERE child_id = ? AND deleted_at IS NULL ORDER BY created_at DESC",
+        (child_id,),
+    ).fetchall()
+    result = [dict(r) for r in rows]
+    c.close()
+    return result
 
 # ═══════════════════════════════════════════════════════════════
 # 激活码管理
