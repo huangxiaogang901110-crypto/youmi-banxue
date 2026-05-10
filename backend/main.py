@@ -168,46 +168,6 @@ def enqueue_parse_job(jid: str, job_entry: dict):
 
 
 
-def _persist_job(jid: str, questions: list, status):
-    """落盘 parse_job + question_item"""
-    try:
-        s = get_session()
-        job_entry = _jobs.get(jid, {})
-        job = job_entry.get("job")
-        if job:
-            db_job = s.query(DBParseJob).filter_by(id=jid).first()
-            status_val = status.value if hasattr(status, "value") else status
-            if db_job:
-                db_job.status = status_val
-                db_job.questions_count = len(questions)
-                db_job.updated_at = datetime.now(timezone.utc)
-            else:
-                s.add(DBParseJob(
-                    id=jid,
-                    client_task_id=job_entry.get("client_task_id"),
-                    status=status_val,
-                    questions_count=len(questions),
-                    file_name=job.file_name if job else "",
-                ))
-            for q in questions:
-                existing = s.query(QuestionItem).filter_by(id=q.question_id).first()
-                if not existing:
-                    q_status = q.status.value if hasattr(q.status, "value") else q.status
-                    s.add(QuestionItem(
-                        id=q.question_id,
-                        parse_job_id=jid,
-                        question_number=q.question_number,
-                        question_text=q.question_text,
-                        bbox_json=q.bbox,
-                        visual_description=q.visual_description,
-                        status=q_status,
-                    ))
-            s.commit()
-        s.close()
-    except Exception as e:
-        print(f"[DB] job persist failed: {e}", flush=True)
-
-
 def save_result(jid: str, questions: list, now: str, file, status: JobStatus):
     """保存任务最终结果 — SQLite 持久化"""
     _jobs[jid]["job"] = ParseJob(
@@ -230,8 +190,6 @@ def save_result(jid: str, questions: list, now: str, file, status: JobStatus):
         "parent_id": _jobs[jid].get("parent_id", ""),
         "client_task_id": _jobs[jid].get("client_task_id", ""),
     })
-    # Persist to DB
-    _persist_job(jid, questions, status)
 
 
 # ─── 健康检查 ──────────────────────────────────────────────
