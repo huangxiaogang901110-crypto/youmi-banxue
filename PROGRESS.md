@@ -6,7 +6,7 @@
 
 - 项目：悠米伴学 (Youmi Companion Learning)
 - 阶段：**Phase 0 全部完成 ✅** → 待进入 Phase 1 小范围内测
-- 最后更新：2026-05-10 23:15 CST
+- 最后更新：2026-05-10 23:59 CST
 - 部署：ECS 39.107.119.136，Nginx 静态 `/out` + FastAPI `:8000`
 - 构建：Next.js 16.2.6 (Node v20.18.1)，7 路由全静态导出，零错误
 - 数据库：SQLite + ECS 系统盘（阿里云 ESSD 云盘），不再迁移 PostgreSQL
@@ -71,6 +71,9 @@
 
 ### 2026-05-10
 
+- ✅ 任务 10 完成：JWT 鉴权 — 后端 auth.py + /auth/login|register|children 端点 + 前端 login 页
+- ✅ typedFetch 自动注入 Authorization header，替换所有 demo_child_001
+- ✅ 种子用户：13800138000 / 123456 → 家长「测试家长」+ 孩子「小明」
 - ✅ 任务 9 完成：DB schema — raw sqlite3，4 表 JSON 存储，内存双写 DB
 - ✅ 数据库策略修正：确认 SQLite+ESSD 为最终方案，取消 PostgreSQL 迁移。另写 `数据库策略修正说明.md` 覆盖施工基准
 - ✅ 代码审查：修复 2 个 🔴 bug（`log_entry` 未定义 + `_persist_job` SQLAlchemy 残留死代码），删除冗余 `init_db()` 调用
