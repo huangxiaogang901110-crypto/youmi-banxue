@@ -6,9 +6,11 @@
 
 - 项目：悠米伴学 (Youmi Companion Learning)
 - 阶段：**Phase 0 全部完成 ✅** → 待进入 Phase 1 小范围内测
-- 最后更新：2026-05-10 21:35 CST
+- 最后更新：2026-05-10 23:15 CST
 - 部署：ECS 39.107.119.136，Nginx 静态 `/out` + FastAPI `:8000`
 - 构建：Next.js 16.2.6 (Node v20.18.1)，7 路由全静态导出，零错误
+- 数据库：SQLite + ECS 系统盘（阿里云 ESSD 云盘），不再迁移 PostgreSQL
+- 策略修正：见 `数据库策略修正说明.md`（覆盖施工基准数据库章节）
 
 ---
 
@@ -68,6 +70,10 @@
 ## 日志
 
 ### 2026-05-10
+
+- ✅ 任务 9 完成：DB schema — raw sqlite3，4 表 JSON 存储，内存双写 DB
+- ✅ 数据库策略修正：确认 SQLite+ESSD 为最终方案，取消 PostgreSQL 迁移。另写 `数据库策略修正说明.md` 覆盖施工基准
+- ✅ 代码审查：修复 2 个 🔴 bug（`log_entry` 未定义 + `_persist_job` SQLAlchemy 残留死代码），删除冗余 `init_db()` 调用
 - ✅ 任务 8 完成：DeepSeek 辅导客户端 + 对话上下文 + /tutor 端点
 - ✅ 基准对表修复：schema_validating 状态、needs_review 触发、enqueue/worker/save 三边界拆分
 - ✅ 全量自测通过：6 路由 200，404 正确，API health OK，前端构建零错误
@@ -96,7 +102,7 @@
 | 6 | 智能切题（题号规则+版面规则） | ✅ 完成 | `question_cutter.py`：7种题号模式 + gap fallback。259块→13题。禁止大模型直接画框 |
 | 7 | Qwen-VL 视觉理解（识别图形/公式） | ✅ 完成 | `vision_client.py`：DashScope Qwen-VL-Plus。key 为空时优雅降级。集成到管线 vision_reviewing 阶段。model_call_log 工厂函数已提取 |
 | 8 | DeepSeek 辅导讲解 | ✅ 完成 | `deepseek_client.py`：空 key 优雅降级（sk- 前缀校验）。`tutor_prompt.py`：initial/followup 双模式。对话上下文 + 轮数上限 + model_call_log |
-| 9 | DB schema（model_call_log + 结果持久化） | ✅ 完成 | `db.py`：SQLAlchemy + SQLite。4 表 + 索引。`_persist_log`/`_persist_job` 在写入点落盘，内存缓存不丢 |
+| 9 | DB schema（model_call_log + 结果持久化） | ✅ 完成 | `db.py`：raw sqlite3。4 表 JSON 存储。内存双写 DB。2026-05-10 代码审查：删除 SQLAlchemy 残留（`_persist_job`、`get_session`、未定义 ORM 类），确认 sqlite3 为唯一持久层 |
 
 ---
 
@@ -104,8 +110,9 @@
 
 | 项目 | 内容 | 优先级 |
 |------|------|--------|
-| 账号/child 鉴权 | JWT + X-Child-Id 真实鉴权替代占位 | 🔴 高 |
-| 真实 AI 解析 | 替换 Mock，接 v4-flash / Qwen-VL | 🔴 高 |
-| 激活码核销 | 真实核销替代 Mock | 🟡 中 |
-| 对象存储 | R2/OSS 存储图片，7天生命周期 | 🟢 低 |
-| FastAPI 云部署 | CORS + 限流 + 日志 | 🟡 中 |
+| 账号/child 鉴权 | JWT + X-Child-Id 真实鉴权替代 demo_child_001 硬编码 | 🔴 高 |
+| 激活码核销 | 真实生成/校验/额度充值替代 Mock | 🟡 中 |
+| API 限流 + 日志 | 速率限制、结构化日志、监控 | 🟡 中 |
+| 对象存储 | OSS 存储作业图片，7天生命周期 | 🟢 低 |
+
+> 已移除项：真实 AI 解析（Phase 0 已接入）、FastAPI 云部署（已部署）、PostgreSQL 迁移（取消，SQLite+ESSD 为最终方案）
