@@ -113,6 +113,7 @@ def init():
         CREATE TABLE IF NOT EXISTS image_registry (
             jid TEXT NOT NULL,
             file_path TEXT NOT NULL,
+            oss_key TEXT DEFAULT '',
             created_at TEXT NOT NULL,
             expires_at TEXT NOT NULL,
             expired INTEGER DEFAULT 0
@@ -127,6 +128,7 @@ def init():
         "ALTER TABLE parse_jobs ADD COLUMN client_task_id TEXT DEFAULT ''",
         "ALTER TABLE model_calls ADD COLUMN task_id TEXT DEFAULT ''",
         "ALTER TABLE model_calls ADD COLUMN feature_code TEXT DEFAULT ''",
+        "ALTER TABLE image_registry ADD COLUMN oss_key TEXT DEFAULT ''",
     ]
     for sql in migrations:
         try:
@@ -274,33 +276,42 @@ def load_child_profiles() -> dict[str, dict]:
 # 图片过期注册（Table 19/20）
 # ═══════════════════════════════════════════════════════════════
 
-def register_image(jid: str, file_path: str, created_at: str):
+def register_image(jid: str, file_path: str, created_at: str, oss_key: str = ""):
     """注册图片，写入 expires_at = created_at + 7 days"""
     c = _conn()
     c.execute(
-        "INSERT INTO image_registry (jid, file_path, created_at, expires_at) "
-        "VALUES (?, ?, ?, datetime(?, '+7 days'))",
-        (jid, file_path, created_at),
+        "INSERT INTO image_registry (jid, file_path, oss_key, created_at, expires_at) "
+        "VALUES (?, ?, ?, ?, datetime(?, '+7 days'))",
+        (jid, file_path, oss_key, created_at),
     )
     c.commit()
     c.close()
 
 
 def cleanup_expired_images() -> list[str]:
-    """扫描过期图片，删除文件并标记 expired=1。返回已删除文件路径列表。"""
+    """扫描过期图片，删除本地文件 + OSS 对象，标记 expired=1。"""
     import os as _os
     c = _conn()
     rows = c.execute(
-        "SELECT jid, file_path FROM image_registry WHERE expired = 0 AND expires_at < datetime('now')"
+        "SELECT jid, file_path, oss_key FROM image_registry WHERE expired = 0 AND expires_at < datetime('now')"
     ).fetchall()
     deleted = []
     for row in rows:
+        # 删除本地文件
         try:
             if _os.path.exists(row["file_path"]):
                 _os.remove(row["file_path"])
-            deleted.append(row["file_path"])
         except OSError:
             pass
+        # 删除 OSS 对象
+        oss_key = row["oss_key"] or ""
+        if oss_key:
+            try:
+                import oss_client as _oss_cl
+                _oss_cl.delete_object(oss_key)
+            except Exception:
+                pass
+        deleted.append(row["file_path"] or oss_key)
         c.execute("UPDATE image_registry SET expired = 1 WHERE jid = ?", (row["jid"],))
     c.commit()
     c.close()

@@ -19,6 +19,7 @@ from model_logger import make_log_entry
 from vision_client import QwenVLClient
 from deepseek_client import DeepSeekClient
 from tutor_prompt import build_tutor_messages
+import oss_client as _oss
 from auth import (
     create_token, verify_token, hash_password, verify_password,
     init_seed_users, get_parent_by_phone, get_children,
@@ -371,7 +372,15 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
     _osp.makedirs("/tmp/yomi", exist_ok=True)
     with open(f"/tmp/yomi/{jid}.jpg", "wb") as _pf:
         _pf.write(contents)
-    _db.register_image(jid, f"/tmp/yomi/{jid}.jpg", now)
+
+    # 上传到 OSS（异步，不阻塞主流程）
+    oss_key = _oss.upload_image(contents, jid)
+    _db.register_image(jid, f"/tmp/yomi/{jid}.jpg", now, oss_key or "")
+    if oss_key:
+        _jobs[jid]["oss_key"] = oss_key
+        print(f"[BG] OSS upload OK: {oss_key}", flush=True)
+    else:
+        print(f"[BG] OSS unavailable, using local only", flush=True)
 
     try:
         # Stage: enhancing
@@ -699,23 +708,40 @@ async def vision_retry(question_id: str, request: Request = None):
                 "message": "题目不存在", "request_id": uuid.uuid4().hex,
             })
 
-        # 从持久化存储读取原始图片
+        # 从 OSS 或持久化存储读取原始图片
         import os as _osp
         jid_from_q = question_id[:12]  # question_id = {jid}-{n}-{i}
-        img_path = f"/tmp/yomi/{jid_from_q}.jpg"
-        if not _osp.path.exists(img_path):
-            return {
-                "ok": True,
-                "data": TutorResponse(
-                    reply_text=f"[图片已过期] 题目文字: {q_text[:80]}",
-                    chat_limit_reached=False, remaining_rounds=2,
-                    request_id=uuid.uuid4().hex,
-                ).model_dump(),
-                "request_id": uuid.uuid4().hex,
-            }
+        img_bytes = None
 
-        with open(img_path, "rb") as _pf:
-            image_bytes = _pf.read()
+        # 优先 OSS
+        job_data = _jobs.get(jid_from_q, {})
+        oss_key = job_data.get("oss_key", "")
+        if oss_key:
+            try:
+                import urllib.request
+                signed_url = _oss.get_signed_url(oss_key)
+                if signed_url:
+                    with urllib.request.urlopen(signed_url) as resp:
+                        img_bytes = resp.read()
+                    print(f"[Vision] loaded from OSS: {oss_key}", flush=True)
+            except Exception:
+                print(f"[Vision] OSS load failed, try local", flush=True)
+
+        # 降级：本地文件
+        if img_bytes is None:
+            img_path = f"/tmp/yomi/{jid_from_q}.jpg"
+            if not _osp.path.exists(img_path):
+                return {
+                    "ok": True,
+                    "data": TutorResponse(
+                        reply_text=f"[图片已过期] 题目文字: {q_text[:80]}",
+                        chat_limit_reached=False, remaining_rounds=2,
+                        request_id=uuid.uuid4().hex,
+                    ).model_dump(),
+                    "request_id": uuid.uuid4().hex,
+                }
+            with open(img_path, "rb") as _pf:
+                img_bytes = _pf.read()
 
         qwen_vl = QwenVLClient()
         if not qwen_vl._available():
@@ -732,7 +758,7 @@ async def vision_retry(question_id: str, request: Request = None):
         # 真实调用 Qwen-VL
         t_vs = time.time()
         vl_result = qwen_vl.analyze_question(
-            image_bytes=image_bytes,
+            image_bytes=img_bytes,
             bbox=q_bbox or [0, 0, 0, 0],
             question_text=q_text,
         )
