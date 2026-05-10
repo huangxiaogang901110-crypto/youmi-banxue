@@ -35,8 +35,6 @@ if env_path.exists():
 from enum import Enum
 
 app = FastAPI(title="悠米伴学 API", version="0.1.0")
-init_db()
-print("[DB] SQLite initialized", flush=True)
 
 # ─── CORS ──────────────────────────────────────────────────
 app.add_middleware(
@@ -145,9 +143,9 @@ MOCK_ENTITLEMENT = Entitlement(
 
 MOCK_QUESTIONS = [
     Question(question_id=f"q-{i:03d}", question_number=i,
-             question_text=f"第{i}题：请计算 {i}×{i+1} 的结果。",
-             bbox=[100, 50+60*i, 400, 48],
-             status=QuestionStatus.completed)
+                question_text=f"第{i}题：请计算 {i}×{i+1} 的结果。",
+                bbox=[100, 50+60*i, 400, 48],
+                status=QuestionStatus.completed)
     for i in range(1, 4)
 ]
 
@@ -168,19 +166,6 @@ def enqueue_parse_job(jid: str, job_entry: dict):
     _jobs[jid] = job_entry
     _db.save_job(jid, job_entry)
 
-
-# ─── DB 持久化辅助函数 ─────────────────────────────────────
-
-def _persist_log(entry: dict):
-    """落盘 model_call_log"""
-    try:
-        s = get_session()
-        db_entry = {k: v for k, v in entry.items() if k != "blocks_count"}
-        s.add(ModelCallLog(**db_entry))
-        s.commit()
-        s.close()
-    except Exception as e:
-        print(f"[DB] log persist failed: {e}", flush=True)
 
 
 def _persist_job(jid: str, questions: list, status):
@@ -318,19 +303,19 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str):
         extracted = ocr.extract_text_and_blocks(result)
         latency_ms = int((time.time() - t_start) * 1000)
 
-                _log = make_log_entry(
-                    task_id=jid,
-                    provider_name="aliyun_ocr",
-                    model_name="ocr_api20210707",
-                    feature_code="ocr",
-                    latency_ms=latency_ms,
-                    success=True,
-                    request_id=result.get("RequestId", ""),
-                    billing_status="free_tier",
-                    blocks_count=len(extracted["blocks"]),
-                )
-                _model_calls.append(_log)
-                _db.save_model_call(_log)
+        _log = make_log_entry(
+            task_id=jid,
+            provider_name="aliyun_ocr",
+            model_name="ocr_api20210707",
+            feature_code="ocr",
+            latency_ms=latency_ms,
+            success=True,
+            request_id=result.get("RequestId", ""),
+            billing_status="free_tier",
+            blocks_count=len(extracted["blocks"]),
+        )
+        _model_calls.append(_log)
+        _db.save_model_call(_log)
 
         # Stage: cutting — 智能切题（题号规则 + 版面规则）
         _jobs[jid]["job"].status = JobStatus.cutting
@@ -362,20 +347,20 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str):
                 vl_ms = int((time.time() - t_vs) * 1000)
                 q.visual_description = vl_result["visual_description"]
 
-                        _vlog = make_log_entry(
-                            task_id=jid,
-                            question_id=q.question_id,
-                            provider_name="dashscope",
-                            model_name="qwen-vl-plus",
-                            feature_code="vision_cutting",
-                            latency_ms=vl_ms,
-                            success=vl_result["success"],
-                            error_code=vl_result.get("error"),
-                            billing_status="free_tier" if vl_result["success"] else "failed",
-                            prompt_name="qwen_vl_analyze",
-                        )
-                        _model_calls.append(_vlog)
-                        _db.save_model_call(_vlog)
+                _vlog = make_log_entry(
+                    task_id=jid,
+                    question_id=q.question_id,
+                    provider_name="dashscope",
+                    model_name="qwen-vl-plus",
+                    feature_code="vision_cutting",
+                    latency_ms=vl_ms,
+                    success=vl_result["success"],
+                    error_code=vl_result.get("error"),
+                    billing_status="free_tier" if vl_result["success"] else "failed",
+                    prompt_name="qwen_vl_analyze",
+                )
+                _model_calls.append(_vlog)
+                _db.save_model_call(_vlog)
                 print(f"[BG] Vision #{qi}: {vl_ms}ms success={vl_result['success']}", flush=True)
             except Exception as ve:
                 print(f"[BG] Vision #{qi} FAILED: {ve}", flush=True)
@@ -401,18 +386,18 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str):
 
     except Exception as e:
         latency_ms = int((time.time() - t_start) * 1000)
-                _flog = make_log_entry(
-                    task_id=jid,
-                    provider_name="aliyun_ocr",
-                    model_name="ocr_api20210707",
-                    feature_code="ocr",
-                    latency_ms=latency_ms,
-                    success=False,
-                    error_code=str(e)[:100],
-                    billing_status="failed",
-                )
-                _model_calls.append(_flog)
-                _db.save_model_call(_flog)
+        _flog = make_log_entry(
+            task_id=jid,
+            provider_name="aliyun_ocr",
+            model_name="ocr_api20210707",
+            feature_code="ocr",
+            latency_ms=latency_ms,
+            success=False,
+            error_code=str(e)[:100],
+            billing_status="failed",
+        )
+        _model_calls.append(_flog)
+        _db.save_model_call(_flog)
         print(f"[BG] OCR FAILED: {e}", flush=True)
         _jobs[jid]["job"].status = JobStatus.failed
 
@@ -558,8 +543,6 @@ async def tutor_question(question_id: str, body: TutorRequest):
         )
         _model_calls.append(_tlog)
         _db.save_model_call(_tlog)
-        _model_calls.append(log_entry)
-        _persist_log(log_entry)
 
         remaining = MAX_ROUNDS - len(history) // 2
         return {

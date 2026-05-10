@@ -91,17 +91,17 @@ def load_all():
     """启动时从 SQLite 恢复到内存"""
     c = _conn()
 
-    c.execute("SELECT job_id, data FROM parse_jobs")
-    jobs = {row["job_id"]: json.loads(row["data"]) for row in c.fetchall()}
+    rows = c.execute("SELECT job_id, data FROM parse_jobs").fetchall()
+    jobs = {row["job_id"]: json.loads(row["data"]) for row in rows}
 
-    c.execute("SELECT data FROM model_calls ORDER BY created_at")
-    model_calls = [json.loads(row["data"]) for row in c.fetchall()]
+    rows = c.execute("SELECT data FROM model_calls ORDER BY created_at").fetchall()
+    model_calls = [json.loads(row["data"]) for row in rows]
 
-    c.execute("SELECT question_id, history FROM tutor_chats")
-    tutor_chats = {row["question_id"]: json.loads(row["history"]) for row in c.fetchall()}
+    rows = c.execute("SELECT question_id, history FROM tutor_chats").fetchall()
+    tutor_chats = {row["question_id"]: json.loads(row["history"]) for row in rows}
 
-    c.execute("SELECT child_id, balance FROM credit_balances")
-    credit_balances = {row["child_id"]: row["balance"] for row in c.fetchall()}
+    rows = c.execute("SELECT child_id, balance FROM credit_balances").fetchall()
+    credit_balances = {row["child_id"]: row["balance"] for row in rows}
 
     c.close()
     return jobs, model_calls, tutor_chats, credit_balances
