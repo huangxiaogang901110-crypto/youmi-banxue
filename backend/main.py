@@ -19,8 +19,15 @@ from model_logger import make_log_entry
 from vision_client import QwenVLClient
 from deepseek_client import DeepSeekClient
 from tutor_prompt import build_tutor_messages
-from tutor_prompt import build_tutor_messages
+from auth import (
+    create_token, verify_token, hash_password, verify_password,
+    init_seed_users, get_parent_by_phone, get_children,
+    ParentUser, ChildProfile, _parents, _children,
+)
 import db as _db
+
+# ─── 种子用户初始化 ─────────────────────────────────────────
+init_seed_users()
 
 # Load .env
 from pathlib import Path
@@ -44,6 +51,20 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ─── 鉴权依赖 ──────────────────────────────────────────────
+
+from fastapi import Depends, Header
+from typing import Annotated
+
+def get_current_user(authorization: Annotated[str | None, Header()] = None):
+    """FastAPI 依赖：验证 JWT，返回 (parent_id, child_id)"""
+    if not authorization:
+        raise HTTPException(status_code=401, detail={"ok": False, "code": "unauthorized", "message": "请先登录"})
+    payload = verify_token(authorization)
+    if not payload:
+        raise HTTPException(status_code=401, detail={"ok": False, "code": "token_expired", "message": "登录已过期，请重新登录"})
+    return payload.get("parent_id", ""), payload.get("child_id", "")
 
 # ─── 枚举 ──────────────────────────────────────────────────
 class EntitlementStatus(str, Enum):
@@ -136,7 +157,7 @@ async def universal_exc(request: Request, exc: Exception):
 
 # ─── Mock 数据 ─────────────────────────────────────────────
 MOCK_ENTITLEMENT = Entitlement(
-    user_id="demo_parent_001", child_id="demo_child_001",
+    user_id="p001", child_id="c001",
     is_member=False, credit_balance=50,
     status=EntitlementStatus.free_trial,
 )
@@ -192,6 +213,71 @@ def save_result(jid: str, questions: list, now: str, file, status: JobStatus):
     })
 
 
+# ─── 鉴权端点 ──────────────────────────────────────────────
+
+class LoginRequest(BaseModel):
+    phone: str
+    password: str
+
+class RegisterRequest(BaseModel):
+    phone: str
+    password: str
+    name: str = ""
+
+
+@app.post("/api/auth/login")
+async def login(body: LoginRequest):
+    """手机号 + 密码登录，返回 JWT token"""
+    parent = get_parent_by_phone(body.phone)
+    if not parent or not verify_password(body.password, parent.password_hash):
+        return {"ok": False, "code": "invalid_credentials", "message": "手机号或密码错误"}
+    children = get_children(parent.id)
+    child_id = children[0].id if children else ""
+    token = create_token({
+        "parent_id": parent.id,
+        "child_id": child_id,
+        "phone": parent.phone,
+    })
+    return {
+        "ok": True,
+        "data": {
+            "token": token,
+            "parent": {"id": parent.id, "name": parent.name, "phone": parent.phone},
+            "children": [{"id": c.id, "name": c.name} for c in children],
+            "active_child_id": child_id,
+        },
+    }
+
+
+@app.post("/api/auth/register")
+async def register(body: RegisterRequest):
+    """注册（Phase 1 简化：自动创建 parent + 一个 child）"""
+    if get_parent_by_phone(body.phone):
+        return {"ok": False, "code": "phone_taken", "message": "该手机号已注册"}
+    pid = f"p{len(_parents) + 1:03d}"
+    cid = f"c{len(_children) + 1:03d}"
+    _parents[pid] = ParentUser(id=pid, phone=body.phone, password_hash=hash_password(body.password), name=body.name)
+    _children[cid] = ChildProfile(id=cid, parent_id=pid, name=body.name + "的宝宝")
+    token = create_token({"parent_id": pid, "child_id": cid, "phone": body.phone})
+    return {
+        "ok": True,
+        "data": {
+            "token": token,
+            "parent": {"id": pid, "name": body.name, "phone": body.phone},
+            "children": [{"id": cid, "name": body.name + "的宝宝"}],
+            "active_child_id": cid,
+        },
+    }
+
+
+@app.get("/api/auth/children")
+async def list_children(user: tuple = Depends(get_current_user)):
+    """获取当前家长的所有孩子"""
+    parent_id, _ = user
+    children = get_children(parent_id)
+    return {"ok": True, "data": [{"id": c.id, "name": c.name, "avatar": c.avatar} for c in children]}
+
+
 # ─── 健康检查 ──────────────────────────────────────────────
 @app.get("/health")
 def health_check():
@@ -206,10 +292,10 @@ async def create_parse_job(
     source_type: str = Form("web_upload"),
     request: Request = None,
     background_tasks: BackgroundTasks = None,
+    user: tuple = Depends(get_current_user),
 ):
     try:
-        child_id = request.headers.get("X-Child-Id", "demo_child_001") if request else "demo_child_001"
-        parent_id = request.headers.get("X-Demo-User-Id", "demo_parent_001") if request else "demo_parent_001"
+        parent_id, child_id = user
 
         # ─── #8: client_task_id 幂等 ───
         if client_task_id:
@@ -421,7 +507,7 @@ async def update_question_status(question_id: str, body: QuestionStatusRequest):
 
 # ─── 4. POST /api/questions/{question_id}/tutor ────────────
 @app.post("/api/questions/{question_id}/tutor")
-async def tutor_question(question_id: str, body: TutorRequest):
+async def tutor_question(question_id: str, body: TutorRequest, user: tuple = Depends(get_current_user)):
     """DeepSeek 单题辅导 — 基准 Table 11 R4, 不接收图片 Base64"""
     try:
         # Find question from all jobs
@@ -439,7 +525,7 @@ async def tutor_question(question_id: str, body: TutorRequest):
             })
 
         # Credit check — 基准 Table 24: 后端二次校验
-        child_id_for_credit = "demo_child_001"  # Phase 0
+        _, child_id_for_credit = user
         credits = _credit_balances.setdefault(child_id_for_credit, 50)
         if credits <= 0:
             return {

@@ -6,13 +6,32 @@ import type {
   TutorRequest,
   TutorResponse,
   Entitlement,
+  AuthLoginResponse,
+  AuthRegisterResponse,
 } from './types';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 const MOCK_MODE = false;
 
+// ─── Token 管理 ─────────────────────────────────────────────
+
+const TOKEN_KEY = 'yomi_token';
+
+export function getToken(): string | null {
+  if (typeof window === 'undefined') return null;
+  return localStorage.getItem(TOKEN_KEY);
+}
+
+export function setToken(token: string) {
+  localStorage.setItem(TOKEN_KEY, token);
+}
+
+export function clearToken() {
+  localStorage.removeItem(TOKEN_KEY);
+}
+
 /**
- * 统一的 JSON 请求封装，注入公用头部与超时处理。
+ * 统一的 JSON 请求封装，注入 Authorization 头部与超时处理。
  */
 async function typedFetch<T>(
   url: string,
@@ -25,8 +44,10 @@ async function typedFetch<T>(
   if (!headers.has('Content-Type') && !(options.body instanceof FormData)) {
     headers.set('Content-Type', 'application/json');
   }
-  headers.set('X-Child-Id', 'demo_child_001');
-  headers.set('X-Demo-User-Id', 'demo_parent_001');
+  const token = getToken();
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
 
   try {
     const response = await fetch(url, { ...options, signal: controller.signal, headers });
@@ -89,11 +110,30 @@ const MOCK_TUTOR_RESPONSE: TutorResponse = {
 };
 
 const MOCK_ENTITLEMENT: Entitlement = {
-  user_id: 'demo_parent_001',
-  child_id: 'demo_child_001',
+  user_id: 'p001',
+  child_id: 'c001',
   is_member: false,
   credit_balance: 50,
   status: 'free_trial',
+};
+
+// ─── Auth API ───────────────────────────────────────────────
+
+export const authApi = {
+  login: (phone: string, password: string): Promise<ApiResponse<AuthLoginResponse>> =>
+    typedFetch<AuthLoginResponse>(`${API_BASE_URL}/api/auth/login`, {
+      method: 'POST',
+      body: JSON.stringify({ phone, password }),
+    }),
+
+  register: (phone: string, password: string, name: string): Promise<ApiResponse<AuthRegisterResponse>> =>
+    typedFetch<AuthRegisterResponse>(`${API_BASE_URL}/api/auth/register`, {
+      method: 'POST',
+      body: JSON.stringify({ phone, password, name }),
+    }),
+
+  children: (): Promise<ApiResponse<{ id: string; name: string; avatar?: string }[]>> =>
+    typedFetch(`${API_BASE_URL}/api/auth/children`),
 };
 
 // ─── API 函数 ───────────────────────────────────────────────

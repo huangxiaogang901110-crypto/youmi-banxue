@@ -146,3 +146,19 @@ export interface HomeworkParseData {
   subjects: HomeworkSubject[];
   raw_text: string;
 }
+
+// ─── Auth 类型 ──────────────────────────────────────────────
+
+export interface AuthLoginResponse {
+  token: string;
+  parent: { id: string; name: string; phone: string };
+  children: { id: string; name: string }[];
+  active_child_id: string;
+}
+
+export interface AuthRegisterResponse {
+  token: string;
+  parent: { id: string; name: string; phone: string };
+  children: { id: string; name: string }[];
+  active_child_id: string;
+}
