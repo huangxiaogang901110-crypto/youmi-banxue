@@ -26,6 +26,18 @@ from auth import (
 )
 import db as _db
 
+# 确保 root Python 能找到 hermes_me 安装的包（systemd 以 root 运行）
+import sys
+_site = "/home/hermes_me/.local/lib/python3.10/site-packages"
+if _site not in sys.path:
+    sys.path.insert(0, _site)
+
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+
+# ─── DB 初始化 ─────────────────────────────────────────────
+_db.init()
+
 # ─── 种子用户初始化 ─────────────────────────────────────────
 init_seed_users()
 
@@ -46,11 +58,24 @@ app = FastAPI(title="悠米伴学 API", version="0.1.0")
 # ─── CORS ──────────────────────────────────────────────────
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://39.107.119.136:3000"],
+    allow_origins=["http://localhost:3000", "http://39.107.119.136:3000", "https://youmi.xyz"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ─── 限流 ──────────────────────────────────────────────────
+limiter = Limiter(key_func=get_remote_address, default_limits=["60/minute"])
+app.state.limiter = limiter
+
+from slowapi.errors import RateLimitExceeded
+
+@app.exception_handler(RateLimitExceeded)
+async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
+    return JSONResponse(
+        status_code=429,
+        content={"ok": False, "code": "rate_limited", "message": "请求太频繁，请稍后再试", "request_id": uuid.uuid4().hex},
+    )
 
 # ─── 鉴权依赖 ──────────────────────────────────────────────
 
@@ -143,9 +168,17 @@ class Entitlement(BaseModel):
 # ─── 异常处理 ──────────────────────────────────────────────
 @app.exception_handler(HTTPException)
 async def http_exc(request: Request, exc: HTTPException):
+    # 提取 message：detail 可能是 dict 或 string
+    if isinstance(exc.detail, dict):
+        msg = exc.detail.get("message", str(exc.detail))
+        code = exc.detail.get("code", f"http_{exc.status_code}")
+        rid = exc.detail.get("request_id", uuid.uuid4().hex)
+    else:
+        msg = str(exc.detail)
+        code = f"http_{exc.status_code}"
+        rid = uuid.uuid4().hex
     return JSONResponse(status_code=exc.status_code, content={
-        "ok": False, "code": f"http_{exc.status_code}",
-        "message": str(exc.detail), "request_id": uuid.uuid4().hex
+        "ok": False, "code": code, "message": msg, "request_id": rid,
     })
 
 @app.exception_handler(Exception)
@@ -174,7 +207,6 @@ def _ts() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 # job 状态存储（SQLite 持久化 + 内存缓存）
-_db.init()
 _jobs, _model_calls, _tutor_chats, _credit_balances = _db.load_all()
 # 兼容旧内存模式：load_all 返回的类型
 _jobs: dict[str, dict]
@@ -258,6 +290,9 @@ async def register(body: RegisterRequest):
     cid = f"c{len(_children) + 1:03d}"
     _parents[pid] = ParentUser(id=pid, phone=body.phone, password_hash=hash_password(body.password), name=body.name)
     _children[cid] = ChildProfile(id=cid, parent_id=pid, name=body.name + "的宝宝")
+    # 持久化到 SQLite
+    _db.save_parent_user(pid, body.phone, _parents[pid].password_hash, body.name)
+    _db.save_child_profile(cid, pid, body.name + "的宝宝")
     token = create_token({"parent_id": pid, "child_id": cid, "phone": body.phone})
     return {
         "ok": True,
@@ -285,6 +320,7 @@ def health_check():
 
 # ─── 1. POST /api/parse-jobs ───────────────────────────────
 @app.post("/api/parse-jobs")
+@limiter.limit("5/minute")
 async def create_parse_job(
     file: UploadFile = File(...),
     client_task_id: str = Form(None),
@@ -319,13 +355,13 @@ async def create_parse_job(
             "client_task_id": client_task_id,
         })
         # 启动后台 worker
-        asyncio.create_task(worker_process_job(jid, contents, file, now))
+        asyncio.create_task(worker_process_job(jid, contents, file, now, parent_id, child_id))
         return {"ok": True, "data": {"job_id": jid, "status": "uploaded", "file_name": file.filename}, "request_id": uuid.uuid4().hex}
     except Exception as e:
         return {"ok": False, "code": "parse_failed", "message": str(e), "request_id": uuid.uuid4().hex}
 
 # ─── 后台任务 worker（模块级，基准 Table 22 R1）────────────
-async def worker_process_job(jid: str, contents: bytes, file, now: str):
+async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_id: str, child_id: str):
     """后台异步执行：OCR → 切题 → Qwen-VL → Schema 校验 → 保存"""
     print(f"[BG] Starting OCR for {jid}...", flush=True)
     t_start = time.time()
@@ -335,6 +371,7 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str):
     _osp.makedirs("/tmp/yomi", exist_ok=True)
     with open(f"/tmp/yomi/{jid}.jpg", "wb") as _pf:
         _pf.write(contents)
+    _db.register_image(jid, f"/tmp/yomi/{jid}.jpg", now)
 
     try:
         # Stage: enhancing
@@ -354,6 +391,8 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str):
             feature_code="ocr",
             latency_ms=latency_ms,
             success=True,
+            parent_user_id=parent_id,
+            child_id=child_id,
             request_id=result.get("RequestId", ""),
             billing_status="free_tier",
             blocks_count=len(extracted["blocks"]),
@@ -377,38 +416,51 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str):
             ))
         print(f"[BG] Cut {len(extracted['blocks'])} blocks → {len(questions)} questions", flush=True)
 
-        # Stage: vision_reviewing - Qwen-VL (Table 11 R3)
+        # Stage: vision_reviewing - Qwen-VL (Table 11 R3), 失败重试最多 2 次 (Table 14)
         _jobs[jid]["job"].status = JobStatus.vision_reviewing
+        MAX_RETRIES = 2
         qwen_vl = QwenVLClient()
         for qi, q in enumerate(questions):
-            try:
-                t_vs = time.time()
-                vl_result = qwen_vl.analyze_question(
-                    image_bytes=contents,
-                    bbox=q.bbox or [0, 0, 0, 0],
-                    question_text=q.question_text,
-                )
-                vl_ms = int((time.time() - t_vs) * 1000)
-                q.visual_description = vl_result["visual_description"]
+            retry_count = 0
+            while retry_count <= MAX_RETRIES:
+                try:
+                    t_vs = time.time()
+                    vl_result = qwen_vl.analyze_question(
+                        image_bytes=contents,
+                        bbox=q.bbox or [0, 0, 0, 0],
+                        question_text=q.question_text,
+                    )
+                    vl_ms = int((time.time() - t_vs) * 1000)
+                    q.visual_description = vl_result["visual_description"]
+                    q.status = QuestionStatus.completed
 
-                _vlog = make_log_entry(
-                    task_id=jid,
-                    question_id=q.question_id,
-                    provider_name="dashscope",
-                    model_name="qwen-vl-plus",
-                    feature_code="vision_cutting",
-                    latency_ms=vl_ms,
-                    success=vl_result["success"],
-                    error_code=vl_result.get("error"),
-                    billing_status="free_tier" if vl_result["success"] else "failed",
-                    prompt_name="qwen_vl_analyze",
-                )
-                _model_calls.append(_vlog)
-                _db.save_model_call(_vlog)
-                print(f"[BG] Vision #{qi}: {vl_ms}ms success={vl_result['success']}", flush=True)
-            except Exception as ve:
-                print(f"[BG] Vision #{qi} FAILED: {ve}", flush=True)
-                q.status = QuestionStatus.failed
+                    _vlog = make_log_entry(
+                        task_id=jid,
+                        question_id=q.question_id,
+                        provider_name="dashscope",
+                        model_name="qwen-vl-plus",
+                        feature_code="vision_cutting",
+                        latency_ms=vl_ms,
+                        success=vl_result["success"],
+                        parent_user_id=parent_id,
+                        child_id=child_id,
+                        error_code=vl_result.get("error"),
+                        billing_status="free_tier" if vl_result["success"] else "failed",
+                        prompt_name="qwen_vl_analyze",
+                        retry_count=retry_count,
+                    )
+                    _model_calls.append(_vlog)
+                    _db.save_model_call(_vlog)
+                    print(f"[BG] Vision #{qi}: {vl_ms}ms success={vl_result['success']} retries={retry_count}", flush=True)
+                    break  # 成功，退出重试循环
+                except Exception as ve:
+                    retry_count += 1
+                    if retry_count > MAX_RETRIES:
+                        print(f"[BG] Vision #{qi} FAILED after {MAX_RETRIES} retries: {ve}", flush=True)
+                        q.status = QuestionStatus.failed
+                    else:
+                        print(f"[BG] Vision #{qi} retry {retry_count}/{MAX_RETRIES}: {ve}", flush=True)
+                        await asyncio.sleep(1)  # 退避
 
         # Stage: schema_validating — 基准 Table 21
         _jobs[jid]["job"].status = JobStatus.schema_validating
@@ -437,6 +489,8 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str):
             feature_code="ocr",
             latency_ms=latency_ms,
             success=False,
+            parent_user_id=parent_id,
+            child_id=child_id,
             error_code=str(e)[:100],
             billing_status="failed",
         )
@@ -507,7 +561,8 @@ async def update_question_status(question_id: str, body: QuestionStatusRequest):
 
 # ─── 4. POST /api/questions/{question_id}/tutor ────────────
 @app.post("/api/questions/{question_id}/tutor")
-async def tutor_question(question_id: str, body: TutorRequest, user: tuple = Depends(get_current_user)):
+@limiter.limit("10/minute")
+async def tutor_question(question_id: str, body: TutorRequest, request: Request, user: tuple = Depends(get_current_user)):
     """DeepSeek 单题辅导 — 基准 Table 11 R4, 不接收图片 Base64"""
     try:
         # Find question from all jobs
@@ -539,13 +594,29 @@ async def tutor_question(question_id: str, body: TutorRequest, user: tuple = Dep
                 "request_id": uuid.uuid4().hex,
             }
 
-        # Chat limit check (Phase 0: 10 rounds)
+        # Chat limit check — Phase 1: 超限时调用 DeepSeek 摘要前 N 轮 (Table 25)
         history = _tutor_chats.get(question_id, [])
         MAX_ROUNDS = 10
         if len(history) >= MAX_ROUNDS * 2:  # user+assistant pairs
-            # Phase 0: 超限截断保留最近轮次（基准 Table 24 摘要降级简化版）
-            keep = (MAX_ROUNDS - 2) * 2
-            history = history[-keep:]
+            keep_recent = 2 * 2  # 保留最近 2 轮
+            to_summarize = history[:-keep_recent]
+            # 调用 DeepSeek 摘要
+            try:
+                ds = DeepSeekClient()
+                summary_messages = [
+                    {"role": "system", "content": "请用 2-3 句话总结以下辅导对话的核心内容和已讲到的知识点。"},
+                ]
+                for m in to_summarize:
+                    summary_messages.append({"role": m["role"], "content": m["content"][:500]})
+                sum_result = ds.tutor(summary_messages)
+                summary_text = sum_result.get("reply_text", "（前序对话摘要）")
+            except Exception:
+                summary_text = "（前序对话摘要不可用）"
+            # 重建：摘要 + 最近轮次
+            history = [
+                {"role": "system", "content": f"[前序对话摘要] {summary_text}"},
+                *history[-keep_recent:],
+            ]
             _tutor_chats[question_id] = history
 
         # Build prompt and call DeepSeek
@@ -606,6 +677,7 @@ async def tutor_question(question_id: str, body: TutorRequest, user: tuple = Dep
 
 # ─── 5. POST /api/questions/{question_id}/vision ───────────
 @app.post("/api/questions/{question_id}/vision")
+@limiter.limit("5/minute")
 async def vision_retry(question_id: str, request: Request = None):
     """视觉二次路由：对已有题目的裁切图做 Qwen-VL 重读"""
     try:
@@ -658,12 +730,30 @@ async def vision_retry(question_id: str, request: Request = None):
             }
 
         # 真实调用 Qwen-VL
+        t_vs = time.time()
         vl_result = qwen_vl.analyze_question(
             image_bytes=image_bytes,
             bbox=q_bbox or [0, 0, 0, 0],
             question_text=q_text,
         )
+        vl_ms = int((time.time() - t_vs) * 1000)
         q_found.visual_description = vl_result["visual_description"]
+
+        # 记录 model_call_log（与 /tutor 对称）
+        _vlog = make_log_entry(
+            task_id="vision_retry",
+            question_id=question_id,
+            provider_name="dashscope",
+            model_name="qwen-vl-plus",
+            feature_code="vision_retry",
+            latency_ms=vl_ms,
+            success=vl_result["success"],
+            error_code=vl_result.get("error"),
+            billing_status="free_tier" if vl_result["success"] else "failed",
+            prompt_name="qwen_vl_vision_retry",
+        )
+        _model_calls.append(_vlog)
+        _db.save_model_call(_vlog)
 
         return {
             "ok": True,
@@ -692,13 +782,38 @@ async def get_entitlement():
 class ActivationRequest(BaseModel):
     code: str
 
+# 激活码输错追踪（IP 维度，输错 5 次锁定 1 小时）
+_activation_attempts: dict[str, dict] = {}
+
 @app.post("/api/activation/redeem")
-async def redeem_activation(body: ActivationRequest):
+@limiter.limit("5/minute")
+async def redeem_activation(body: ActivationRequest, request: Request):
     try:
+        ip = request.client.host if request.client else "unknown"
+        # 检查锁定
+        now_ts = time.time()
+        attempt = _activation_attempts.get(ip)
+        if attempt and attempt.get("locked_until", 0) > now_ts:
+            remaining = int(attempt["locked_until"] - now_ts)
+            return JSONResponse(
+                status_code=429,
+                content={"ok": False, "code": "activation_locked", "message": f"尝试次数过多，请 {remaining} 秒后再试", "request_id": uuid.uuid4().hex},
+            )
         await asyncio.sleep(0.3)
         if body.code == "YOMI-FREE-2024":
+            # 成功 — 清除输错记录
+            _activation_attempts.pop(ip, None)
             return {"ok": True, "data": {"activated": True, "message": "激活成功，获得 100 学豆", "credit_added": 100}, "request_id": uuid.uuid4().hex}
-        return {"ok": False, "code": "invalid_code", "message": "激活码无效", "request_id": uuid.uuid4().hex}
+        # 输错 — 累加计数
+        count = attempt["count"] + 1 if attempt else 1
+        locked_until = now_ts + 3600 if count >= 5 else 0
+        _activation_attempts[ip] = {"count": count, "locked_until": locked_until}
+        if locked_until:
+            return JSONResponse(
+                status_code=429,
+                content={"ok": False, "code": "activation_locked", "message": "尝试次数过多，请 1 小时后再试", "request_id": uuid.uuid4().hex},
+            )
+        return {"ok": False, "code": "invalid_code", "message": f"激活码无效（剩余 {5 - count} 次尝试）", "request_id": uuid.uuid4().hex}
     except Exception as e:
         return {"ok": False, "code": "activation_error", "message": str(e), "request_id": uuid.uuid4().hex}
 

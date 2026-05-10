@@ -52,6 +52,10 @@ async function typedFetch<T>(
   try {
     const response = await fetch(url, { ...options, signal: controller.signal, headers });
     const body: ApiResponse<T> = await response.json();
+    // 429 限流 — 后端返回友好 message，前端直接透传
+    if (response.status === 429) {
+      return { ok: false, code: body.code || 'rate_limited', message: body.message || '请求太频繁，请稍后再试', request_id: body.request_id || '' };
+    }
     return body;
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Network error';

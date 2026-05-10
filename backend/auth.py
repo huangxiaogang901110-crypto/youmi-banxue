@@ -1,6 +1,6 @@
 """
-悠米伴学 鉴权模块 — JWT + bcrypt
-Phase 1 最小方案：无外部依赖，纯标准库 JWT + hashlib
+悠米伴学 鉴权模块 — JWT + 纯标准库哈希
+Phase 1: 用户持久化到 SQLite（db.py）
 """
 import hashlib
 import hmac
@@ -61,7 +61,7 @@ def verify_token(token: str) -> Optional[dict]:
 # ─── 密码哈希 ──────────────────────────────────────────────
 
 def hash_password(password: str) -> str:
-    """SHA-256 + salt（Phase 1 够用，生产切 bcrypt）"""
+    """SHA-256 + salt（Phase 1 够用）"""
     salt = os.urandom(16).hex()
     h = hashlib.sha256(f"{salt}:{password}".encode()).hexdigest()
     return f"{salt}:{h}"
@@ -90,25 +90,48 @@ class ChildProfile:
     avatar: str = ""
 
 
-# ─── 内存用户存储（Phase 1 过渡，后续迁 SQLite）───────────
+# ─── 内存用户存储 + SQLite 持久化 ─────────────────────────
 
 _parents: dict[str, ParentUser] = {}
 _children: dict[str, ChildProfile] = {}
 
+import db as _db
+
 
 def init_seed_users():
-    """初始化种子用户（idempotent）"""
+    """初始化种子用户。优先从 SQLite 恢复，恢复不到则用内存种子并落库。"""
     if _parents:
         return
+
+    # 尝试从 SQLite 恢复
+    try:
+        db_parents = _db.load_parent_users()
+        db_children = _db.load_child_profiles()
+        if db_parents:
+            for pid, p in db_parents.items():
+                _parents[pid] = ParentUser(id=p["id"], phone=p["phone"], password_hash=p["password_hash"], name=p.get("name", ""))
+            for cid, c in db_children.items():
+                _children[cid] = ChildProfile(id=c["id"], parent_id=c["parent_id"], name=c["name"], avatar=c.get("avatar", ""))
+            print(f"[auth] 从 SQLite 恢复 {len(_parents)} 家长, {len(_children)} 孩子")
+            return
+    except Exception as e:
+        print(f"[auth] SQLite 恢复失败: {e}，使用内存种子")
+
+    # Fallback: 内存种子 + 落库
     pid = "p001"
     cid = "c001"
-    _parents[pid] = ParentUser(
-        id=pid,
-        phone="13800138000",
-        password_hash=hash_password("123456"),
-        name="测试家长",
-    )
-    _children[cid] = ChildProfile(id=cid, parent_id=pid, name="小明")
+    p = ParentUser(id=pid, phone="13800138000", password_hash=hash_password("123456"), name="测试家长")
+    c = ChildProfile(id=cid, parent_id=pid, name="小明")
+    _parents[pid] = p
+    _children[cid] = c
+
+    # 落库
+    try:
+        _db.save_parent_user(pid, p.phone, p.password_hash, p.name)
+        _db.save_child_profile(cid, pid, c.name)
+        print("[auth] 种子用户已落库 SQLite")
+    except Exception as e:
+        print(f"[auth] 种子用户落库失败: {e}")
 
 
 def get_parent_by_phone(phone: str) -> Optional[ParentUser]:
