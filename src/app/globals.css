@@ -1,0 +1,135 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* ═══════════════════════════════════════════
+   悠米伴学 Design Tokens
+   基准: 悠米伴学-前端基准御三家GPT终审版 §13
+   ═══════════════════════════════════════════ */
+
+@theme inline {
+  /* ── 品牌色 ── */
+  --color-primary: var(--yomi-primary);
+  --color-primary-foreground: var(--yomi-primary-foreground);
+  --color-primary-light: var(--yomi-primary-light);
+
+  /* ── 背景与表面 ── */
+  --color-background: var(--yomi-bg);
+  --color-foreground: var(--yomi-text-main);
+  --color-card: var(--yomi-surface);
+  --color-card-foreground: var(--yomi-text-main);
+  --color-popover: var(--yomi-surface);
+  --color-popover-foreground: var(--yomi-text-main);
+
+  /* ── 辅助色 ── */
+  --color-secondary: var(--yomi-primary-light);
+  --color-secondary-foreground: var(--yomi-primary);
+  --color-muted: var(--yomi-bg);
+  --color-muted-foreground: var(--yomi-text-sub);
+  --color-accent: var(--yomi-primary-light);
+  --color-accent-foreground: var(--yomi-primary);
+
+  /* ── 语义色 ── */
+  --color-destructive: var(--yomi-error);
+  --color-warning: var(--yomi-warning);
+  --color-border: var(--yomi-border);
+  --color-input: var(--yomi-border);
+  --color-ring: var(--yomi-primary);
+
+  /* ── 圆角 ── */
+  --radius: var(--yomi-radius);
+  --radius-sm: calc(var(--yomi-radius) * 0.6);
+  --radius-md: calc(var(--yomi-radius) * 0.8);
+  --radius-lg: var(--yomi-radius);
+  --radius-xl: calc(var(--yomi-radius) * 1.4);
+  --radius-2xl: calc(var(--yomi-radius) * 1.8);
+  --radius-3xl: calc(var(--yomi-radius) * 2.2);
+  --radius-4xl: calc(var(--yomi-radius) * 2.6);
+
+  /* ── 字体 ── */
+  --font-sans: "Inter", "PingFang SC", "Microsoft YaHei", "Noto Sans SC", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "Fira Code", monospace;
+  --font-heading: var(--font-sans);
+
+  /* ── 图表/侧栏 (继承主色) ── */
+  --color-chart-1: var(--yomi-primary);
+  --color-chart-2: var(--yomi-primary-light);
+  --color-chart-3: var(--yomi-warning);
+  --color-chart-4: var(--yomi-text-sub);
+  --color-chart-5: var(--yomi-error);
+  --color-sidebar: var(--yomi-bg);
+  --color-sidebar-foreground: var(--yomi-text-main);
+  --color-sidebar-primary: var(--yomi-primary);
+  --color-sidebar-primary-foreground: var(--yomi-primary-foreground);
+  --color-sidebar-accent: var(--yomi-primary-light);
+  --color-sidebar-accent-foreground: var(--yomi-primary);
+  --color-sidebar-border: var(--yomi-border);
+  --color-sidebar-ring: var(--yomi-primary);
+}
+
+:root {
+  /* ── 悠米品牌 Token 值 ── */
+  --yomi-bg: oklch(0.985 0.004 100);
+  --yomi-surface: oklch(1 0 0);
+  --yomi-primary: oklch(0.68 0.12 180);
+  --yomi-primary-foreground: oklch(1 0 0);
+  --yomi-primary-light: oklch(0.96 0.03 180);
+  --yomi-border: oklch(0.92 0.005 120);
+  --yomi-text-main: oklch(0.15 0 0);
+  --yomi-text-sub: oklch(0.5 0.01 270);
+  --yomi-warning: oklch(0.72 0.16 75);
+  --yomi-error: oklch(0.58 0.22 20);
+  --yomi-radius: 0.75rem;
+
+  /* ── shadcn 兼容变量 (引用 yomi token) ── */
+  --background: var(--yomi-bg);
+  --foreground: var(--yomi-text-main);
+  --card: var(--yomi-surface);
+  --card-foreground: var(--yomi-text-main);
+  --popover: var(--yomi-surface);
+  --popover-foreground: var(--yomi-text-main);
+  --primary: var(--yomi-primary);
+  --primary-foreground: var(--yomi-primary-foreground);
+  --secondary: var(--yomi-primary-light);
+  --secondary-foreground: var(--yomi-primary);
+  --muted: var(--yomi-bg);
+  --muted-foreground: var(--yomi-text-sub);
+  --accent: var(--yomi-primary-light);
+  --accent-foreground: var(--yomi-primary);
+  --destructive: var(--yomi-error);
+  --border: var(--yomi-border);
+  --input: var(--yomi-border);
+  --ring: var(--yomi-primary);
+  --radius: var(--yomi-radius);
+  --sidebar: var(--yomi-bg);
+  --sidebar-foreground: var(--yomi-text-main);
+  --sidebar-primary: var(--yomi-primary);
+  --sidebar-primary-foreground: var(--yomi-primary-foreground);
+  --sidebar-accent: var(--yomi-primary-light);
+  --sidebar-accent-foreground: var(--yomi-primary);
+  --sidebar-border: var(--yomi-border);
+  --sidebar-ring: var(--yomi-primary);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+  html {
+    @apply font-sans;
+    -webkit-tap-highlight-color: transparent;
+  }
+  /* 移动端安全区 */
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  .safe-top {
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+}

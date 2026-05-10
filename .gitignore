@@ -1,0 +1,22 @@
+# 悠米伴学 .gitignore
+# 密钥与凭证
+.env
+*.pem
+*.key
+credentials*
+.git-credentials
+
+# 依赖
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+
+# 构建产物
+.next/
+out/
+
+# 临时文件
+/tmp/
+*.tmp
+.DS_Store
