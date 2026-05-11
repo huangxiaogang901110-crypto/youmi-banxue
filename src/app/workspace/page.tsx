@@ -283,7 +283,6 @@ function WorkspaceContent() {
 
   // ── failed ──
   if (status === "failed") {
-    setIsRestoring(false);
     return (
       <ErrorDisplay
         message={error}
@@ -299,12 +298,10 @@ function WorkspaceContent() {
 
   // ── polling ──
   if (status === "polling") {
-    setIsRestoring(false);
     return <ProcessingStatus status={job?.status || "uploaded"} />;
   }
 
   // ── completed ──
-  setIsRestoring(false);
   const qs = questions || [];
   const groupSize = calcGroupSize(qs.length);
   const groups = groupQuestions(qs, groupSize);
