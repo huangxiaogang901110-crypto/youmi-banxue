@@ -167,6 +167,15 @@ def init():
             image_expires_at TEXT,
             created_at TEXT DEFAULT (datetime('now'))
         );
+        CREATE TABLE IF NOT EXISTS parse_jobs (
+            job_id TEXT PRIMARY KEY,
+            child_id TEXT NOT NULL DEFAULT '',
+            parent_id TEXT NOT NULL DEFAULT '',
+            file_name TEXT DEFAULT '',
+            questions_count INTEGER DEFAULT 0,
+            status TEXT DEFAULT 'uploaded',
+            created_at TEXT DEFAULT (datetime('now'))
+        );
         CREATE TABLE IF NOT EXISTS question_item (
             id TEXT PRIMARY KEY,
             assignment_id TEXT NOT NULL,
@@ -507,6 +516,29 @@ def create_question_item(qid: str, assignment_id: str, page_id: str, question_no
     c.commit()
     c.close()
     return qid
+
+def save_parse_job(job_id: str, child_id: str, parent_id: str, file_name: str, questions_count: int, status: str, created_at: str):
+    """持久化解析任务元数据，供 getRecent 跨重启查询。"""
+    c = _conn()
+    c.execute(
+        "INSERT OR REPLACE INTO parse_jobs (job_id, child_id, parent_id, file_name, questions_count, status, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (job_id, child_id, parent_id, file_name, questions_count, status, created_at),
+    )
+    c.commit()
+    c.close()
+
+def get_recent_parse_jobs(child_id: str, limit: int = 20):
+    """从 DB 查询指定 child 的最近 N 条解析任务。"""
+    c = _conn()
+    rows = c.execute(
+        "SELECT job_id, file_name, questions_count, status, created_at "
+        "FROM parse_jobs WHERE child_id = ? "
+        "ORDER BY created_at DESC LIMIT ?",
+        (child_id, limit),
+    ).fetchall()
+    c.close()
+    return [dict(r) for r in rows]
 
 def save_question_attempt(attempt_id: str, question_id: str, child_id: str, status: str, child_answer: str = ""):
     c = _conn()

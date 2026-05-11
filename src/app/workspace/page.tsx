@@ -3,11 +3,12 @@
 import { Suspense, useState, useRef, useCallback, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Upload, ArrowRight, Clock, Loader2, X, Image, Camera, FileText, CheckCircle2 } from "lucide-react";
+import { Upload, ArrowRight, Clock, Loader2, X, Image, Camera, FileText, Trash2 } from "lucide-react";
 import ProcessingStatus from "@/components/processing/ProcessingStatus";
 import BboxOverlay from "@/components/question-list/BboxOverlay";
 import QuestionGroup, { calcGroupSize, groupQuestions } from "@/components/question-list/QuestionGroup";
 import { useParseJobPolling } from "@/hooks/useParseJobPolling";
+import { useJobHistory } from "@/hooks/useJobHistory";
 import ErrorDisplay from "@/components/common/ErrorDisplay";
 import { compressImage } from "@/lib/imageCompress";
 import { uuidv4 } from "@/lib/uuid";
@@ -16,8 +17,6 @@ import type { Bbox } from "@/components/question-list/BboxOverlay";
 import type { RecentJob } from "@/lib/types";
 
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp", "application/pdf"];
-const LS_LAST_JOB = "yomi_last_job";
-const LS_RECENT_TTL = 24 * 60 * 60 * 1000;
 
 type UploadPhase = "idle" | "selected" | "compressing" | "uploading" | "error";
 
@@ -35,48 +34,53 @@ function WorkspaceContent() {
   const galleryRef = useRef<HTMLInputElement>(null);
   const cameraRef = useRef<HTMLInputElement>(null);
 
-  // ── 最近解析（真实 API）──
-  const [recentJobs, setRecentJobs] = useState<RecentJob[]>([]);
-  const [recentLoading, setRecentLoading] = useState(false);
+  // ── 7 天滚动历史缓存 ──
+  const { history, upsert, clearAll } = useJobHistory();
+
+  // ── API 补充（localStorage 清除后的恢复）──
+  const [apiRecent, setApiRecent] = useState<RecentJob[]>([]);
 
   // ── 恢复中（防止闪烁）──
   const [isRestoring, setIsRestoring] = useState(false);
 
-  // 当进入 polling / failed / completed 时解除恢复状态
   useEffect(() => {
     if (status === "polling" || status === "failed" || status === "completed") {
       setIsRestoring(false);
     }
   }, [status]);
 
-  // 页面加载时：恢复上次未完成的任务 + 拉取最近列表
+  // 页面 idle：尝试恢复上次任务
   useEffect(() => {
     if (status !== "idle") return;
-    try {
-      const saved = localStorage.getItem(LS_LAST_JOB);
-      if (saved) {
-        const { job_id, ts } = JSON.parse(saved);
-        if (Date.now() - ts < LS_RECENT_TTL) {
+    if (history.length > 0) {
+      const last = history[0];
+      if (last.status !== "completed" && last.status !== "failed") {
+        const age = Date.now() - new Date(last.created_at).getTime();
+        if (age < 24 * 60 * 60 * 1000) {
           setIsRestoring(true);
-          router.replace(`/workspace?job_id=${job_id}`);
+          router.replace(`/workspace?job_id=${last.job_id}`);
           return;
         }
       }
-    } catch { /* ignore */ }
-    // 拉取最近解析列表
-    setRecentLoading(true);
+    }
+    // 补充 API 数据
     parseJobApi.getRecent().then((resp) => {
-      if (resp.ok && resp.data) setRecentJobs(resp.data);
-      setRecentLoading(false);
-    }).catch(() => setRecentLoading(false));
-  }, [status, router]);
+      if (resp.ok && resp.data) setApiRecent(resp.data);
+    }).catch(() => {});
+  }, [status, router, history]);
 
-  // 上传成功：保存 job_id 到 localStorage
-  const saveLastJob = useCallback((jobId: string) => {
-    try {
-      localStorage.setItem(LS_LAST_JOB, JSON.stringify({ job_id: jobId, ts: Date.now() }));
-    } catch { /* ignore */ }
-  }, []);
+  // 任务完成 → 更新历史
+  useEffect(() => {
+    if (status === "completed" && job?.job_id && questions) {
+      upsert({
+        job_id: job.job_id,
+        file_name: job.file_name || "",
+        questions_count: questions.length,
+        status: "completed",
+        created_at: job.created_at || new Date().toISOString(),
+      });
+    }
+  }, [status]);
 
   const handleFile = useCallback((f: File | undefined) => {
     if (!f) return;
@@ -115,14 +119,20 @@ function WorkspaceContent() {
       if (!resp.ok || !resp.data?.job_id) {
         throw new Error(resp.message || "服务器未返回任务 ID");
       }
-      saveLastJob(resp.data.job_id);
+      upsert({
+        job_id: resp.data.job_id,
+        file_name: file.name,
+        questions_count: 0,
+        status: "uploaded",
+        created_at: new Date().toISOString(),
+      });
       router.push(`/workspace?job_id=${resp.data.job_id}`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "上传失败，请重试";
       setUploadError(msg);
       setPhase("error");
     }
-  }, [file, router, saveLastJob]);
+  }, [file, router, upsert]);
 
   const resetUpload = () => {
     setFile(null);
@@ -142,7 +152,12 @@ function WorkspaceContent() {
     return `${Math.floor(hours / 24)} 天前`;
   };
 
-  // ── 恢复中：显示进度占位 ──
+  // 合并展示：本地历史 + API 补充（去重）
+  const localIds = new Set(history.map((h) => h.job_id));
+  const apiOnly = apiRecent.filter((r) => !localIds.has(r.job_id));
+  const completedHistory = history.filter((h) => h.status === "completed");
+
+  // ── 恢复中 ──
   if (isRestoring && (status === "loading" || status === "polling")) {
     return <ProcessingStatus status={job?.status || "uploaded"} />;
   }
@@ -156,7 +171,7 @@ function WorkspaceContent() {
     );
   }
 
-  // ── idle: 上传入口 ──
+  // ── idle ──
   if (status === "idle") {
     return (
       <div className="space-y-6 pb-4">
@@ -248,33 +263,58 @@ function WorkspaceContent() {
           </>
         )}
 
+        {/* 历史记录 */}
         <section>
-          <h2 className="text-sm font-semibold text-foreground mb-3">最近解析</h2>
-          {recentLoading ? (
-            <div className="flex items-center justify-center py-4">
-              <Loader2 className="w-5 h-5 text-muted-foreground animate-spin" />
-            </div>
-          ) : recentJobs.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-4">暂无解析记录</p>
-          ) : (
-            recentJobs.map((r) => (
-              <Link
-                key={r.job_id}
-                href={`/workspace?job_id=${r.job_id}`}
-                onClick={() => saveLastJob(r.job_id)}
-                className="block bg-card rounded-xl p-4 shadow-sm border border-border flex items-center gap-3 hover:shadow-md transition mb-2"
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-semibold text-foreground">历史记录（最近 7 天）</h2>
+            {completedHistory.length > 0 && (
+              <button
+                onClick={clearAll}
+                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-destructive transition"
               >
-                <Clock className="w-5 h-5 text-muted-foreground shrink-0" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm text-foreground truncate">{r.file_name}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {formatRelative(r.created_at)} · {r.questions_count || "?"} 题
-                    {r.status !== "completed" ? ` · ${r.status}` : ""}
-                  </p>
-                </div>
-                <ArrowRight className="w-4 h-4 text-muted-foreground shrink-0" />
-              </Link>
-            ))
+                <Trash2 className="w-3 h-3" />
+                清除
+              </button>
+            )}
+          </div>
+
+          {completedHistory.length === 0 && apiOnly.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-4">暂无记录</p>
+          ) : (
+            <>
+              {completedHistory.map((h) => (
+                <Link
+                  key={h.job_id}
+                  href={`/workspace?job_id=${h.job_id}`}
+                  className="block bg-card rounded-xl p-4 shadow-sm border border-border flex items-center gap-3 hover:shadow-md transition mb-2"
+                >
+                  <Clock className="w-5 h-5 text-muted-foreground shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-foreground truncate">{h.file_name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {formatRelative(h.created_at)} · {h.questions_count || "?"} 题
+                    </p>
+                  </div>
+                  <ArrowRight className="w-4 h-4 text-muted-foreground shrink-0" />
+                </Link>
+              ))}
+              {completedHistory.length === 0 && apiOnly.map((r) => (
+                <Link
+                  key={r.job_id}
+                  href={`/workspace?job_id=${r.job_id}`}
+                  className="block bg-card rounded-xl p-4 shadow-sm border border-border flex items-center gap-3 hover:shadow-md transition mb-2"
+                >
+                  <Clock className="w-5 h-5 text-muted-foreground shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-foreground truncate">{r.file_name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {formatRelative(r.created_at)} · {r.questions_count || "?"} 题
+                    </p>
+                  </div>
+                  <ArrowRight className="w-4 h-4 text-muted-foreground shrink-0" />
+                </Link>
+              ))}
+            </>
           )}
         </section>
       </div>
@@ -290,7 +330,6 @@ function WorkspaceContent() {
         onRetry={() => {
           router.push("/workspace");
           resetUpload();
-          try { localStorage.removeItem(LS_LAST_JOB); } catch {}
         }}
       />
     );
@@ -306,14 +345,6 @@ function WorkspaceContent() {
   const groupSize = calcGroupSize(qs.length);
   const groups = groupQuestions(qs, groupSize);
 
-  const bboxes: Bbox[] = qs
-    .filter((q) => q.bbox && q.bbox.length === 4)
-    .map((q) => ({
-      question_id: q.question_id,
-      bbox: q.bbox as [number, number, number, number],
-      question_number: q.question_number,
-    }));
-
   return (
     <div className="space-y-4 pb-4">
       <div className="flex items-center justify-between">
@@ -325,13 +356,12 @@ function WorkspaceContent() {
         </span>
       </div>
 
-      <BboxOverlay
-        bboxes={bboxes}
-        activeIndex={activeIndex}
-        imageUrl={undefined}
-      />
+      <BboxOverlay bboxes={qs.filter((q) => q.bbox && q.bbox.length === 4).map((q) => ({
+        question_id: q.question_id,
+        bbox: q.bbox as [number, number, number, number],
+        question_number: q.question_number,
+      }))} activeIndex={activeIndex} imageUrl={undefined} />
 
-      {/* 分组题目 */}
       <div className="space-y-3">
         {groups.map((g, gi) => {
           const start = gi * groupSize + 1;

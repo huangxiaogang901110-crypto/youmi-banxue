@@ -244,6 +244,11 @@ def save_result(jid: str, questions: list, now: str, file, status: JobStatus):
         "parent_id": _jobs[jid].get("parent_id", ""),
         "client_task_id": _jobs[jid].get("client_task_id", ""),
     })
+    # 同步更新 parse_jobs 表（跨重启查询用）
+    child_id = _jobs[jid].get("child_id", "")
+    parent_id = _jobs[jid].get("parent_id", "")
+    file_name = file.filename if file else ""
+    _db.save_parse_job(jid, child_id, parent_id, file_name, len(questions), status, now)
 
 
 # ─── 鉴权端点 ──────────────────────────────────────────────
@@ -355,6 +360,8 @@ async def create_parse_job(
             "parent_id": parent_id,
             "client_task_id": client_task_id,
         })
+        # 持久化到 DB（跨重启存活）
+        _db.save_parse_job(jid, child_id, parent_id, file.filename, 0, JobStatus.uploaded, now)
         # 启动后台 worker
         asyncio.create_task(worker_process_job(jid, contents, file, now, parent_id, child_id))
         return {"ok": True, "data": {"job_id": jid, "status": "uploaded", "file_name": file.filename}, "request_id": uuid.uuid4().hex}
@@ -590,20 +597,43 @@ async def get_parse_job_questions(job_id: str):
 # ─── 4. GET /api/parse-jobs/recent ──────────────────────────
 @app.get("/api/parse-jobs/recent")
 async def get_recent_parse_jobs(user: tuple = Depends(get_current_user)):
-    """返回当前 child 最近 10 条解析任务，供「最近解析」列表使用。"""
+    """返回当前 child 最近 10 条解析任务（DB + 内存合并去重）。"""
     try:
         parent_id, child_id = user
+
+        # 1. 从 DB 查（跨重启存活）
+        db_rows = _db.get_recent_parse_jobs(child_id, 20)
+        seen = set()
+
+        def add_job(job_id: str, status: str, questions_count: int, file_name: str, created_at: str):
+            if job_id in seen:
+                return
+            seen.add(job_id)
+            return {
+                "job_id": job_id,
+                "status": status,
+                "questions_count": questions_count,
+                "file_name": file_name,
+                "created_at": created_at,
+            }
+
         recent = []
+        # 优先内存（更新鲜）
         for jid, j in _jobs.items():
             if j.get("child_id") == child_id:
                 job = j["job"]
-                recent.append({
-                    "job_id": jid,
-                    "status": job.status,
-                    "questions_count": job.questions_count or len(j.get("questions", [])),
-                    "file_name": job.file_name,
-                    "created_at": job.created_at,
-                })
+                entry = add_job(jid, job.status, job.questions_count or len(j.get("questions", [])),
+                                job.file_name, job.created_at)
+                if entry:
+                    recent.append(entry)
+
+        # 补充 DB 中不在内存的
+        for row in db_rows:
+            entry = add_job(row["job_id"], row["status"], row["questions_count"],
+                            row["file_name"], row["created_at"])
+            if entry:
+                recent.append(entry)
+
         recent.sort(key=lambda x: x["created_at"], reverse=True)
         return {"ok": True, "data": recent[:10], "request_id": uuid.uuid4().hex}
     except HTTPException:
