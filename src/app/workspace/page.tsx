@@ -337,7 +337,20 @@ function WorkspaceContent() {
 
   // ── polling ──
   if (status === "polling") {
-    return <ProcessingStatus status={job?.status || "uploaded"} />;
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <span className="text-sm text-muted-foreground">正在处理中…</span>
+          <button
+            onClick={() => { resetUpload(); router.push("/workspace"); }}
+            className="text-xs text-primary border border-primary rounded-lg px-3 py-1"
+          >
+            新上传
+          </button>
+        </div>
+        <ProcessingStatus status={job?.status || "uploaded"} />
+      </div>
+    );
   }
 
   // ── completed ──
@@ -351,9 +364,17 @@ function WorkspaceContent() {
         <h2 className="text-sm font-semibold text-foreground">
           共 {job?.questions_count || qs.length} 题
         </h2>
-        <span className="text-xs text-muted-foreground">
-          点击题目组展开查看
-        </span>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => { resetUpload(); router.push("/workspace"); }}
+            className="text-xs text-primary border border-primary rounded-lg px-3 py-1"
+          >
+            新上传
+          </button>
+          <span className="text-xs text-muted-foreground">
+            点击题目组展开查看
+          </span>
+        </div>
       </div>
 
       <BboxOverlay bboxes={qs.filter((q) => q.bbox && q.bbox.length === 4).map((q) => ({

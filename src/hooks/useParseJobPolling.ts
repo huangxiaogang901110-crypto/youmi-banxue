@@ -39,6 +39,11 @@ export function useParseJobPolling(): PollingResult {
   if (jobQuery.isLoading) return { job: null, questions: null, status: "loading", error: "" };
   if (jobQuery.error) return { job: null, questions: null, status: "failed", error: "获取任务状态失败" };
 
+  // API 返回 ok:false 视为错误（如 poll_count 缺失等后端异常）
+  if (!jobQuery.data?.ok) {
+    return { job: null, questions: null, status: "failed", error: jobQuery.data?.message || "服务器异常，请重试" };
+  }
+
   const job = jobQuery.data?.ok ? (jobQuery.data.data ?? null) : null;
   const s = job?.status;
 
