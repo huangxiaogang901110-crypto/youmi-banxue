@@ -454,7 +454,12 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
                 for i, rq in enumerate(raw_questions):
                     qid = f"{jid}-{rq.get('number', i+1)}-{i}"
                     q_text = rq.get("content", f"第{rq.get('number', i+1)}题")
-                    q_no = int(rq.get("number", i+1)) if isinstance(rq.get("number"), (int, str)) else i+1
+                    # 安全解析题号：Qwen-VL 可能返回非数字（如 "VOCABULARY 1"）
+                    raw_no = rq.get("number", i+1)
+                    try:
+                        q_no = int(raw_no)
+                    except (ValueError, TypeError):
+                        q_no = i + 1
                     questions.append(Question(
                         question_id=qid,
                         question_number=q_no,
@@ -609,8 +614,13 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
         )
         _model_calls.append(_flog)
         _db.save_model_call(_flog)
-        print(f"[BG] OCR FAILED: {e}", flush=True)
+        print(f"[BG] WORKER FAILED ({jid}): {e}", flush=True)
         _jobs[jid]["job"].status = JobStatus.failed
+        # 尝试保存失败状态，让前端能看到
+        try:
+            save_result(jid, [], now, file, JobStatus.failed)
+        except Exception:
+            pass
 
 
 # ─── 2. GET /api/parse-jobs/recent (before {job_id} to avoid conflict) ──
