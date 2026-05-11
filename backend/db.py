@@ -378,7 +378,7 @@ def register_image(jid: str, file_path: str, created_at: str, oss_key: str = "")
     c.execute(
         "INSERT INTO image_registry (jid, file_path, oss_key, created_at, expires_at) "
         "VALUES (?, ?, ?, ?, datetime(?, '+7 days'))",
-        (jid, file_path, oss_key, created_at),
+        (jid, file_path, oss_key, created_at, created_at),
     )
     c.commit()
     c.close()

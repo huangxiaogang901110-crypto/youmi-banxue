@@ -373,9 +373,19 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
     with open(f"/tmp/yomi/{jid}.jpg", "wb") as _pf:
         _pf.write(contents)
 
-    # 上传到 OSS（异步，不阻塞主流程）
-    oss_key = _oss.upload_image(contents, jid)
-    _db.register_image(jid, f"/tmp/yomi/{jid}.jpg", now, oss_key or "")
+    try:
+        # 上传到 OSS（异步，不阻塞主流程）
+        oss_key = _oss.upload_image(contents, jid)
+    except Exception as _e:
+        print(f"[BG] OSS upload error: {_e}", flush=True)
+        oss_key = None
+
+    # register_image 可能因 DB schema 问题失败，不阻塞主流程
+    try:
+        _db.register_image(jid, f"/tmp/yomi/{jid}.jpg", now, oss_key or "")
+    except Exception as _e:
+        print(f"[BG] register_image failed (non-blocking): {_e}", flush=True)
+
     if oss_key:
         _jobs[jid]["oss_key"] = oss_key
         print(f"[BG] OSS upload OK: {oss_key}", flush=True)
@@ -385,9 +395,15 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
     # ── 创建 assignment + page（基准 Table 12）──
     import uuid as _uuid
     aid = _uuid.uuid4().hex[:12]
-    _db.create_assignment(aid, parent_id, child_id, "web_upload", file.filename)
+    try:
+        _db.create_assignment(aid, parent_id, child_id, "web_upload", file.filename)
+    except Exception as _e:
+        print(f"[BG] create_assignment failed: {_e}", flush=True)
     page_id = _uuid.uuid4().hex[:12]
-    _db.create_assignment_page(page_id, aid, 1, oss_key or f"/tmp/yomi/{jid}.jpg")
+    try:
+        _db.create_assignment_page(page_id, aid, 1, oss_key or f"/tmp/yomi/{jid}.jpg")
+    except Exception as _e:
+        print(f"[BG] create_assignment_page failed: {_e}", flush=True)
     _jobs[jid]["assignment_id"] = aid
     _jobs[jid]["page_id"] = page_id
 
