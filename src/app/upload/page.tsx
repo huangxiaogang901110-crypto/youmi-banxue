@@ -1,21 +1,20 @@
 "use client";
 
-import { useState, useRef, useEffect, Suspense } from "react";
+import { useState, useRef, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Camera, Image, FileText, X, Loader2, CheckCircle2, ClipboardList, Send } from "lucide-react";
+import { Camera, Image, FileText, X, Loader2, CheckCircle2, ClipboardList, Send, Copy, ChevronDown, ChevronRight } from "lucide-react";
 import { compressImage } from "@/lib/imageCompress";
 import { uuidv4 } from "@/lib/uuid";
 import { parseJobApi, homeworkApi } from "@/lib/api";
 import type { HomeworkSubject } from "@/lib/types";
 import ErrorDisplay from "@/components/common/ErrorDisplay";
 import HomeworkList from "@/components/homework/HomeworkList";
+import { useHomeworkDays } from "@/hooks/useHomeworkDays";
 
 type UploadStatus = "idle" | "selected" | "compressing" | "uploading" | "success" | "error";
 type TabMode = "text" | "photo";
 
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp", "application/pdf"];
-const STORAGE_KEY = "yomi_homework_subjects";
-const STORAGE_DONE_KEY = "yomi_homework_done";
 
 function UploadContent() {
   const router = useRouter();
@@ -35,31 +34,23 @@ function UploadContent() {
   const cameraRef = useRef<HTMLInputElement>(null);
   const galleryRef = useRef<HTMLInputElement>(null);
 
-  // ── 贴文本状态 ──
+  // ── 作业清单 - 日期化 ──
+  const {
+    getToday,
+    getHistory,
+    upsertToday,
+    toggleTask: toggleDayTask,
+    deleteTask: deleteDayTask,
+    copyToToday,
+  } = useHomeworkDays();
+
+  const todayEntry = getToday();
+  const historyEntries = getHistory();
+
   const [text, setText] = useState("");
-  const [subjects, setSubjects] = useState<HomeworkSubject[]>([]);
-  const [doneMap, setDoneMap] = useState<Record<string, boolean>>({});
   const [parseLoading, setParseLoading] = useState(false);
   const [parseError, setParseError] = useState("");
-  const [showPreview, setShowPreview] = useState(false);
-
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) setSubjects(JSON.parse(saved));
-      const done = localStorage.getItem(STORAGE_DONE_KEY);
-      if (done) setDoneMap(JSON.parse(done));
-    } catch {}
-  }, []);
-
-  const persistSubjects = (s: HomeworkSubject[], d?: Record<string, boolean>) => {
-    setSubjects(s);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
-    if (d !== undefined) {
-      setDoneMap(d);
-      localStorage.setItem(STORAGE_DONE_KEY, JSON.stringify(d));
-    }
-  };
+  const [historyExpanded, setHistoryExpanded] = useState<Record<string, boolean>>({});
 
   // ── 拍照逻辑 ──
   const handleFile = (f: File | undefined) => {
@@ -128,13 +119,8 @@ function UploadContent() {
         setParseError((resp as any).message || "解析失败，请重试");
         return;
       }
-      const incoming = resp.data.subjects;
-      if (subjects.length === 0) {
-        persistSubjects(incoming, {});
-        return;
-      }
-      (window as any).__yomi_incoming = incoming;
-      setShowPreview(true);
+      upsertToday(resp.data.subjects, text.trim());
+      setText("");
     } catch (e) {
       setParseError(e instanceof Error ? e.message : "请求失败");
     } finally {
@@ -142,23 +128,29 @@ function UploadContent() {
     }
   };
 
-  const handleMergeConfirm = () => {
-    const incoming: HomeworkSubject[] = (window as any).__yomi_incoming || [];
-    const merged = mergeSubjects(subjects, incoming);
-    persistSubjects(merged, doneMap);
-    setShowPreview(false);
-    delete (window as any).__yomi_incoming;
+  const handleToggle = (si: number, ti: number) => {
+    if (!todayEntry) return;
+    const subject = todayEntry.subjects[si];
+    if (!subject) return;
+    toggleDayTask(todayEntry.date, subject.name, subject.tasks[ti]);
   };
 
-  const handleMergeCancel = () => {
-    setShowPreview(false);
-    delete (window as any).__yomi_incoming;
+  const handleDelete = (subjectName: string, taskIdx: number) => {
+    if (!todayEntry) return;
+    deleteDayTask(todayEntry.date, subjectName, taskIdx);
   };
 
-  const toggleTask = (si: number, ti: number) => {
-    const key = `${si}-${ti}`;
-    const next = { ...doneMap, [key]: !doneMap[key] };
-    persistSubjects(subjects, next);
+  const handleCopyToToday = (date: string) => {
+    copyToToday(date);
+  };
+
+  const toggleHistoryExpand = (date: string) => {
+    setHistoryExpanded((prev) => ({ ...prev, [date]: !prev[date] }));
+  };
+
+  const formatDate = (iso: string): string => {
+    const d = new Date(iso);
+    return `${d.getMonth() + 1}月${d.getDate()}日`;
   };
 
   return (
@@ -192,19 +184,18 @@ function UploadContent() {
       {/* ── 贴文本面板 ── */}
       {tab === "text" && (
         <div className="space-y-4">
-          {subjects.length > 0 && (
-            <HomeworkList subjects={subjects} doneMap={doneMap} onToggle={toggleTask} />
-          )}
-
-          {showPreview && (
-            <MergePreview
-              existing={subjects}
-              incoming={(window as any).__yomi_incoming || []}
-              onConfirm={handleMergeConfirm}
-              onCancel={handleMergeCancel}
+          {/* 今日作业 */}
+          {todayEntry && todayEntry.subjects.length > 0 && (
+            <HomeworkList
+              subjects={todayEntry.subjects}
+              doneMap={todayEntry.doneMap}
+              onToggle={handleToggle}
+              onDelete={handleDelete}
+              readOnly={false}
             />
           )}
 
+          {/* 粘贴区 */}
           <div className="space-y-3">
             <p className="flex items-center gap-2 text-sm text-muted-foreground">
               <ClipboardList className="w-4 h-4" />
@@ -235,13 +226,75 @@ function UploadContent() {
             {parseError && <ErrorDisplay message={parseError} onRetry={handleParse} />}
           </div>
 
-          {subjects.length === 0 && !parseLoading && (
-            <div className="bg-muted rounded-xl p-4 text-xs text-muted-foreground space-y-1">
-              <p className="font-medium text-foreground text-sm mb-2">💡 支持格式</p>
-              <p>• 科目：任务1，任务2</p>
-              <p>• 科目 - 任务1 - 任务2</p>
-              <p>• 【科目】任务1 / 任务2</p>
+          {/* 空态引导 */}
+          {!todayEntry && historyEntries.length === 0 && (
+            <div className="bg-muted rounded-xl p-4 text-xs text-muted-foreground space-y-2">
+              <p className="font-medium text-foreground text-sm">💡 怎么用</p>
+              <p>1. 复制微信群里的作业文本</p>
+              <p>2. 粘贴到上方输入框</p>
+              <p>3. 点「生成作业清单」→ AI 自动拆分科目和任务</p>
+              <p>4. 孩子完成一项勾一项 ✨</p>
+              <p className="text-muted-foreground/60 mt-2">
+                支持任意格式——DeepSeek AI 会自动识别，不用照着示例格式改
+              </p>
             </div>
+          )}
+
+          {/* 历史记录 */}
+          {historyEntries.length > 0 && (
+            <section className="space-y-3">
+              <h2 className="text-sm font-semibold text-foreground">历史记录</h2>
+              {historyEntries.map((entry) => {
+                const expanded = historyExpanded[entry.date] || false;
+                const doneCount = Object.values(entry.doneMap).filter(Boolean).length;
+                const totalCount = Object.keys(entry.doneMap).length;
+                return (
+                  <div
+                    key={entry.date}
+                    className="bg-card rounded-xl border border-border overflow-hidden"
+                  >
+                    <button
+                      onClick={() => toggleHistoryExpand(entry.date)}
+                      className="w-full flex items-center justify-between px-4 py-3 hover:bg-muted/30 transition"
+                    >
+                      <div className="flex items-center gap-2">
+                        {expanded ? (
+                          <ChevronDown className="w-4 h-4 text-muted-foreground" />
+                        ) : (
+                          <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                        )}
+                        <span className="text-sm font-medium text-foreground">
+                          {formatDate(entry.created_at)}
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          {doneCount}/{totalCount}
+                        </span>
+                      </div>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleCopyToToday(entry.date);
+                        }}
+                        className="flex items-center gap-1 text-xs text-primary hover:opacity-80 transition"
+                      >
+                        <Copy className="w-3 h-3" />
+                        复制到今日
+                      </button>
+                    </button>
+                    {expanded && (
+                      <div className="px-4 pb-4">
+                        <HomeworkList
+                          subjects={entry.subjects}
+                          doneMap={entry.doneMap}
+                          onToggle={() => {}}
+                          readOnly={true}
+                        />
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </section>
           )}
         </div>
       )}
@@ -348,85 +401,6 @@ function UploadContent() {
           )}
         </div>
       )}
-    </div>
-  );
-}
-
-/** 精确文本匹配去重合并 */
-function mergeSubjects(
-  existing: HomeworkSubject[],
-  incoming: HomeworkSubject[]
-): HomeworkSubject[] {
-  const allTasks = new Set(
-    existing.flatMap((s) => s.tasks.map((t) => t.trim()))
-  );
-  const result: HomeworkSubject[] = existing.map((s) => ({ ...s, tasks: [...s.tasks] }));
-
-  for (const inc of incoming) {
-    const newTasks = inc.tasks.filter((t) => !allTasks.has(t.trim()));
-    if (newTasks.length === 0) continue;
-    const existingSubj = result.find((s) => s.name === inc.name);
-    if (existingSubj) {
-      existingSubj.tasks.push(...newTasks);
-    } else {
-      result.push({ name: inc.name, tasks: newTasks });
-    }
-    newTasks.forEach((t) => allTasks.add(t.trim()));
-  }
-  return result;
-}
-
-/** 合并预览弹窗 */
-function MergePreview({
-  existing,
-  incoming,
-  onConfirm,
-  onCancel,
-}: {
-  existing: HomeworkSubject[];
-  incoming: HomeworkSubject[];
-  onConfirm: () => void;
-  onCancel: () => void;
-}) {
-  const existingSet = new Set(
-    existing.flatMap((s) => s.tasks.map((t) => t.trim()))
-  );
-  const skipped = incoming.flatMap((s) =>
-    s.tasks.filter((t) => existingSet.has(t.trim()))
-  );
-  const added = incoming.flatMap((s) =>
-    s.tasks.filter((t) => !existingSet.has(t.trim()))
-  );
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
-      <div className="bg-card rounded-2xl shadow-lg max-w-sm w-full p-6 space-y-4">
-        <h2 className="text-lg font-bold text-foreground">合并作业清单</h2>
-        {skipped.length > 0 && (
-          <p className="text-sm text-muted-foreground">
-            已跳过 {skipped.length} 个重复任务
-          </p>
-        )}
-        {added.length > 0 && (
-          <div className="bg-primary/5 rounded-xl p-3 text-sm space-y-1">
-            <p className="font-medium text-primary">新增 {added.length} 个任务：</p>
-            {added.map((t, i) => (
-              <p key={i} className="text-foreground">+ {t}</p>
-            ))}
-          </div>
-        )}
-        {added.length === 0 && (
-          <p className="text-sm text-muted-foreground">所有任务已存在，无需合并</p>
-        )}
-        <div className="flex gap-3 pt-2">
-          <button onClick={onCancel} className="flex-1 rounded-xl border border-border py-2.5 text-sm text-foreground hover:bg-muted transition">
-            取消
-          </button>
-          <button onClick={onConfirm} className="flex-1 rounded-xl bg-primary text-primary-foreground py-2.5 text-sm font-medium hover:opacity-90 transition">
-            确认合并
-          </button>
-        </div>
-      </div>
     </div>
   );
 }
