@@ -1,9 +1,17 @@
 "use client";
 
+import { usePathname } from "next/navigation";
 import TabBar from "./TabBar";
 import EntitlementBar from "@/components/entitlement/EntitlementBar";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
+
+  // Auth 路由不显示顶栏和底部 TabBar（trailingSlash 兼容）
+  if (pathname === "/login" || pathname === "/login/" || pathname === "/register" || pathname === "/register/") {
+    return <>{children}</>;
+  }
+
   return (
     <div className="relative min-h-dvh bg-background text-foreground flex flex-col">
       {/* StatusBar */}
