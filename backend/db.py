@@ -512,6 +512,9 @@ def save_model_call(data: dict):
     error_code = data.get("error_code", "")
     credit_cost = float(data.get("credit_cost", data.get("estimated_cost", 0.0)))
     retry_count = int(data.get("retry_count", 0))
+    trace_id = data.get("trace_id", "")
+    parent_trace_id = data.get("parent_trace_id", "")
+    sub_stage = data.get("sub_stage", "")
     c.execute(
         "INSERT OR REPLACE INTO model_calls "
         "(id, task_id, feature_code, job_id, question_id, provider, model_name, "
@@ -520,8 +523,8 @@ def save_model_call(data: dict):
         "cache_hit_tokens, cache_miss_tokens, "
         "unit_price_input, unit_price_output, unit_price_cache_hit, unit_price_cache_miss, "
         "currency, raw_cost, cost_cny, pricing_snapshot_id, "
-        "latency_ms, status, error_code, credit_cost, retry_count, data) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "latency_ms, status, error_code, credit_cost, retry_count, trace_id, parent_trace_id, sub_stage, data) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (call_id, task_id, feature_code, job_id, question_id, provider, model_name,
          prompt_version, schema_version, request_id,
          input_tokens, output_tokens, image_count, image_total_bytes,
@@ -529,6 +532,7 @@ def save_model_call(data: dict):
          unit_price_input, unit_price_output, unit_price_cache_hit, unit_price_cache_miss,
          currency, raw_cost, cost_cny, pricing_snapshot_id,
          latency_ms, status, error_code, credit_cost, retry_count,
+         trace_id, parent_trace_id, sub_stage,
          json.dumps(data, default=str)),
     )
     c.commit()
@@ -728,6 +732,41 @@ def get_tutor_chat(question_id: str) -> list[dict]:
     return result
 
 # ═══════════════════════════════════════════════════════════════
+# ai_tutoring_sessions + messages（成本账本 — Hermes 规划 §5.4）
+# ═══════════════════════════════════════════════════════════════
+
+def upsert_tutoring_session(session_id: str, question_id: str, child_id: str = ""):
+    """创建或更新辅导会话。"""
+    c = _conn()
+    c.execute(
+        "INSERT OR IGNORE INTO ai_tutoring_sessions (id, question_id, child_id, session_status) VALUES (?, ?, ?, 'active')",
+        (session_id, question_id, child_id),
+    )
+    c.commit()
+    c.close()
+
+def save_tutoring_message(msg_id: str, session_id: str, question_id: str, child_id: str,
+                           seq: int, role: str, content: str,
+                           call_id: str = "", feature_code: str = "",
+                           input_tokens: int = 0, output_tokens: int = 0, cost_cny: float = 0.0):
+    """写入 ai_tutoring_messages 并更新 session 汇总。"""
+    c = _conn()
+    c.execute(
+        "INSERT INTO ai_tutoring_messages (id, session_id, question_id, child_id, sequence_number, role, content, call_id, feature_code, input_tokens, output_tokens, cost_cny) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (msg_id, session_id, question_id, child_id, seq, role, content, call_id, feature_code, input_tokens, output_tokens, cost_cny),
+    )
+    # 更新 session 汇总
+    c.execute(
+        "UPDATE ai_tutoring_sessions SET message_count = message_count + 1, "
+        "total_input_tokens = total_input_tokens + ?, total_output_tokens = total_output_tokens + ?, "
+        "total_cost_cny = total_cost_cny + ? WHERE id = ?",
+        (input_tokens, output_tokens, cost_cny, session_id),
+    )
+    c.commit()
+    c.close()
+
+# ═══════════════════════════════════════════════════════════════
 # 作业/页面/题目/尝试
 # ═══════════════════════════════════════════════════════════════
 
@@ -752,25 +791,28 @@ def create_assignment_page(pid: str, assignment_id: str, page_no: int = 1, oss_k
     c.close()
     return pid
 
-def create_question_item(qid: str, assignment_id: str, page_id: str, question_no: int, question_text: str, bbox: list, visual_description: str = ""):
+def create_question_item(qid: str, assignment_id: str, page_id: str, question_no: int, question_text: str, bbox: list, visual_description: str = "",
+                          source_call_id: str = "", parse_cost_allocated_cny: float = 0.0):
     c = _conn()
     c.execute(
-        "INSERT OR REPLACE INTO question_item (id, assignment_id, page_id, question_no, bbox_json, question_text, visual_description) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (qid, assignment_id, page_id, question_no, json.dumps(bbox or []), question_text, visual_description or ""),
+        "INSERT OR REPLACE INTO question_item (id, assignment_id, page_id, question_no, bbox_json, question_text, visual_description, source_call_id, parse_cost_allocated_cny) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (qid, assignment_id, page_id, question_no, json.dumps(bbox or []), question_text, visual_description or "", source_call_id, parse_cost_allocated_cny),
     )
     c.commit()
     c.close()
     return qid
 
 def save_parse_job(job_id: str, child_id: str, parent_id: str, file_name: str, questions_count: int, status: str, created_at: str,
-                    progress: str = "", error_code: str = "", retry_count: int = 0, completed_at: str = ""):
+                    progress: str = "", error_code: str = "", retry_count: int = 0, completed_at: str = "",
+                    parse_mode: str = "", parser_provider: str = "", parser_model: str = "",
+                    qwen_parse_call_id: str = "", total_parse_cost_cny: float = 0.0):
     """持久化解析任务元数据，供 getRecent 跨重启查询。"""
     c = _conn()
     c.execute(
-        "INSERT OR REPLACE INTO parse_jobs (job_id, child_id, parent_id, file_name, questions_count, status, created_at, progress, error_code, retry_count, completed_at, data, updated_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '{}', ?)",
-        (job_id, child_id, parent_id, file_name, questions_count, status, created_at, progress, error_code, retry_count, completed_at, created_at),
+        "INSERT OR REPLACE INTO parse_jobs (job_id, child_id, parent_id, file_name, questions_count, status, created_at, progress, error_code, retry_count, completed_at, parse_mode, parser_provider, parser_model, qwen_parse_call_id, total_parse_cost_cny, data, updated_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '{}', ?)",
+        (job_id, child_id, parent_id, file_name, questions_count, status, created_at, progress, error_code, retry_count, completed_at, parse_mode, parser_provider, parser_model, qwen_parse_call_id, total_parse_cost_cny, created_at),
     )
     c.commit()
     c.close()
@@ -847,8 +889,10 @@ def redeem_activation_code(code: str, parent_user_id: str) -> dict | None:
     c.close()
     return result
 
-def add_credit_ledger_entry(parent_user_id: str, child_id: str, amount: int, reason_code: str, reason_desc: str = "", related_id: str = ""):
-    "写学豆流水"
+def add_credit_ledger_entry(parent_user_id: str, child_id: str, amount: int, reason_code: str, reason_desc: str = "", related_id: str = "",
+                            feature_code: str = "", job_id: str = "", question_id: str = "", call_id: str = "",
+                            actual_cost_cny: float = 0.0, credit_delta: int = 0, billing_status: str = ""):
+    "写学豆流水（成本账本完整字段）"
     import uuid
     c = _conn()
     # 更新余额
@@ -860,9 +904,9 @@ def add_credit_ledger_entry(parent_user_id: str, child_id: str, amount: int, rea
         (parent_user_id, new_balance),
     )
     c.execute(
-        "INSERT INTO credit_ledger (id, parent_user_id, child_id, change_amount, balance_after, reason_code, reason_desc, related_id) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        (uuid.uuid4().hex[:12], parent_user_id, child_id, amount, new_balance, reason_code, reason_desc, related_id),
+        "INSERT INTO credit_ledger (id, parent_user_id, child_id, change_amount, balance_after, reason_code, reason_desc, related_id, feature_code, job_id, question_id, call_id, actual_cost_cny, credit_delta, billing_status) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (uuid.uuid4().hex[:12], parent_user_id, child_id, amount, new_balance, reason_code, reason_desc, related_id, feature_code, job_id, question_id, call_id, actual_cost_cny, credit_delta or amount, billing_status),
     )
     c.commit()
     c.close()

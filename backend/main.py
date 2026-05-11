@@ -264,8 +264,15 @@ def save_result(jid: str, questions: list, now: str, file, status: JobStatus):
     error_code = _jobs[jid].get("error_code", "")
     retry_count = _jobs[jid].get("retry_count", 0)
     completed_at = _ts() if status.value in ("completed", "completed_with_failures", "failed") else ""
+    parse_mode = _jobs[jid].get("parse_mode", "")
+    parser_provider = _jobs[jid].get("parser_provider", "")
+    parser_model = _jobs[jid].get("parser_model", "")
+    qwen_parse_call_id = _jobs[jid].get("qwen_parse_call_id", "")
+    total_parse_cost_cny = _jobs[jid].get("total_parse_cost_cny", 0.0)
     _db.save_parse_job(jid, child_id, parent_id, file_name, len(questions), status, now,
-                        progress=progress, error_code=error_code, retry_count=retry_count, completed_at=completed_at)
+                        progress=progress, error_code=error_code, retry_count=retry_count, completed_at=completed_at,
+                        parse_mode=parse_mode, parser_provider=parser_provider, parser_model=parser_model,
+                        qwen_parse_call_id=qwen_parse_call_id, total_parse_cost_cny=total_parse_cost_cny)
 
 
 # ─── 鉴权端点 ──────────────────────────────────────────────
@@ -431,11 +438,17 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
     _jobs[jid]["assignment_id"] = aid
     _jobs[jid]["page_id"] = page_id
 
+    # ── 生成链路 trace_id（Hermes 工作流规划 P0）──
+    trace_id = _uuid.uuid4().hex
+    _jobs[jid]["trace_id"] = trace_id
+    total_parse_cost = 0.0  # 累计 Qwen-VL 解析成本
+
     try:
         # ── Phase 1: Qwen-VL 全图识题优先 ──
         _jobs[jid]["job"].status = JobStatus.enhancing
         qwen_vl = QwenVLClient()
         use_qwen_vl = False
+        qwen_parse_call_id = ""  # 默认空，OCR 回落时不填
         questions = []
 
         if qwen_vl._available():
@@ -455,6 +468,8 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
                 provider_name="aliyun_dashscope",
                 model_name="qwen-vl-max",
                 feature_code="qwen_vl_parse_homework",
+                trace_id=trace_id,
+                sub_stage="fullpage_extract",
                 latency_ms=qwen_latency,
                 success=qwen_result["success"],
                 input_tokens=input_tokens,
@@ -467,6 +482,8 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
                 pricing=pricing,
                 blocks_count=len(qwen_result.get("questions", [])),
             )
+            qwen_parse_call_id = _log["id"]
+            total_parse_cost += _log.get("cost_cny", 0.0)
             _model_calls.append(_log)
             _db.save_model_call(_log)
 
@@ -478,6 +495,9 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
 
                 # 分组展示用：用 raw_content 作为视觉描述
                 shared_vd = qwen_result.get("raw_content", f"Qwen-VL 全图识别，共 {question_count} 题")
+
+                # 按题数平摊 Qwen-VL 解析成本
+                parse_cost_per_q = total_parse_cost / question_count if question_count > 0 else 0.0
 
                 for i, rq in enumerate(raw_questions):
                     qid = f"{jid}-{rq.get('number', i+1)}-{i}"
@@ -496,7 +516,8 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
                         visual_description=shared_vd,
                         status=QuestionStatus.completed,
                     ))
-                    _db.create_question_item(qid, aid, page_id, q_no, q_text, [0, 0, 0, 0], shared_vd[:200])
+                    _db.create_question_item(qid, aid, page_id, q_no, q_text, [0, 0, 0, 0], shared_vd[:200],
+                                              source_call_id=qwen_parse_call_id, parse_cost_allocated_cny=parse_cost_per_q)
             else:
                 print(f"[BG] Qwen-VL failed: {qwen_result.get('error', 'no questions')}, falling back to OCR", flush=True)
 
@@ -513,6 +534,7 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
                 provider_name="aliyun_ocr",
                 model_name="ocr_api20210707",
                 feature_code="ocr",
+                trace_id=trace_id,
                 latency_ms=latency_ms,
                 success=True,
                 parent_user_id=parent_id,
@@ -570,6 +592,8 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
                             provider_name="aliyun_dashscope",
                             model_name="qwen-vl-max",
                             feature_code="qwen_vl_parse_homework",
+                            trace_id=trace_id,
+                            sub_stage="question_cutting",
                             latency_ms=vl_ms,
                             success=vl_result["success"],
                             parent_user_id=parent_id,
@@ -639,7 +663,9 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
                         _vlog = make_log_entry(
                             task_id=jid, question_id=q.question_id, job_id=jid,
                             provider_name="aliyun_dashscope", model_name="qwen-vl-max",
-                            feature_code="qwen_vl_parse_homework", latency_ms=vl_ms,
+                            feature_code="qwen_vl_parse_homework",
+                            trace_id=trace_id, sub_stage="question_cutting",
+                            latency_ms=vl_ms,
                             success=vl_result["success"], parent_user_id=parent_id,
                             child_id=child_id, error_code=vl_result.get("error"),
                             billing_status="free_tier" if vl_result["success"] else "failed",
@@ -680,6 +706,12 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
                 has_failures = True
 
         final_status = JobStatus.needs_review if has_failures else JobStatus.completed
+        # 存储解析元数据供 save_result 写入 parse_jobs
+        _jobs[jid]["parse_mode"] = "qwen_vl"
+        _jobs[jid]["parser_provider"] = "aliyun_dashscope"
+        _jobs[jid]["parser_model"] = "qwen-vl-max"
+        _jobs[jid]["qwen_parse_call_id"] = qwen_parse_call_id
+        _jobs[jid]["total_parse_cost_cny"] = total_parse_cost
         save_result(jid, questions, now, file, final_status)
 
     except Exception as e:
@@ -899,6 +931,7 @@ async def tutor_question(question_id: str, body: TutorRequest, request: Request,
         # Build prompt and call DeepSeek
         t_start = time.time()
         ds = DeepSeekClient()
+        feat_code = "deepseek_tutor_initial" if body.mode == "initial" else "deepseek_tutor_followup"
         messages = build_tutor_messages(
             mode=body.mode,
             question_text=q_found.question_text,
@@ -917,36 +950,62 @@ async def tutor_question(question_id: str, body: TutorRequest, request: Request,
         _db.save_tutor_chat(question_id, history)
         _db.save_credit_balance(parent_id, credits - 1)
 
-        # 写 credit_ledger 流水（基准 Table 12）
-        _db.add_credit_ledger_entry(parent_id, child_id_for_credit, -1, "tutor_call", f"辅导: {question_id}", question_id)
-
         # 写入结构化 ai_tutoring_chat（基准 Table 12，按 sequence_number）
         seq = len(history)
         call_id = uuid.uuid4().hex[:12]
         _db.save_tutor_message(uuid.uuid4().hex[:12], question_id, child_id_for_credit, seq - 1, "user", body.message or q_found.question_text)
         _db.save_tutor_message(call_id, question_id, child_id_for_credit, seq, "assistant", result["reply_text"], call_id)
 
+        # ── 成本账本：ai_tutoring_messages + sessions（Hermes 规划 §5.4）──
+        session_id = f"sess_{question_id}"
+        try:
+            _db.upsert_tutoring_session(session_id, question_id, child_id_for_credit)
+            _db.save_tutoring_message(uuid.uuid4().hex[:12], session_id, question_id, child_id_for_credit,
+                                       seq - 1, "user", body.message or q_found.question_text)
+            _db.save_tutoring_message(call_id, session_id, question_id, child_id_for_credit,
+                                       seq, "assistant", result["reply_text"],
+                                       call_id=call_id, feature_code=feat_code)
+        except Exception as _te:
+            print(f"[Tutor] ai_tutoring_messages write failed (non-blocking): {_te}", flush=True)
+
         # Log model call — SQLite 持久化
         pricing = get_active_pricing("deepseek", "deepseek-chat")
+        tutor_trace_id = uuid.uuid4().hex  # 辅导链路 trace
+        usage = result.get("usage") or {}
+        in_tok = usage.get("input_tokens", 0)
+        out_tok = usage.get("output_tokens", 0)
         _tlog = make_log_entry(
             task_id="tutor",
             question_id=question_id,
             job_id=question_id,
             provider_name="deepseek",
             model_name="deepseek-chat",
-            feature_code="deepseek_tutor_initial",
+            feature_code=feat_code,
+            trace_id=tutor_trace_id,
             latency_ms=result.get("latency_ms", latency_ms),
             success=result["success"],
             error_code=result.get("error"),
             billing_status="free_tier" if result["success"] else "failed",
             prompt_name=f"tutor_{body.mode}",
-            input_tokens=(result.get("usage") or {}).get("input_tokens", 0),
-            output_tokens=(result.get("usage") or {}).get("output_tokens", 0),
+            input_tokens=in_tok,
+            output_tokens=out_tok,
             estimated_cost=0.0,
             pricing=pricing,
         )
         _model_calls.append(_tlog)
         _db.save_model_call(_tlog)
+
+        # ── credit_ledger 回写真实成本（Hermes 规划 T6）──
+        try:
+            actual_cost = _tlog.get("cost_cny", 0.0)
+            _db.add_credit_ledger_entry(parent_id, child_id_for_credit, -1, feat_code,
+                                         f"辅导: {question_id}", question_id,
+                                         feature_code=feat_code, job_id=question_id,
+                                         question_id=question_id, call_id=call_id,
+                                         actual_cost_cny=actual_cost, credit_delta=-1,
+                                         billing_status="free_tier")
+        except Exception as _ce:
+            print(f"[Tutor] credit_ledger cost write failed (non-blocking): {_ce}", flush=True)
 
         remaining = MAX_ROUNDS - len(history) // 2
         credit_after = credits - 1
