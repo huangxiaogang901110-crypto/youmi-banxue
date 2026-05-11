@@ -220,6 +220,113 @@ def init():
             created_at TEXT DEFAULT (datetime('now')),
             updated_at TEXT DEFAULT (datetime('now'))
         );
+
+        -- ── 成本账本：AI 辅导会话汇总（Hermes 规划 §5.4）──
+        CREATE TABLE IF NOT EXISTS ai_tutoring_sessions (
+            id TEXT PRIMARY KEY,
+            question_id TEXT NOT NULL,
+            child_id TEXT DEFAULT '',
+            session_status TEXT DEFAULT 'active',
+            message_count INTEGER DEFAULT 0,
+            total_input_tokens INTEGER DEFAULT 0,
+            total_output_tokens INTEGER DEFAULT 0,
+            total_cost_cny REAL DEFAULT 0.0,
+            started_at TEXT DEFAULT (datetime('now')),
+            ended_at TEXT,
+            created_at TEXT DEFAULT (datetime('now'))
+        );
+
+        -- ── 成本账本：AI 辅导消息明细（替代旧 ai_tutoring_chat）──
+        CREATE TABLE IF NOT EXISTS ai_tutoring_messages (
+            id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL,
+            question_id TEXT NOT NULL,
+            child_id TEXT DEFAULT '',
+            sequence_number INTEGER DEFAULT 1,
+            role TEXT NOT NULL,
+            content TEXT NOT NULL,
+            call_id TEXT DEFAULT '',
+            feature_code TEXT DEFAULT '',
+            input_tokens INTEGER DEFAULT 0,
+            output_tokens INTEGER DEFAULT 0,
+            cost_cny REAL DEFAULT 0.0,
+            created_at TEXT DEFAULT (datetime('now'))
+        );
+
+        -- ── Hermes 自用分析库（Hermes 规划 §8）──────────────
+        CREATE TABLE IF NOT EXISTS hermes_alerts (
+            id TEXT PRIMARY KEY,
+            alert_type TEXT NOT NULL,
+            severity TEXT DEFAULT 'info',
+            title TEXT NOT NULL,
+            detail TEXT DEFAULT '',
+            related_table TEXT DEFAULT '',
+            related_id TEXT DEFAULT '',
+            status TEXT DEFAULT 'open',
+            resolved_at TEXT,
+            created_at TEXT DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS hermes_daily_cost_reports (
+            id TEXT PRIMARY KEY,
+            report_date TEXT NOT NULL UNIQUE,
+            total_cost_cny REAL DEFAULT 0.0,
+            qwen_cost_cny REAL DEFAULT 0.0,
+            deepseek_cost_cny REAL DEFAULT 0.0,
+            avg_job_cost_cny REAL DEFAULT 0.0,
+            zero_cost_calls INTEGER DEFAULT 0,
+            total_calls INTEGER DEFAULT 0,
+            created_at TEXT DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS hermes_chain_audit_reports (
+            id TEXT PRIMARY KEY,
+            report_date TEXT NOT NULL UNIQUE,
+            parsejob_count INTEGER DEFAULT 0,
+            qwen_call_count INTEGER DEFAULT 0,
+            question_item_count INTEGER DEFAULT 0,
+            question_attempt_count INTEGER DEFAULT 0,
+            tutor_msg_count INTEGER DEFAULT 0,
+            credit_ledger_count INTEGER DEFAULT 0,
+            break_points TEXT DEFAULT '',
+            health_score INTEGER DEFAULT 0,
+            created_at TEXT DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS hermes_campaign_forecasts (
+            id TEXT PRIMARY KEY,
+            campaign_name TEXT NOT NULL,
+            user_count INTEGER DEFAULT 0,
+            days INTEGER DEFAULT 0,
+            estimated_total_cost REAL DEFAULT 0.0,
+            expected_revenue REAL DEFAULT 0.0,
+            roi_result TEXT DEFAULT '',
+            budget_cap REAL DEFAULT 0.0,
+            created_at TEXT DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS hermes_price_watch (
+            id TEXT PRIMARY KEY,
+            provider TEXT NOT NULL,
+            model_name TEXT NOT NULL,
+            old_price REAL DEFAULT 0.0,
+            new_price REAL DEFAULT 0.0,
+            change_rate REAL DEFAULT 0.0,
+            source_url TEXT DEFAULT '',
+            suggested_action TEXT DEFAULT '',
+            status TEXT DEFAULT 'pending',
+            created_at TEXT DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS hermes_backfill_candidates (
+            id TEXT PRIMARY KEY,
+            source_table TEXT NOT NULL,
+            source_id TEXT NOT NULL,
+            missing_type TEXT NOT NULL,
+            suggested_action TEXT DEFAULT '',
+            status TEXT DEFAULT 'pending',
+            created_at TEXT DEFAULT (datetime('now'))
+        );
     """)
     c.commit()
 
@@ -273,6 +380,34 @@ def init():
         "ALTER TABLE model_calls ADD COLUMN request_id TEXT DEFAULT ''",
         "ALTER TABLE model_calls ADD COLUMN job_id TEXT DEFAULT ''",
         "ALTER TABLE model_calls ADD COLUMN question_id TEXT DEFAULT ''",
+        # 成本账本补字段（Hermes 工作流规划 P0）
+        "ALTER TABLE model_calls ADD COLUMN trace_id TEXT DEFAULT ''",
+        "ALTER TABLE model_calls ADD COLUMN parent_trace_id TEXT DEFAULT ''",
+        "ALTER TABLE model_calls ADD COLUMN sub_stage TEXT DEFAULT ''",
+        # credit_ledger 补字段
+        "ALTER TABLE credit_ledger ADD COLUMN feature_code TEXT DEFAULT ''",
+        "ALTER TABLE credit_ledger ADD COLUMN job_id TEXT DEFAULT ''",
+        "ALTER TABLE credit_ledger ADD COLUMN question_id TEXT DEFAULT ''",
+        "ALTER TABLE credit_ledger ADD COLUMN call_id TEXT DEFAULT ''",
+        "ALTER TABLE credit_ledger ADD COLUMN actual_cost_cny REAL DEFAULT 0.0",
+        "ALTER TABLE credit_ledger ADD COLUMN credit_delta INTEGER DEFAULT 0",
+        "ALTER TABLE credit_ledger ADD COLUMN billing_status TEXT DEFAULT ''",
+        # question_attempt 补字段
+        "ALTER TABLE question_attempt ADD COLUMN is_correct INTEGER DEFAULT -1",
+        "ALTER TABLE question_attempt ADD COLUMN score REAL DEFAULT 0.0",
+        "ALTER TABLE question_attempt ADD COLUMN check_call_id TEXT DEFAULT ''",
+        "ALTER TABLE question_attempt ADD COLUMN check_cost_cny REAL DEFAULT 0.0",
+        # parse_jobs 补字段
+        "ALTER TABLE parse_jobs ADD COLUMN parse_mode TEXT DEFAULT ''",
+        "ALTER TABLE parse_jobs ADD COLUMN parser_provider TEXT DEFAULT ''",
+        "ALTER TABLE parse_jobs ADD COLUMN parser_model TEXT DEFAULT ''",
+        "ALTER TABLE parse_jobs ADD COLUMN qwen_parse_call_id TEXT DEFAULT ''",
+        "ALTER TABLE parse_jobs ADD COLUMN total_parse_cost_cny REAL DEFAULT 0.0",
+        # question_item 补字段
+        "ALTER TABLE question_item ADD COLUMN source_call_id TEXT DEFAULT ''",
+        "ALTER TABLE question_item ADD COLUMN parse_source TEXT DEFAULT ''",
+        "ALTER TABLE question_item ADD COLUMN confidence REAL DEFAULT 0.0",
+        "ALTER TABLE question_item ADD COLUMN parse_cost_allocated_cny REAL DEFAULT 0.0",
     ]
     for sql in migrations:
         try:
@@ -308,6 +443,14 @@ def init():
         "CREATE INDEX IF NOT EXISTS idx_question_item_assignment ON question_item(assignment_id)",
         "CREATE INDEX IF NOT EXISTS idx_question_attempt_question ON question_attempt(question_id, child_id)",
         "CREATE INDEX IF NOT EXISTS idx_ai_chat_question_seq ON tutor_chats(question_id)",
+        # 成本账本索引
+        "CREATE INDEX IF NOT EXISTS idx_model_calls_trace ON model_calls(trace_id)",
+        "CREATE INDEX IF NOT EXISTS idx_model_calls_job ON model_calls(job_id)",
+        "CREATE INDEX IF NOT EXISTS idx_tutoring_sessions_question ON ai_tutoring_sessions(question_id)",
+        "CREATE INDEX IF NOT EXISTS idx_tutoring_messages_session ON ai_tutoring_messages(session_id, sequence_number)",
+        "CREATE INDEX IF NOT EXISTS idx_tutoring_messages_call ON ai_tutoring_messages(call_id)",
+        "CREATE INDEX IF NOT EXISTS idx_credit_ledger_feature ON credit_ledger(feature_code)",
+        "CREATE INDEX IF NOT EXISTS idx_credit_ledger_call ON credit_ledger(call_id)",
     ]
     for sql in indexes:
         c.execute(sql)
