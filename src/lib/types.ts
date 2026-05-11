@@ -111,6 +111,8 @@ export interface TutorResponse {
   chat_limit_reached: boolean;
   /** 本轮剩余可对话轮数 */
   remaining_rounds: number;
+  /** 调用后剩余学豆余额（-1 表示未返回，兼容旧版） */
+  credit_balance: number;
   /** 请求追踪ID */
   request_id?: string;
 }

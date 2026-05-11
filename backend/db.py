@@ -243,6 +243,13 @@ def init():
         "ALTER TABLE parse_jobs ADD COLUMN questions_count INTEGER DEFAULT 0",
         "ALTER TABLE parse_jobs ADD COLUMN status TEXT DEFAULT 'uploaded'",
         "ALTER TABLE parse_jobs ADD COLUMN created_at TEXT DEFAULT ''",
+        # parse_jobs 补齐字段（基准 Table 12）
+        "ALTER TABLE parse_jobs ADD COLUMN progress TEXT DEFAULT ''",
+        "ALTER TABLE parse_jobs ADD COLUMN error_code TEXT DEFAULT ''",
+        "ALTER TABLE parse_jobs ADD COLUMN retry_count INTEGER DEFAULT 0",
+        "ALTER TABLE parse_jobs ADD COLUMN completed_at TEXT DEFAULT ''",
+        # ai_tutoring_chat 软删除（基准 §5.4 联级）
+        "ALTER TABLE ai_tutoring_chat ADD COLUMN deleted_at TEXT",
         # model_calls 成本与关联字段（幂等）
         "ALTER TABLE model_calls ADD COLUMN provider TEXT DEFAULT ''",
         "ALTER TABLE model_calls ADD COLUMN model_name TEXT DEFAULT ''",
@@ -279,6 +286,7 @@ def init():
         # parse_jobs 查询加速
         "CREATE INDEX IF NOT EXISTS idx_parse_jobs_child_id ON parse_jobs(child_id)",
         "CREATE INDEX IF NOT EXISTS idx_parse_jobs_client_task ON parse_jobs(child_id, client_task_id)",
+        "CREATE INDEX IF NOT EXISTS idx_parse_job_child_status_created ON parse_jobs(child_id, status, created_at)",
         # model_calls 查询加速
         "CREATE INDEX IF NOT EXISTS idx_model_calls_created ON model_calls(created_at)",
         "CREATE INDEX IF NOT EXISTS idx_model_calls_feature ON model_calls(feature_code)",
@@ -316,10 +324,15 @@ def save_job(job_id: str, data: dict):
     child_id = data.get("child_id", "")
     parent_id = data.get("parent_id", "")
     client_task_id = data.get("client_task_id", "")
+    progress = data.get("progress", "")
+    error_code = data.get("error_code", "")
+    retry_count = data.get("retry_count", 0)
+    completed_at = data.get("completed_at", "")
     c.execute(
-        "INSERT OR REPLACE INTO parse_jobs (job_id, child_id, parent_id, client_task_id, data, updated_at) "
-        "VALUES (?, ?, ?, ?, ?, datetime('now'))",
-        (job_id, child_id, parent_id, client_task_id, json.dumps(data, default=str)),
+        "INSERT OR REPLACE INTO parse_jobs "
+        "(job_id, child_id, parent_id, client_task_id, progress, error_code, retry_count, completed_at, data, updated_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))",
+        (job_id, child_id, parent_id, client_task_id, progress, error_code, retry_count, completed_at, json.dumps(data, default=str)),
     )
     c.commit()
     c.close()
@@ -389,11 +402,11 @@ def save_tutor_chat(question_id: str, history: list):
     c.close()
 
 
-def save_credit_balance(child_id: str, balance: int):
+def save_credit_balance(parent_user_id: str, balance: int):
     c = _conn()
     c.execute(
-        "INSERT OR REPLACE INTO credit_balances (child_id, balance, updated_at) VALUES (?, ?, datetime('now'))",
-        (child_id, balance),
+        "INSERT OR REPLACE INTO credit_account (parent_user_id, balance, updated_at) VALUES (?, ?, datetime('now'))",
+        (parent_user_id, balance),
     )
     c.commit()
     c.close()
@@ -412,8 +425,8 @@ def load_all():
     rows = c.execute("SELECT question_id, history FROM tutor_chats").fetchall()
     tutor_chats = {row["question_id"]: json.loads(row["history"]) for row in rows}
 
-    rows = c.execute("SELECT child_id, balance FROM credit_balances").fetchall()
-    credit_balances = {row["child_id"]: row["balance"] for row in rows}
+    rows = c.execute("SELECT parent_user_id, balance FROM credit_account").fetchall()
+    credit_balances = {row["parent_user_id"]: row["balance"] for row in rows}
 
     c.close()
     return jobs, model_calls, tutor_chats, credit_balances
@@ -533,8 +546,16 @@ def get_mistakes(child_id: str) -> list[dict]:
     return result
 
 def delete_mistake(mistake_id: str):
+    """软删除错题 + 联级删除关联的辅导对话（基准 §5.4）"""
     c = _conn()
+    # 获取关联 question_id
+    row = c.execute("SELECT question_id FROM mistake_book_item WHERE id = ?", (mistake_id,)).fetchone()
+    question_id = row["question_id"] if row else None
+    # 软删除错题
     c.execute("UPDATE mistake_book_item SET deleted_at = datetime('now') WHERE id = ?", (mistake_id,))
+    # 联级软删除辅导对话
+    if question_id:
+        c.execute("UPDATE ai_tutoring_chat SET deleted_at = datetime('now') WHERE question_id = ? AND deleted_at IS NULL", (question_id,))
     c.commit()
     c.close()
 
@@ -599,13 +620,14 @@ def create_question_item(qid: str, assignment_id: str, page_id: str, question_no
     c.close()
     return qid
 
-def save_parse_job(job_id: str, child_id: str, parent_id: str, file_name: str, questions_count: int, status: str, created_at: str):
+def save_parse_job(job_id: str, child_id: str, parent_id: str, file_name: str, questions_count: int, status: str, created_at: str,
+                    progress: str = "", error_code: str = "", retry_count: int = 0, completed_at: str = ""):
     """持久化解析任务元数据，供 getRecent 跨重启查询。"""
     c = _conn()
     c.execute(
-        "INSERT OR REPLACE INTO parse_jobs (job_id, child_id, parent_id, file_name, questions_count, status, created_at, data, updated_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, '{}', ?)",
-        (job_id, child_id, parent_id, file_name, questions_count, status, created_at, created_at),
+        "INSERT OR REPLACE INTO parse_jobs (job_id, child_id, parent_id, file_name, questions_count, status, created_at, progress, error_code, retry_count, completed_at, data, updated_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '{}', ?)",
+        (job_id, child_id, parent_id, file_name, questions_count, status, created_at, progress, error_code, retry_count, completed_at, created_at),
     )
     c.commit()
     c.close()
@@ -614,7 +636,7 @@ def get_recent_parse_jobs(child_id: str, limit: int = 20):
     """从 DB 查询指定 child 的最近 N 条解析任务。"""
     c = _conn()
     rows = c.execute(
-        "SELECT job_id, file_name, questions_count, status, created_at "
+        "SELECT job_id, file_name, questions_count, status, created_at, progress, error_code, retry_count, completed_at "
         "FROM parse_jobs WHERE child_id = ? "
         "ORDER BY created_at DESC LIMIT ?",
         (child_id, limit),

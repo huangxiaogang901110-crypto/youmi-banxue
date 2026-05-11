@@ -111,6 +111,7 @@ const MOCK_TUTOR_RESPONSE: TutorResponse = {
     '我们一步步来看：\n\n1️⃣ 小明原来有12个苹果\n2️⃣ 吃了3个：12 - 3 = 9个\n3️⃣ 又买了5个：9 + 5 = 14个\n\n✅ 所以还剩14个苹果！',
   chat_limit_reached: false,
   remaining_rounds: 4,
+  credit_balance: -1,
   request_id: 'mock-req-001',
 };
 

@@ -9,6 +9,7 @@ interface EntitlementState {
   isMember: boolean;
   memberUntil: string | null;
   setFromApi: (data: Entitlement) => void;
+  setCreditBalance: (balance: number) => void;
   deductLocal: (amount: number) => void;
   addLocal: (amount: number) => void;
 }
@@ -26,6 +27,12 @@ export const useEntitlementStore = create<EntitlementState>((set) => ({
       isMember: data.is_member,
       memberUntil: data.member_until ?? null,
     }),
+
+  setCreditBalance: (balance) =>
+    set((s) => ({
+      creditBalance: balance,
+      status: balance <= 0 ? "credit_empty" : s.status,
+    })),
 
   deductLocal: (amount) =>
     set((s) => ({

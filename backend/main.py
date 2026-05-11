@@ -157,6 +157,7 @@ class TutorResponse(BaseModel):
     reply_text: str
     chat_limit_reached: bool = False
     remaining_rounds: int = 0
+    credit_balance: int = -1  # -1 表示未返回（兼容旧版）
     request_id: Optional[str] = None
 
 class Entitlement(BaseModel):
@@ -214,7 +215,10 @@ _jobs, _model_calls, _tutor_chats, _credit_balances = _db.load_all()
 _jobs: dict[str, dict]
 _model_calls: list[dict]
 _tutor_chats: dict[str, list[dict]]  # question_id -> chat history
-_credit_balances: dict[str, int]  # child_id -> remaining credits (Phase 0 Mock, 后端独立计数)
+_credit_balances: dict[str, int]  # parent_user_id -> remaining credits (Phase 1 统一按家长计费)
+
+# 429 延后队列（基准 §9/17 — 独立队列，非同循环 sleep）
+_deferred_vision_tasks: list = []
 # ─── 管线边界函数（基准 Table 22 R1）────────────────────────
 def enqueue_parse_job(jid: str, job_entry: dict):
     """将任务注册到内存队列 + SQLite 持久化。"""
@@ -247,12 +251,21 @@ def save_result(jid: str, questions: list, now: str, file, status: JobStatus):
         "child_id": _jobs[jid].get("child_id", ""),
         "parent_id": _jobs[jid].get("parent_id", ""),
         "client_task_id": _jobs[jid].get("client_task_id", ""),
+        "progress": _jobs[jid].get("progress", ""),
+        "error_code": _jobs[jid].get("error_code", ""),
+        "retry_count": _jobs[jid].get("retry_count", 0),
+        "completed_at": _ts() if status.value in ("completed", "completed_with_failures") else "",
     })
     # 同步更新 parse_jobs 表（跨重启查询用）
     child_id = _jobs[jid].get("child_id", "")
     parent_id = _jobs[jid].get("parent_id", "")
     file_name = file.filename if file else ""
-    _db.save_parse_job(jid, child_id, parent_id, file_name, len(questions), status, now)
+    progress = _jobs[jid].get("progress", "")
+    error_code = _jobs[jid].get("error_code", "")
+    retry_count = _jobs[jid].get("retry_count", 0)
+    completed_at = _ts() if status.value in ("completed", "completed_with_failures", "failed") else ""
+    _db.save_parse_job(jid, child_id, parent_id, file_name, len(questions), status, now,
+                        progress=progress, error_code=error_code, retry_count=retry_count, completed_at=completed_at)
 
 
 # ─── 鉴权端点 ──────────────────────────────────────────────
@@ -573,9 +586,15 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
                     except Exception as ve:
                         err_str = str(ve).lower()
                         if "429" in err_str or "rate_limit" in err_str or "too many requests" in err_str:
-                            print(f"[BG] Vision #{qi} RATE LIMITED, sleeping 5s: {ve}", flush=True)
-                            await asyncio.sleep(5)
                             network_retries += 1
+                            if network_retries > MAX_NETWORK_RETRIES:
+                                print(f"[BG] Vision #{qi} RATE LIMITED after {MAX_NETWORK_RETRIES} retries: {ve}", flush=True)
+                                q.status = QuestionStatus.failed
+                                break
+                            delay = 2 ** network_retries
+                            _deferred_vision_tasks.append((qi, q, contents, jid, parent_id, child_id, aid, page_id, network_retries, delay))
+                            print(f"[BG] Vision #{qi} RATE LIMITED, deferred for {delay}s: {ve}", flush=True)
+                            break  # 进延后队列，不阻塞其他题
                         elif "timeout" in err_str or "connection" in err_str or "timed out" in err_str:
                             network_retries += 1
                             if network_retries > MAX_NETWORK_RETRIES:
@@ -595,6 +614,55 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
                             await asyncio.sleep(1)
         else:
             print(f"[BG] Qwen-VL full-page mode: skipping per-question vision review", flush=True)
+
+        # ── 延后队列处理（基准 §9/17 — 429 独立队列）────────
+        if _deferred_vision_tasks:
+            print(f"[BG] Processing {len(_deferred_vision_tasks)} deferred vision tasks...", flush=True)
+            MAX_DEFERRED_RETRIES = 3
+            deferred_retry = 0
+            while _deferred_vision_tasks and deferred_retry < MAX_DEFERRED_RETRIES:
+                deferred_retry += 1
+                pending = _deferred_vision_tasks[:]
+                _deferred_vision_tasks.clear()
+                for qi, q, contents, jid, parent_id, child_id, aid, page_id, n_retries, delay in pending:
+                    await asyncio.sleep(delay)
+                    try:
+                        t_vs = time.time()
+                        vl_result = qwen_vl.analyze_question(
+                            image_bytes=contents, bbox=q.bbox or [0, 0, 0, 0],
+                            question_text=q.question_text,
+                        )
+                        vl_ms = int((time.time() - t_vs) * 1000)
+                        q.visual_description = vl_result["visual_description"]
+                        q.status = QuestionStatus.completed
+                        _db.create_question_item(q.question_id, aid, page_id, q.question_number, q.question_text, q.bbox or [], q.visual_description or "")
+                        _vlog = make_log_entry(
+                            task_id=jid, question_id=q.question_id, job_id=jid,
+                            provider_name="aliyun_dashscope", model_name="qwen-vl-max",
+                            feature_code="qwen_vl_question_cutting", latency_ms=vl_ms,
+                            success=vl_result["success"], parent_user_id=parent_id,
+                            child_id=child_id, error_code=vl_result.get("error"),
+                            billing_status="free_tier" if vl_result["success"] else "failed",
+                            prompt_name="qwen_vl_analyze", retry_count=n_retries,
+                        )
+                        _model_calls.append(_vlog)
+                        _db.save_model_call(_vlog)
+                        print(f"[BG] Deferred Vision #{qi} succeeded after {n_retries} retries: {vl_ms}ms", flush=True)
+                    except Exception as ve:
+                        err_str = str(ve).lower()
+                        next_retries = n_retries + 1
+                        if next_retries > MAX_NETWORK_RETRIES:
+                            print(f"[BG] Deferred Vision #{qi} FAILED after {n_retries} retries: {ve}", flush=True)
+                            q.status = QuestionStatus.failed
+                        elif "429" in err_str or "rate_limit" in err_str:
+                            next_delay = 2 ** next_retries
+                            _deferred_vision_tasks.append((qi, q, contents, jid, parent_id, child_id, aid, page_id, next_retries, next_delay))
+                            print(f"[BG] Deferred Vision #{qi} RE-RATE-LIMITED, re-deferred {next_delay}s", flush=True)
+                        else:
+                            print(f"[BG] Deferred Vision #{qi} non-429 error: {ve}", flush=True)
+                            q.status = QuestionStatus.failed
+            if _deferred_vision_tasks:
+                print(f"[BG] {len(_deferred_vision_tasks)} deferred tasks abandoned after {MAX_DEFERRED_RETRIES} batch retries", flush=True)
 
         # Stage: schema_validating — 基准 Table 21
         _jobs[jid]["job"].status = JobStatus.schema_validating
@@ -787,9 +855,9 @@ async def tutor_question(question_id: str, body: TutorRequest, request: Request,
                 "message": "题目不存在", "request_id": uuid.uuid4().hex,
             })
 
-        # Credit check — 基准 Table 24: 后端二次校验
+        # Credit check — 基准 Table 24: 后端二次校验（按家长计费）
         parent_id, child_id_for_credit = user
-        credits = _credit_balances.setdefault(child_id_for_credit, 50)
+        credits = _credit_balances.setdefault(parent_id, 50)
         if credits <= 0:
             return {
                 "ok": True,
@@ -797,6 +865,7 @@ async def tutor_question(question_id: str, body: TutorRequest, request: Request,
                     reply_text="学豆不足，请联系家长充值",
                     chat_limit_reached=True,
                     remaining_rounds=0,
+                    credit_balance=credits,
                     request_id=uuid.uuid4().hex,
                 ).model_dump(),
                 "request_id": uuid.uuid4().hex,
@@ -844,9 +913,9 @@ async def tutor_question(question_id: str, body: TutorRequest, request: Request,
         history.append({"role": "user", "content": body.message or q_found.question_text})
         history.append({"role": "assistant", "content": result["reply_text"]})
         _tutor_chats[question_id] = history
-        _credit_balances[child_id_for_credit] = credits - 1
+        _credit_balances[parent_id] = credits - 1
         _db.save_tutor_chat(question_id, history)
-        _db.save_credit_balance(child_id_for_credit, credits - 1)
+        _db.save_credit_balance(parent_id, credits - 1)
 
         # 写 credit_ledger 流水（基准 Table 12）
         _db.add_credit_ledger_entry(parent_id, child_id_for_credit, -1, "tutor_call", f"辅导: {question_id}", question_id)
@@ -880,12 +949,14 @@ async def tutor_question(question_id: str, body: TutorRequest, request: Request,
         _db.save_model_call(_tlog)
 
         remaining = MAX_ROUNDS - len(history) // 2
+        credit_after = credits - 1
         return {
             "ok": True,
             "data": TutorResponse(
                 reply_text=result["reply_text"],
                 chat_limit_reached=False,
                 remaining_rounds=remaining,
+                credit_balance=credit_after,
                 request_id=uuid.uuid4().hex,
             ).model_dump(),
             "request_id": uuid.uuid4().hex,

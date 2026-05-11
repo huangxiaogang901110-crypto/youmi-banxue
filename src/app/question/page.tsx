@@ -65,6 +65,7 @@ function QuestionPageInner() {
 
   const creditBalance = useEntitlementStore((s) => s.creditBalance);
   const deductLocal = useEntitlementStore((s) => s.deductLocal);
+  const setCreditBalance = useEntitlementStore((s) => s.setCreditBalance);
 
   const doTutor = async (mode: "initial" | "followup", message: string) => {
     if (creditBalance <= 0) { setError("额度不足，请兑换激活码"); return; }
@@ -76,7 +77,12 @@ function QuestionPageInner() {
       const text = resp.data.reply_text;
       setCurrentReply(text);
       await saveTutorResult(id, resp.data);
-      deductLocal(1);
+      // 用服务端真实余额替代硬编码递减（基准 §15）
+      if (resp.data.credit_balance >= 0) {
+        setCreditBalance(resp.data.credit_balance);
+      } else {
+        deductLocal(1);
+      }
       return text;
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "网络错误";
