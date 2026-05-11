@@ -101,11 +101,28 @@
 
 | # | 任务 | 状态 | 备注 |
 |---|------|------|------|
-| 5 | 接入阿里云 OCR | ✅ 完成 | 官方 SDK，端到端验证通过。免费额度剩余 193 次 |
-| 6 | 智能切题（题号规则+版面规则） | ✅ 完成 | `question_cutter.py`：7种题号模式 + gap fallback。259块→13题。禁止大模型直接画框 |
-| 7 | Qwen-VL 视觉理解（识别图形/公式） | ✅ 完成 | `vision_client.py`：DashScope Qwen-VL-Plus。key 为空时优雅降级。集成到管线 vision_reviewing 阶段。model_call_log 工厂函数已提取 |
-| 8 | DeepSeek 辅导讲解 | ✅ 完成 | `deepseek_client.py`：空 key 优雅降级（sk- 前缀校验）。`tutor_prompt.py`：initial/followup 双模式。对话上下文 + 轮数上限 + model_call_log |
-| 9 | DB schema（model_call_log + 结果持久化） | ✅ 完成 | `db.py`：raw sqlite3。4 表 JSON 存储。内存双写 DB。2026-05-10 代码审查：删除 SQLAlchemy 残留（`_persist_job`、`get_session`、未定义 ORM 类），确认 sqlite3 为唯一持久层 |
+| 5 | 接入阿里云 OCR | ✅ 完成 | 教育 OCR 作为回落路径，非主力 |
+| 6 | 智能切题（题号规则+版面规则） | ✅ 完成 | 仅 OCR 回落时使用，详见 `切题算法说明.md` |
+| 7 | Qwen-VL 视觉理解 | ✅ 完成 | **2026-05-11 升级**：模型 `qwen-vl-max`，新增全图识题 `extract_questions()` 为主力管线 |
+| 8 | DeepSeek 辅导讲解 | ✅ 完成 | `deepseek_client.py`：空 key 优雅降级 |
+| 9 | DB schema | ✅ 完成 | SQLite 持久化 |
+
+### 管线架构（2026-05-11 更新）
+
+```
+Qwen-VL 全图识题 (优先) ──→ 直接出题 ──→ 校验 → 保存
+         │
+         ▼ 失败
+    OCR → 切题 → 逐题 Qwen-VL ──→ 校验 → 保存
+```
+
+| 指标 | Qwen-VL 优先 | OCR 回落 |
+|------|-------------|----------|
+| 20题延迟 | ~21s | ~30-50s |
+| 20题成本 | **¥0.011** | ¥0.057 |
+| 模型 | qwen-vl-max | 教育OCR + qwen-vl-max |
+
+> 详见 `识别管线说明.md`
 
 ---
 
