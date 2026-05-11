@@ -587,6 +587,30 @@ async def get_parse_job_questions(job_id: str):
     except Exception as e:
         return {"ok": False, "code": "questions_error", "message": str(e), "request_id": uuid.uuid4().hex}
 
+# ─── 4. GET /api/parse-jobs/recent ──────────────────────────
+@app.get("/api/parse-jobs/recent")
+async def get_recent_parse_jobs(user: tuple = Depends(get_current_user)):
+    """返回当前 child 最近 10 条解析任务，供「最近解析」列表使用。"""
+    try:
+        parent_id, child_id = user
+        recent = []
+        for jid, j in _jobs.items():
+            if j.get("child_id") == child_id:
+                job = j["job"]
+                recent.append({
+                    "job_id": jid,
+                    "status": job.status,
+                    "questions_count": job.questions_count or len(j.get("questions", [])),
+                    "file_name": job.file_name,
+                    "created_at": job.created_at,
+                })
+        recent.sort(key=lambda x: x["created_at"], reverse=True)
+        return {"ok": True, "data": recent[:10], "request_id": uuid.uuid4().hex}
+    except HTTPException:
+        raise
+    except Exception as e:
+        return {"ok": False, "code": "recent_error", "message": str(e), "request_id": uuid.uuid4().hex}
+
 # ─── 3.5. GET /api/questions/{question_id} ──────────────────
 @app.get("/api/questions/{question_id}")
 async def get_question_detail(question_id: str):

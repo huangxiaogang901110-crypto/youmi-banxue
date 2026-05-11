@@ -175,3 +175,11 @@ export interface MistakeItem {
   next_review_at?: string;
   created_at?: string;
 }
+
+export interface RecentJob {
+  job_id: string;
+  status: string;
+  questions_count: number;
+  file_name: string;
+  created_at: string;
+}

@@ -1,0 +1,741 @@
+悠米伴学 前端基准御三家GPT终审版
+Phase 0/1 前端视觉、交互、云端预留、商业化接口、AI Gateway 与联调边界最终裁定稿
+最终定位：高颜值家庭学习工作台，不是普通拍照搜题 App；Phase 0 不砍颜值，只砍复杂业务，同时预留云端、权益、激活码、学豆、本地缓存删除、统一错误格式、身份占位与联调防坑能力。
+目录
+一、最终裁定
+二、产品定位与设计语言
+三、双层架构与云端预留裁定
+四、Phase 0 主链路
+五、前端技术栈裁定
+六、API Contract 与商业化预留接口
+七、解析状态通信方案
+八、页面设计规范
+九、bbox 渲染与坐标映射方案
+十、DeepSeek 辅导输出方案
+十一、视觉二次路由交互
+十二、移动端优先策略
+十三、设计 Token 与视觉规范
+十四、Typography 可读性规范
+十五、状态管理与 API 目录结构
+十六、错误状态 UI 方案
+十七、数据与展示边界
+十八、Phase 0 必做与暂不做
+十九、Phase 1/2 再升级内容
+二十、Phase 0 验收标准
+二十一、开工防坑清单
+二十二、给开发 Agent 的开工口径
+二十三、终审意见与最终开工裁定
+二十四、联调终审补丁与最终防坑清单
+二十五、第三轮终审补丁与最终开工阻塞项裁定
+二十六、GPT 终审意见与最终输出裁定
+二十七、御三家匹配终审补丁与最终裁定
+二十八、GPT final check 终审意见与最终输出裁定
+一、最终裁定
+Phase 0 不是完整商业 App，但用户第一眼必须像正式产品。
+不接受默认 Gradio / Streamlit 风格作为用户第一眼界面。
+Next.js 负责用户可见的高颜值工作台；Python / Gradio / Streamlit 负责内部调试和技术验证。
+先打通“整页解析 → 题目列表 → 单题辅导 → 视觉追问”主链路，其他业务功能只做入口、占位或本地 Mock。
+视觉策略要高级，但工程实现必须克制，避免动画、bbox、登录、支付、状态流等前端黑洞。
+本版新增裁定：前端必须预留云端 API、用户权益、学豆余额、激活码核销、本地缓存删除和正式支付占位，但 Phase 0 不接真实支付 SDK、不做真实激活码核销。
+二、产品定位与设计语言
+产品定位：家庭学习工作台，而不是单纯拍照搜题 App。
+核心情绪价值：效率、秩序、缓解焦虑、可信、温和、有陪伴感。
+目标用户：家长与孩子。家长更关注可信、省心、可控；孩子更关注清晰、不压迫、愿意继续看。
+第一眼视觉必须降低“作业辅导焦虑”，让用户感到“这件事被整理好了”。
+商业化提示必须克制，不能把产品第一眼做成收款页。权益、额度、激活码只作为状态和入口，不抢主链路。
+三、双层架构与云端预留裁定
+注意：使用 Next.js 不等于 Phase 0 要提前开发完整业务系统。Next.js 只是高颜值用户可见壳和主链路承载层；云端数据库、对象存储、支付订单和学豆体系必须预留接口，但不得拖慢 Phase 0 主链路。
+四、Phase 0 主链路
+首页工作台
+  ↓
+上传整页作业 / PDF
+  ↓
+解析状态动画
+  ↓
+题目 bbox + 题目列表
+  ↓
+点击第 N 题
+  ↓
+DeepSeek 分步辅导
+  ↓
+孩子追问图形 / 表格 / 线段 / 箭头时触发视觉重读
+  ↓
+标记题目状态 / 加入错题本 / 更新本地缓存
+  ↓
+权益与额度日志预留：记录本次功能使用、成本、是否消耗学豆
+所有页面设计都必须服务这条链路。
+非主链路能力可以有漂亮入口，但不得阻塞 Phase 0 开工。
+主链路必须移动端可用，优先验证手机拍照/上传场景。
+权益、学豆、激活码、支付入口只能作为边界状态，不得把 Phase 0 变成完整商业 App。
+五、前端技术栈裁定
+不采用 Ant Design / MUI / 从零手写组件。Ant Design 与 MUI 偏企业后台风，不适合“温和家庭教育产品”的气质。
+Next.js App Router 边界：Phase 0 主链路页面默认使用 "use client" Client Components。上传、轮询、bbox 高亮、对话输入、假打字机、视觉二次路由均属于客户端强交互，不在 Phase 0 强行拆 Server Components；Phase 1 再按需优化 Server / Client 边界。
+六、API Contract 与商业化预留接口
+Phase 0 API Contract 必须在开工前锁定，避免前后端各自发明接口。商业化接口只做类型、状态和 Mock 占位，不接真实支付。
+6.0 请求身份标识与最小认证占位
+Phase 0 typed fetch client 必须统一在请求 Header 中携带 X-Child-Id: demo_child_001；本字段用于 Mock 和联调阶段区分孩子数据，不能散落在组件中手写。
+Phase 0 如需区分家长账号，可同步携带 X-Demo-User-Id: demo_parent_001；后端仅作测试隔离，不作为正式鉴权。
+/api/me/entitlement、/api/questions/{question_id}/tutor、/api/questions/{question_id}/vision、/api/questions/{question_id}/status 均必须能读取该身份占位，否则无法判断权益、额度和缓存归属。
+Phase 1 升级为 Authorization: Bearer *** 必须由后端根据 token 与孩子关系校验，不再信任前端随意传入的 child_id。
+parse-jobs 表单中的 child_id 仅作任务归属字段；Phase 0 要求其与 Header 的 X-Child-Id 一致，Phase 1 由后端从登录态推导。
+typedFetch 最小 Header 约定：
+AI Gateway 红线：前端不得保存、读取、打印、传递任何 Qwen-VL、DeepSeek、OCR 或其他模型供应商 API Key；所有模型调用必须通过后端 AI Gateway 完成，前端只请求本项目后端 API。
+const headers = {
+  "X-Child-Id": "demo_child_001", // Phase 0 only
+  "X-Demo-User-Id": "demo_parent_001" // optional, Phase 0 only
+};
+// Phase 1: Authorization: Bearer ***
+前端必须统一使用 API Client，不允许业务组件直接写死请求路径。
+src/lib/api.ts
+- API_BASE_URL
+- typedFetch<T>()
+- parseJobApi
+- questionApi
+- tutorApi
+- entitlementApi
+- activationApi
+- paymentPlaceholderApi
+6.1 权益与学豆状态枚举
+6.2 前端类型预留
+type EntitlementStatus =
+  | "free_trial"
+  | "member_active"
+  | "member_expired"
+  | "credit_enough"
+  | "credit_low"
+  | "credit_empty"
+  | "activation_mock_only";
+
+type Entitlement = {
+  user_id: string;
+  child_id?: string;
+  is_member: boolean;
+  member_until?: string;
+  credit_balance: number;
+  plan_code?: string;
+  status: EntitlementStatus;
+};
+AI 调用按钮的可用、降级、拦截和提示必须依赖 entitlement 状态，不得在组件里写死“永久免费”“无限次使用”“无限识别”。
+6.3 API 统一错误响应格式
+FastAPI 后端不得直接把默认 detail、traceback、Pydantic 校验栈暴露给前端。typed fetch client 只解析统一包裹格式：
+// success
+{ "ok": true, "data": { ... }, "request_id": "req_xxx" }
+
+// error
+{
+  "ok": false,
+  "code": "ocr_failed",
+  "message": "图片可能太模糊，识别失败，请重新拍摄或上传。",
+  "request_id": "req_xxx",
+  "details": null
+}
+typed fetch client 统一读取 code 做错误分类，读取 message 做用户可见提示；组件不得各自猜测 response.detail / error.message。
+FastAPI 默认 422 / 500 / timeout 必须由全局 exception handler 转换为统一格式。
+前端错误态只展示 message，不展示 traceback、字段栈、Pydantic 原始报错。
+七、解析状态通信方案
+Phase 0 采用前端轮询 polling；Phase 1 可升级 SSE；不使用 WebSocket。
+POST /api/parse-jobs          # 创建解析任务
+御三家异步裁定：POST /api/parse-jobs 必须立即返回 job_id。Phase 0 后端使用 FastAPI BackgroundTasks 或 asyncio.create_task 异步执行解析链路；Phase 1 替换为 ARQ / Dramatiq / Redis Queue，不改变前端接口形状。前端不得同步等待整页解析完成。
+GET  /api/parse-jobs/{job_id} # 每 1.5 秒轮询任务状态
+0-40 秒：正常显示阶段进度。
+40-60 秒：提示“这页题目较复杂，正在继续处理”。
+超过 60 秒：显示“处理时间较长，可以稍后重试”。
+completed / failed：停止轮询。
+轮询状态应携带 task_id / job_id，便于后续云端任务与 Redis 队列升级。
+拿到 job_id 的瞬间，必须立刻写入 URL 路由参数，例如 /workspace?job_id=xxx；组件初始化时优先从 URL 恢复轮询进度，避免刷新或切后台导致任务丢失。
+7.1 解析状态页设计与动效降级
+解析状态页目标不是炫技，而是让家长知道系统没有卡死。状态动效使用“知觉欺骗”：看起来在扫描、处理、校验，但不与后端真实坐标或真实 OCR 进度做像素级同步。
+顶部必须给出时长预期：“通常需要 20-30 秒，请保持页面打开”。
+禁止按真实 OCR 坐标逐字浮现。
+禁止按真实增强区域做局部动画。
+禁止与后端进度做逐帧同步。
+八、页面设计规范
+8.1 登录 / 入口页
+做漂亮入口页，但不做完整账号系统。保留 Logo、Slogan、手机号/邮箱样式、激活码输入框和“进入学习工作台”按钮。
+8.2 首页：家庭学习工作台
+让家长一进来就知道今天要处理什么作业、从哪里上传、解析进度如何、孩子有哪些待学习题。
+8.3 上传 / 导入页
+降低家长焦虑，明确告诉用户系统会自动增强清晰度并整理成待学习清单。
+PDF 预览采用降级方案：Phase 0 不引入 PDF.js。上传后先显示文件名与页数占位卡片；等后端返回 enhanced_image_url 或页面渲染图后，再替换为图片预览。
+PDF 多页裁定：Phase 0 只处理 PDF 第 1 页。上传后明确展示“当前将处理第 1 页，更多页选择将在后续版本开放”。
+Phase 0 /api/parse-jobs 可携带 page_range=1 作为 multipart 表单字段；如前端未传，后端默认处理第 1 页。Phase 1 再支持 1,3-5 等页码选择。
+Phase 0 上传页不得开发复杂 PDF 页码选择器、缩略图分页器或 PDF.js 预览器，避免拖慢主链路。
+图片上传前必须做客户端压缩：使用 Canvas API 将长边压缩到 ≤2200px，JPEG 质量约 0.85，目标文件大小 ≤3MB。PDF 不做前端压缩，直接上传原文件。上传协议必须使用 multipart/form-data，禁止把图片转 Base64 放入 JSON。
+8.4 题目列表页
+上半屏展示增强图和 bbox，下半屏展示题目列表。移动端优先使用上下结构，桌面端可扩展为左右结构。
+8.5 单题辅导页
+这是产品核心场景。顶部展示裁切图或过期占位，中间是 AI 辅导对话流，底部是状态按钮和输入框。
+8.6 权益 / 学豆 / 激活码状态位
+前端必须支持会员、AI 能量、激活码入口和支付占位状态，但 Phase 0 不做真实支付。
+8.7 本地错题缓存与家长删除入口
+错题可以保存在手机本地，但不能设计成“只存在本地”。正式多用户阶段应采用云端主账本 + 手机本地加密缓存。
+前端必须预留“删除本地缓存”“删除某次作业”“删除孩子全部学习资料”三个入口或状态。
+学习数据、图片缓存、错题记录支持家长删除；支付订单、充值流水和额度流水按财务与风控要求保留必要记录。
+PWA 本地缓存可能被浏览器清理，因此不能作为唯一数据源。
+PWA 每次启动时必须校验本地数据版本与云端 parse-jobs / assignments / mistake-book 列表是否一致；不一致时静默拉取，避免 iOS Safari 清理 IndexedDB 后用户误以为数据丢失。
+8.8 Service Worker 与 IndexedDB 职责边界
+Service Worker + Cache Storage 只负责静态资源、PWA 外壳资源，以及可重新拉取的图片/增强图 URL 缓存；不得把错题、解析、对话等业务数据塞进 Service Worker 缓存。
+IndexedDB 负责结构化业务数据：question_text、visual_description、structured_conditions、AI 解析全文、错因、知识点、状态标记、同步版本号。
+二进制大文件不长期进入 IndexedDB；原图、增强图、裁切图只做短期 URL/Cache Storage 缓存，并支持家长删除。
+云端主账本是账号、作业、错题、权益和支付记录的最终依据；PWA 本地缓存只做体验增强和短时离线。
+九、bbox 渲染与坐标映射方案
+Phase 0 使用 <img> + 绝对定位 div 覆盖 bbox；不用 Canvas；只做单向联动。
+后端返回的 bbox 坐标是原图坐标系，前端展示图片会缩放，必须做坐标映射。
+前端必须同时拿到 original_width、original_height、display_width、display_height。
+bbox 渲染层覆盖在图片容器上，使用 position:absolute。
+display_x = bbox_x × display_width  / original_width
+display_y = bbox_y × display_height / original_height
+display_w = bbox_w × display_width  / original_width
+display_h = bbox_h × display_height / original_height
+容器或窗口尺寸变化时必须重新计算 bbox 显示坐标；建议使用 ResizeObserver 监听图片容器变化，不依赖 window.resize。
+bbox 渲染必须等待图片 onLoad 完成后再计算坐标。原图尺寸使用 img.naturalWidth / img.naturalHeight，显示尺寸使用 img.clientWidth / img.clientHeight。
+图片未加载完成前不得渲染 bbox，避免所有框堆叠在左上角。
+十、DeepSeek 辅导输出方案
+Phase 0 使用假打字机；Phase 1 再升级真流式 SSE。
+Phase 0：后端一次性返回完整解析，前端用 setInterval 或 requestAnimationFrame 模拟逐字输出。
+假打字机速度控制在 40-50 字/秒。点击对话内容区域或“跳过动画”按钮后，立即展示完整文本，避免孩子每次等待动画播完才能继续追问。
+不要默认直接给完整答案，应按“提示 → 分步讲解 → 完整解析 + 易错点”三层呈现。
+对话区必须避免大段文字压迫，重点条件、公式、结论应卡片化。
+DeepSeek 或视觉模型调用前，前端要尊重 entitlement 状态；额度不足不得继续触发高成本深度调用。
+扣费展示必须以后端成功返回完整解析为准：/tutor 成功后立即写入 IndexedDB 缓存，再更新 entitlementStore 的展示余额。若用户刷新或退出，页面应从缓存恢复已扣费的完整解析，避免“豆子扣了但内容丢失”。
+十一、视觉二次路由交互
+当孩子追问图、线段、表格、箭头、阴影、坐标等视觉问题时，触发视觉重读。
+前端出现状态气泡：“AI 正在仔细观察原图...”。
+顶部题图覆盖雷达扫描或放大镜游走动效，用于掩盖 Vision 模型高延迟。
+优先复用已有 visual_description；只有描述不足时再调用视觉模型。
+视觉二次路由不能每次无脑调用模型，必须服务真实视觉追问。
+Phase 0 视觉二次路由由前端关键词规则触发，不由后端模型判断。命中“图、图中、线段、表格、几何、箭头、阴影、方格、坐标、这条、这个图”等关键词时，前端先展示等待动画，再调用 /api/questions/{id}/vision。
+视觉二次路由属于高成本调用，必须接入权益/额度状态位；不得绕过 AI 成本日志预留。
+11.1 /vision 扣费与结果恢复机制
+/vision 与 /tutor 同属高成本调用，必须使用相同的“成功后缓存、再更新余额展示”原则。
+/vision 成功返回后，前端先将 visual_description 补充内容、answer、usage、credit_cost、billing_status 写入 IndexedDB；建议 key 为 question_id + vision_call_id 或 question_id + timestamp。
+用户在视觉重读动画播放中刷新、切后台或退出页面时，重新进入单题页必须能从 IndexedDB 恢复最近一次视觉重读结果，不重复扣费。
+若后端返回 cached_result_id，前端恢复时优先使用 cached_result_id 与 question_id 绑定，不依赖 Zustand 临时状态。
+视觉重读完成后再同步刷新 entitlement 查询，并由 entitlementStore 展示最新余额。
+十二、移动端优先策略
+Phase 0 优先适配 375px-430px 手机视口，桌面端作为扩展适配。
+家长核心使用场景是手机拍整页作业，因此移动端体验是第一优先级。
+优先验证：手机上传图片、调用相册/相机、查看 bbox 是否可读、单题辅导是否顺手。
+底部输入框必须处理软键盘遮挡问题。
+软键盘方案：iOS Safari 使用 window.visualViewport 监听高度变化，动态调整输入区 bottom；Android Chrome 使用 100dvh 替代 100vh，并配合 env(safe-area-inset-bottom) 处理安全区。
+移动端题图与题目列表优先上下结构，避免左右栏过窄。
+PWA 作为早期移动端策略时，本地缓存只能作为体验增强，不能当作唯一数据源。
+十三、设计 Token 与视觉规范
+不能只写“奶油白、护眼青”，必须写成可执行 Token。Token 第一版先固定，后续根据真实用户反馈再微调。
+十四、Typography 可读性规范
+不建议所有英文和数字都用等宽字体。只有代码、JSON、日志使用 monospace；公式用专门公式渲染。
+公式渲染裁定：小学/初中数学复杂度下唯一采用 KaTeX + react-katex。
+原因：KaTeX 包体更小、渲染更快、React 集成更简单；Phase 0/1 不引入其他公式渲染库。
+十五、状态管理与 API 目录结构
+src/
+  app/
+    page.tsx
+    workspace/page.tsx
+    question/[id]/page.tsx
+  components/
+    ui/
+    upload/
+    processing/
+    question-list/
+    tutoring/
+    entitlement/
+    local-cache/
+  lib/
+    api.ts             # typed fetch client + API_BASE_URL
+    types.ts           # API 类型
+    entitlement.ts     # 会员/学豆/激活码状态类型
+    localCache.ts      # IndexedDB / Cache Storage 封装
+    typewriter.ts      # 假打字机工具
+  stores/
+    workflowStore.ts   # 选中题、bbox 高亮、UI 流程状态
+    tutorStore.ts      # 当前对话、视觉重读、打字机状态
+    entitlementStore.ts# 本地权益状态展示，不作为云端真实账本
+15.1 entitlement 单向数据流裁定
+推荐最小数据流：
+useEntitlementQuery()
+  -> onSuccess(normalizeEntitlement)
+  -> entitlementStore.setState(...)
+  -> components read entitlementStore only
+
+/tutor or /vision success
+  -> write IndexedDB result
+  -> update display balance from response
+  -> queryClient.invalidateQueries(["entitlement"])
+TanStack Query 是权益数据的唯一远程数据源，负责请求 /api/me/entitlement、失败重试、失效刷新和缓存同步。
+entitlementStore 只负责把最新权益状态转成 UI 可读状态，供按钮、徽章、提示条、拦截弹层读取；不得自行伪造云端余额。
+数据流必须单向：TanStack Query onSuccess → normalizeEntitlement() → setEntitlementStore() → 组件读取 entitlementStore。
+高成本调用 /tutor 或 /vision 成功后，前端可先根据响应中的 credit_cost 做本地展示同步，但必须随后 invalidate/refetch /api/me/entitlement。
+组件不得一部分读 TanStack Query、一部分读 entitlementStore 来决定按钮可用性，避免“余额够但按钮灰”或“余额空仍可点”的冲突。
+十六、错误状态 UI 方案
+真实样本一定会失败，错误态必须提前设计。用户不能看到技术错误栈。
+禁止暴露：schema error、json parse failed、500 internal server error、traceback。
+错误提示必须给用户一个下一步动作，而不是只说失败。
+支付、额度、激活码相关错误不得使用“系统异常”笼统提示，必须区分“未开通、额度不足、激活码无效、网络失败”。
+十七、数据与展示边界
+17.1 crop_url 过期占位
+crop_url、original_image_url、enhanced_image_url 只作短期辅助展示，不能作为错题本长期主显示。
+图片过期时不得显示破图，应显示占位态：“原图已归档，以下内容基于识别文本展示”。
+长期展示依赖 question_text、visual_description、structured_conditions、knowledge_points、status、attempt history。
+17.2 bbox 坐标来源
+bbox 物理坐标不得直接依赖视觉大模型。
+物理坐标应来自 OpenCV、OCR block、版面规则、人工修正记录。
+视觉模型只负责理解图形、判断题目归属、补充 visual_description、复核题目完整性。
+17.3 云端主账本与手机本地缓存
+正式用户阶段：云端是账号、作业、错题、权益、订单和模型成本的主账本。
+手机本地只做隐私友好、离线体验和性能优化缓存，不作为唯一数据源。
+Phase 0 可以用本地 Mock 数据和本地缓存验证体验，但代码结构必须能迁移到云端 API。
+前端要区分 remote_id 与 local_cache_id，避免后续同步时重构。
+17.4 删除边界
+家长可删除学习数据、错题记录、图片缓存和孩子资料。
+可以提供“只删图片，不删错题”的隐私友好入口。
+支付订单、充值流水、额度流水不能承诺一键物理删除；前端文案应改为“按财务与风控要求保留必要记录”。
+删除操作必须有确认弹层、影响说明和完成状态。
+十八、Phase 0 必做与暂不做
+十九、Phase 1/2 再升级内容
+正式账号体系与父子账号数据隔离。
+待学习清单长期保存与基础错题本。
+合并题、拆分题、修改题号、手动框选 bbox。
+作业任务历史、家长确认课程进度、基础知识点归类。
+DeepSeek 解析质量反馈与真流式 SSE 输出。
+SSE 推送解析状态，替换 Phase 0 polling。
+真实 activation_codes 核销、entitlement、credit_account、credit_ledger、model_call_log billing 字段。
+企业主体、正式支付商户、支付订单、支付回调、退款/对账后台。
+PWA 正式分发与移动端缓存同步策略；iOS 正式上架需单独评估 IAP 与审核边界。
+二十、Phase 0 验收标准
+二十一、开工防坑清单
+不要把 Next.js 前端壳做成完整商业系统。
+不要做真实微信登录、真实短信、真实支付 SDK、真实激活码核销。
+不要把 Gradio / Streamlit 暴露给家长用户。
+不要做与真实 OCR 坐标同步的复杂动画。
+不要做双向 bbox 联动、拖拽、Canvas 编辑器。
+不要让 bbox 坐标直接来自视觉大模型。
+不要在 Phase 0 上真流式 SSE，先用假打字机。
+不要把所有状态塞进 Zustand，服务端数据交给 TanStack Query。
+不要让用户看到 traceback、schema error、500 等技术错误。
+不要让玻璃拟态影响题干、解析、公式的可读性。
+不要写死“免费无限用”“无限识别”“9.9 元 500 次深度辅导”等未经成本验证的前端承诺。
+不要让业务组件直接请求零散 URL，必须统一走 typed fetch client。
+不要把手机本地缓存当唯一数据源，必须预留云端主账本和同步字段。
+不要承诺一键删除支付订单或财务流水；学习数据和图片可删，订单流水按必要要求留痕。
+二十二、给开发 Agent 的开工口径
+本项目是“悠米伴学：家庭学习工作台”，不是普通拍照搜题 App。
+Phase 0 的目标不是完整商业 App，但用户可见界面必须高颜值、可信、接近正式产品体验。
+用户可见层使用 Next.js App Router + shadcn/ui + Tailwind CSS；Gradio / Streamlit 仅作为内部调试台。
+本轮只打通：首页 → 上传整页作业/PDF → 解析状态 polling → bbox 题目列表 → 单题 DeepSeek 假打字机辅导 → 视觉二次路由 → 状态标记。
+硬性技术裁定：
+1. 解析状态使用 polling，每 1.5 秒 GET 一次任务状态，Phase 1 再升级 SSE。
+2. bbox 使用 <img> + absolute div 覆盖，不用 Canvas；必须按 display/original 尺寸映射坐标。
+3. Phase 0 只做列表点击 → bbox 高亮的单向联动，叠加 20% Focus Mask。
+4. DeepSeek Phase 0 使用假打字机，不做真 streaming。
+5. 移动端优先，375px-430px 视口必须验收。
+6. 服务端数据使用 TanStack Query，UI 交互状态使用 Zustand，API 使用 typed fetch client。
+7. 预留 API_BASE_URL、entitlement、activation、credit、payment placeholder 类型，但不接真实支付 SDK。
+8. 登录页激活码入口只做 Mock 或占位；Phase 1 才接 /api/activation/redeem。
+9. 不做真实微信登录、短信验证码、完整家长后台、完整错题本、bbox 编辑器、DOCX、完整移动端 App。
+10. crop_url 只作短期辅助，图片过期时显示占位，长期依赖 question_text / visual_description / structured_conditions。
+11. 错误态必须有用户可理解提示和操作出口，不得暴露技术错误栈。
+12. 所有复杂业务能力只做入口或占位，不阻塞 Phase 0 主链路。
+13. 联调时必须同步执行“二十四、联调终审补丁与最终防坑清单”：multipart 上传、Hydration/useEffect 安全、job_id URL 恢复、FastAPI CORSMiddleware、扣费恢复、PWA 缓存同步、激活码限流均为开工硬约束。
+14. 第三轮终审补丁同为开工硬约束：Phase 0 请求头必须携带 X-Child-Id，占位身份与 child_id 一致；权益单向数据流、/vision 扣费恢复、KaTeX 唯一裁定、PDF 第一页、client_task_id 幂等、Service Worker/IndexedDB 边界、统一错误响应格式必须同步执行。
+15. 图片上传前客户端压缩：长边 ≤2200px，JPEG 质量约 0.85，目标 ≤3MB；PDF 不压缩，使用占位预览。
+16. bbox 计算必须等 img.onLoad 后执行，并用 ResizeObserver 处理容器尺寸变化。
+17. Phase 0 主链路页面默认使用 "use client"；不在首版强拆 Server Components。
+18. 假打字机速度 40-50 字/秒，并支持点击跳过动画。
+19. 视觉二次路由由前端关键词规则触发，命中后再调用 /vision 接口。
+20. 本地错题缓存使用 IndexedDB / Cache Storage 预留；学习数据、图片缓存、错题记录支持家长删除入口。
+21. 前端不得写死“永久免费”“无限识别”“违反平台规则或绕开审核规则”等不适合上线和合规审查的表述。
+22. 前端不得保存、读取、打印、传递任何 Qwen-VL、DeepSeek、OCR 或其他模型供应商 API Key；所有模型调用必须通过后端 AI Gateway 完成。
+23. POST /api/parse-jobs 必须立即返回 job_id；Phase 0 后端使用 BackgroundTasks / asyncio.create_task 异步执行，前端只轮询状态，不等待整页解析同步完成。
+24. Phase 0/1 不新增独立 /chat；首次辅导与继续追问统一走 /api/questions/{question_id}/tutor，并通过 mode: initial | followup 区分。
+二十三、终审意见与最终开工裁定
+终审结论：PASS。本 GPT 终审版已达到可直接交给 Orchestrator / RooCode / Codex 开工执行的标准，可作为悠米伴学 Phase 0/1 前端工程当前唯一前端开工裁定稿。
+终审纳入意见
+历轮评审意见已纳入：高颜值策略、动画降级、bbox 单向联动、Typography、玻璃拟态边界、工程通信方案、API Contract、上传压缩、PDF 预览降级、软键盘处理、Client Component 边界。
+本轮新增意见已纳入：云端数据库预留、本地错题缓存、家长删除、权益/学豆状态、激活码 Mock、正式支付占位、支付流水删除边界、禁止无限免费承诺。
+整体逻辑已由“视觉想法”升级为“工程裁定”：每个高颜值目标均配有低复杂度实现路径，避免 Phase 0 进入前端黑洞。
+开工时严格按本文档执行，不回退到默认 Gradio / Streamlit 用户界面，不把 Phase 0 扩展为完整账号、支付、家长后台或复杂 bbox 编辑器。
+最终禁止事项
+禁止 Phase 0 开发真实微信登录、短信验证码、真实支付 SDK、正式激活码核销、完整家长后台。
+禁止 Phase 0 开发 Canvas bbox 编辑器、拖拽框选、合并/拆分题。
+禁止把真 Streaming/SSE、WebSocket 作为 Phase 0 必需项。
+禁止用户第一眼直接暴露 Gradio / Streamlit；禁止在题干、解析正文、公式区使用影响阅读的玻璃拟态。
+禁止写死免费无限用、无限识别、未测算成本的深度辅导次数承诺。
+最终开工顺序
+1. 搭建 Next.js App Router 项目骨架，主链路页面默认使用 "use client"。
+2. 落地 shadcn/ui + Tailwind + Design Token，先做移动端 375-430px 主视口。
+3. 用 Mock 数据完成：首页 → 上传 → 解析状态 → bbox 题目列表 → 单题辅导 → 视觉追问 → 状态标记。
+4. 补 typed fetch client、API_BASE_URL、types.ts、entitlement.ts、localCache.ts，不让组件直接写死请求。
+5. 接入 TanStack Query polling，打通 parse job 状态流。
+6. 接入 Python Demo API 与 DeepSeek 假打字机输出，最后处理真实样本兼容性。
+7. 补激活码 Mock、会员/学豆状态位、额度不足提示、本地缓存删除入口；确认仍未接真实支付。
+终审复查表
+最后一次终审结论：无前后矛盾、无重大遗漏、无明显工程开工深坑。本文档可作为本轮“前端完善版”交付。
+二十四、联调终审补丁与最终防坑清单
+本节是最后一轮终审补丁，专门用于避免 Next.js 前端与 FastAPI 后端联调时出现返工。以下裁定必须进入开发 Agent 的任务边界。
+API Contract 追加硬规则
+/api/parse-jobs 请求 Content-Type 必须为 multipart/form-data，由浏览器自动生成 boundary；前端不得手写错误的 Content-Type。
+文件字段建议统一为 files[] 或 file；child_id、source_type、page_range、client_task_id 作为 multipart 表单字段提交。client_task_id 必须由前端生成 UUIDv4，用于幂等防重。
+client_task_id 定义：前端在用户确认上传前生成 UUIDv4，并随 /api/parse-jobs 提交；后端以 child_id + client_task_id 做幂等键，防止用户连点、刷新重传或网络重试创建重复解析任务。若后端发现重复 key，应返回已有 job_id。
+统一错误格式是联调硬要求：所有失败响应必须为 { ok:false, code, message, request_id, details }，前端 typed fetch client 只消费该格式。
+后端返回 job_id 后，前端必须同步写入 URL 和 TanStack Query 缓存。
+所有高成本模型接口必须返回 usage / credit_cost / billing_status / cached_result_id 等字段占位，便于后续真实计费。
+所有本地缓存恢复必须以 remote_id、job_id、question_id 为主键，不以页面临时状态为准。
+前端验收清单追加项
+二十五、第三轮终审补丁与最终开工阻塞项裁定
+本节记录第三轮终审新发现的 8 个开工阻塞/歧义点。所有内容已分别补入对应章节，并作为最终开工定稿的一部分执行。
+最终复查结论：上述 8 点补入后，前端与 FastAPI 联调身份、状态、扣费、上传、缓存、PDF、错误处理和幂等边界均已闭合。Phase 0 仍保持不接真实支付 SDK、不做真实激活码核销、不开发完整商业系统。
+
+二十六、GPT 终审意见与最终输出裁定
+本节为 final check 纳入内容，用于明确本轮最终审核意见、最终修订结论与交付边界。此前各轮评审补丁已分别进入对应章节，本节不新增复杂功能，只做开工级收口裁定。
+26.1 终审意见
+总体结论：PASS。文档已从“前端视觉稿”升级为“可执行前端工程裁定稿”，覆盖视觉、交互、API、状态管理、联调、商业化预留、本地缓存和家长删除边界。
+当前版本可作为悠米伴学 Phase 0/1 前端开工依据；开发 Agent 应优先执行本文档，而不是回退到旧版前端稿、默认 Gradio/Streamlit 页面或未确认的 UI 草图。
+商业化逻辑已经收敛为“状态机 + 占位接口 + Mock 激活入口”，没有把 Phase 0 扩大成真实支付、正式会员、完整收银台或复杂后台。
+联调深坑已纳入硬边界：multipart 上传、X-Child-Id 占位身份、统一错误格式、client_task_id 幂等、job_id URL 恢复、Hydration 安全、CORS、PWA 缓存非唯一数据源均已覆盖。
+26.2 终审纳入的关键修订
+26.3 逻辑复审结论
+26.4 最终开工裁定
+本文件为“悠米伴学-前端基准御三家版”，可直接用于 RooCode / Cursor / Codex / Orchestrator 开工。
+开工顺序不得改变：先 Next.js 高颜值主链路 Mock，再 typed fetch client 与 API Contract，再 FastAPI 联调，不得先做完整账号、支付、后台、真实激活码系统。
+开发过程中若发现旧文档、旧 UI 草图、旧商业化方案与本文件冲突，默认以本 前端基准御三家版为前端最高优先级。
+最终验收以“手机端主链路可录屏演示 + API Contract 可联调 + Phase 0 禁止事项未越界”为准。
+26.5 GPT 最终交付确认
+已完成最终终审、逻辑复查、细节复审和版面渲染检查。本文件可作为本轮任务的最终输出文档。
+二十七、御三家匹配终审补丁与最终裁定
+本节用于整合最后两轮匹配复查结论，确保本文档与《悠米伴学-施工基准文档御三家GPT终审版》完全对齐。以下内容为前端开工硬约束，如与旧前端文档或旧 UI 草图冲突，均以本节和御三家施工基准为准。
+27.1 接口收敛裁定
+Phase 0/1 不新增独立 /chat 接口。首次 DeepSeek 辅导和后续追问统一使用 POST /api/questions/{question_id}/tutor，请求体通过 mode: initial | followup 区分。前端不得另行实现 /chat，也不得让组件直接拼接未定义接口。
+27.2 AI Gateway 与 API Key 红线
+前端、PWA、浏览器缓存、LocalStorage、IndexedDB、日志、Network Payload 中均不得出现 Qwen-VL、DeepSeek、OCR 或其他模型供应商 API Key。所有模型调用必须经后端 AI Gateway 统一完成，由后端负责身份、权益、限流、队列、模型降级、model_call_log 与 credit_ledger。
+27.3 parse-jobs 异步执行裁定
+POST /api/parse-jobs 必须立即返回 job_id。前端创建任务成功后立刻将 job_id 写入 URL 并开始 polling；Phase 0 后端用 FastAPI BackgroundTasks 或 asyncio.create_task 执行解析链路，Phase 1 可替换为 ARQ、Dramatiq 或 Redis Queue，不改变前端接口形状。前端不得同步等待整页解析完成。
+27.4 与御三家施工基准的最终匹配结论
+本文件已与御三家施工基准在 Phase 边界、API Contract、身份占位、AI Gateway、本地缓存、云端主账本、激活码/学豆/支付占位、错误响应、上传协议、PDF 第一页、client_task_id 幂等和家长删除边界上完成对齐。
+27.5 最终开工裁定
+本文件正式作为《悠米伴学-前端基准御三家GPT终审版》。总施工基准以《悠米伴学-施工基准文档御三家GPT终审版》为准；前端实现以本文档为准。开发 Agent 开工时必须同时读取两份文件，不得引用旧前端 v1 或未确认旧稿。
+
+二十八、GPT final check 终审意见与最终输出裁定
+本节为本轮 final check 最终纳入内容，用于确认《悠米伴学-前端基准御三家版》与《悠米伴学-施工基准文档御三家GPT终审版》在接口、数据、Phase 边界、AI Gateway、商业化占位和本地缓存策略上完全一致。此前所有补丁不再作为零散意见处理，均以本文档正文裁定为准。
+28.1 终审意见
+总体结论：PASS。本文档已达到前端开工基准要求，可作为悠米伴学 Phase 0/1 前端唯一执行基准。
+本文档不再保留独立 /chat 接口，首次辅导与继续追问统一收敛到 POST /api/questions/{question_id}/tutor，并通过 mode: initial | followup 区分。
+模型 API Key 红线已明确：前端、PWA、本地缓存、日志和 Network Payload 均不得出现 Qwen-VL、DeepSeek、OCR 或任何模型供应商 API Key；所有模型调用必须走后端 AI Gateway。
+parse-jobs 联调边界已闭合：POST /api/parse-jobs 必须立即返回 job_id，Phase 0 后端使用 BackgroundTasks 或 asyncio.create_task 异步执行，前端只负责写入 URL、轮询状态和恢复结果。
+商业化边界清楚：Phase 0 不接真实支付 SDK、不做真实激活码核销、不做完整会员系统；仅保留权益、学豆、激活码、支付占位和额度不足状态。
+28.2 与御三家施工基准一致性复查
+28.3 最终开工硬约束
+开发 Agent 必须同时读取本文档与《悠米伴学-施工基准文档御三家GPT终审版》，不得引用旧前端 v1、旧 UI 草图或未确认旧稿。
+优先实现手机端主链路：入口页、工作台、上传、解析状态、题目列表、bbox 高亮、单题辅导、视觉追问、状态标记。
+所有 API 请求必须统一走 typed fetch client；业务组件不得直接拼接 URL、不得直接调用模型供应商接口。
+Phase 0 所有真实支付、真实激活码核销、完整家长后台、完整错题检索、bbox 编辑器、真 streaming/SSE 均不得前置。
+验收以 375px-430px 手机端可录屏演示、API Contract 可联调、Phase 0 禁止事项未越界为准。
+28.4 GPT 最终交付确认
+已完成 final check：终审意见已纳入文档，逻辑已复查，细节已复审，章节与目录已同步，版面已重新渲染检查。本文档正式输出为《悠米伴学-前端基准御三家GPT终审版》。
+--- TABLE ---
+项目 | 裁定
+文档名称 | 悠米伴学-前端基准御三家GPT终审版
+整合来源 | 《前端工程v1-GPT终审版》 + 前端 v1.1 终审补丁 + 《悠米伴学-施工基准文档御三家GPT终审版》对齐结论
+适用范围 | 悠米伴学 Phase 0 技术验证 Demo 与 Phase 1 Web/PWA 过渡
+用户可见层 | Next.js 高颜值前端壳，移动端优先，接近正式产品体验
+内部调试层 | Gradio / Streamlit 只作为开发调试台，不暴露给家长用户
+本次完善重点 | 统一补入 API_BASE_URL、entitlement、activation、credit、payment placeholder、本地缓存删除、云端主账本预留，并与御三家施工基准中的 /tutor、AI Gateway、parse-jobs 异步返回 job_id 裁定保持一致；本轮 final check 已完成最终终审收口。
+核心原则 | 高颜值、低复杂度、移动端优先、主链路优先、工程边界清晰、商业化接口预留但不提前接真实支付
+--- END TABLE ---
+--- TABLE ---
+终审结论：本完善版不推翻原前端基准，只对“云端数据库、收款预留、本地错题缓存、家长删除、权益/学豆状态”进行正式合并。Phase 0 仍不开发完整商业系统，但不得写死永久免费、无限识别或纯本地不可迁移架构。
+--- END TABLE ---
+--- TABLE ---
+应该像 | 不要像
+Notion 的秩序感 | 冷冰冰的 AI 工具
+Duolingo 的轻松感 | 普通拍照搜题 App
+家庭教育产品的可信感 | 复杂后台管理系统
+高颜值学习工作台 | 默认程序员调试页面
+可控、有边界的家庭学习助手 | 充值、会员、广告喧宾夺主的工具
+--- END TABLE ---
+--- TABLE ---
+层级 | 职责 | 边界
+用户可见层 | Next.js 高颜值工作台 Demo / PWA 壳 | 给家长、孩子、早期用户看；必须接近正式产品体验；移动端优先。
+技术调试层 | Gradio / Streamlit / Python 调试台 | 只给开发者看；用于 OCR、切题、视觉模型、Schema 调试。
+后端能力层 | FastAPI / Python Demo API | 承接上传、解析任务、状态查询、DeepSeek 调用。Phase 0 可本地跑，Phase 1 迁移云端。
+云端主账本层 | PostgreSQL / Supabase 等云端数据库 | 保存账号、作业、错题、权益、额度、订单和模型调用日志；Phase 0 先预留类型与接口。
+文件与缓存层 | Object Storage + 手机本地缓存 | 图片/PDF/裁切图可短期缓存；结构化错题长期依赖文本与结构化数据，不能只依赖临时图片 URL。
+--- END TABLE ---
+--- TABLE ---
+云端策略裁定：Phase 0 不急着租传统 ECS/VPS 或自建数据库；但前端不能写成纯本地死架构。必须从第一版就有 API_BASE_URL、typed fetch client、user_id/child_id/task_id/local_cache_id 等字段预留。
+--- END TABLE ---
+--- TABLE ---
+模块 | 选型 | 裁定理由
+页面框架 | Next.js App Router | Phase 0 Demo 与 Phase 1 Web/PWA 可继承。
+组件库 | shadcn/ui | 高颜值、可定制、无企业后台感。
+样式体系 | Tailwind CSS + Design Tokens | 快速落地统一视觉规范。
+服务端数据 | TanStack Query | 负责轮询、缓存、失败重试、服务端状态。
+UI 状态 | Zustand | 负责选中题、bbox 高亮、当前流程交互状态。
+API 封装 | typed fetch client | 统一 API_BASE_URL、错误处理、认证占位、权益/额度字段。
+本地缓存 | IndexedDB + Cache Storage | 错题结构化数据可缓存；图片短期缓存；LocalStorage 只放轻量配置。
+DeepSeek 输出 | Phase 0 假打字机 | 不把 Phase 0 卡在 Streaming 调试上。
+实时状态 | Phase 0 Polling | 简单可靠，SSE 留到 Phase 1。
+--- END TABLE ---
+--- TABLE ---
+水合安全裁定：所有依赖 IndexedDB、Cache Storage、LocalStorage、window、document、visualViewport 的状态读取，必须在 useEffect 挂载后执行。严禁在组件顶层或服务端渲染阶段读取本地缓存，避免 Hydration Mismatch。
+--- END TABLE ---
+--- TABLE ---
+接口 | 方法 | 用途 | Phase 0 裁定
+/api/parse-jobs | POST | 创建解析任务，上传图片或 PDF | 必须使用 multipart/form-data 上传原文件或压缩后的二进制 Blob；禁止 Base64 塞入 JSON。
+/api/parse-jobs/{job_id} | GET | 轮询解析状态与当前阶段 | 必须实现；1.5 秒 polling。
+/api/parse-jobs/{job_id}/questions | GET | 获取切题结果列表 | 必须实现。
+/api/questions/{question_id} | GET | 获取单题详情 | 必须实现。
+/api/questions/{question_id}/tutor | POST | 首次 DeepSeek 辅导与继续追问统一入口 | 必须实现；Phase 0 一次性返回，前端假打字机；请求体使用 mode: initial | followup 区分首次辅导与追问；不新增独立 /chat 接口。
+/api/questions/{question_id}/status | POST | 更新题目状态：已掌握 / 加入错题本等 | 必须实现或本地 Mock。
+/api/questions/{question_id}/vision | POST | 触发视觉二次路由 | 关键词命中后调用。
+/api/me/entitlement | GET | 查询会员、额度、试用、学豆余额 | 必须预留类型；Phase 0 可 Mock。
+/api/activation/redeem | POST | 激活码核销：人工收款后开通会员或充值额度 | Phase 0 只做 Mock 视觉；Phase 1 再接真实核销。
+/api/billing/credit-ledger | GET | 查询学豆/AI 能量流水 | Phase 0 不做完整列表，但类型预留。
+/api/payment/create-order | POST | 创建正式支付订单 | 仅占位；Phase 0/1 不接真实支付 SDK。
+/api/payment/callback | POST | 支付平台回调 | 前端不调用；仅在后端合规阶段实现。
+--- END TABLE ---
+--- TABLE ---
+CORS 联调裁定：前后端分离部署时，FastAPI 后端必须提前全局配置 CORSMiddleware，允许前端域名、OPTIONS 预检、Authorization/Content-Type 请求头；不得等联调时报跨域再补。
+--- END TABLE ---
+--- TABLE ---
+状态 | 含义 | 前端表现
+free_trial | 内测或试用中 | 显示“内测体验中”；允许主链路使用。
+member_active | 会员有效 | 显示会员有效期；不打断主链路。
+member_expired | 会员过期 | 提示可输入激活码或联系开通；仍允许必要的历史查看。
+credit_enough | AI 能量充足 | 深度辅导按钮正常。
+credit_low | AI 能量偏低 | 轻提示“深度解析将消耗 AI 能量”。
+credit_empty | AI 能量不足 | 深度解析按钮进入确认/激活入口，不直接调用模型。
+activation_mock_only | Phase 0 激活码占位 | 仅本地 Mock，不产生真实权益或收款。
+--- END TABLE ---
+--- TABLE ---
+激活码防刷裁定：Phase 1 接真实核销时必须限流；输错过多返回 429，前端提示稍后再试。Phase 0 只做 Mock，保留接口语义。
+--- END TABLE ---
+--- TABLE ---
+方案 | 适用场景 | Phase 0 裁定
+Polling | 简单、后端改造少、适合任务状态查询 | 首选，每 1.5 秒查询一次。
+SSE | 单向推送，适合后端状态实时通知 | Phase 1 升级选项。
+WebSocket | 双向实时通信，复杂度高 | Phase 0 不使用。
+--- END TABLE ---
+--- TABLE ---
+阶段 | 用户可见表达 | 实现方式
+uploaded | 已收到作业图片 | Stepper 打勾。
+enhancing | 正在优化图片清晰度 | 通用 CSS 扫描线 / Lottie。
+ocr_running | 正在识别文字 | Skeleton / 文字块占位，不按真实坐标逐字浮现。
+cutting | 正在拆分题目 | 候选框占位动画。
+vision_reviewing | AI 正在复核图形和题目完整性 | 呼吸灯状态。
+schema_validating | 正在整理成学习清单 | 结构化卡片校验动画。
+completed | 整理完成 | 完成勾选 + 进入题目列表。
+--- END TABLE ---
+--- TABLE ---
+做 | 暂不做
+测试账号 / 本地 child_id；手机号/邮箱样式；激活码输入框；假激活码校验；输入框聚焦高亮、错误 Shake、卡片滑入；权益状态 Mock。 | 真实微信登录；真实短信验证码；真实支付 SDK；正式激活码核销；完整父子账号权限。
+--- END TABLE ---
+--- TABLE ---
+登录页裁定：激活码入口可以保留，但 Phase 0 只允许 Mock。不得让 Agent 理解为要接真实收款、真实支付回调或真实激活码权益系统。Phase 1 才接 /api/activation/redeem。
+--- END TABLE ---
+--- TABLE ---
+做 | 暂不做
+拍整页作业 / 上传 PDF / 导入截图入口；本次上传任务；待学习题目清单；最近解析结果；试用/会员/额度轻量状态条。 | 完整课程系统；完整家长后台；复杂筛选器；大面积充值促销模块。
+--- END TABLE ---
+--- TABLE ---
+做 | 暂不做
+拖拽上传区域；手机相册 / 相机入口；图片 / PDF 支持提示；上传后原图预览；上传前图片压缩。 | DOCX 解析；完整微信作业导入系统。
+--- END TABLE ---
+--- TABLE ---
+做 | 暂不做
+题号、题干前缀、学科、置信度、状态标签；点击列表高亮 bbox；切题错误原因记录；本题是否消耗视觉重读标记。 | 复杂 Canvas 编辑器；手动画框；合并题 / 拆分题。
+--- END TABLE ---
+--- TABLE ---
+做 | 暂不做
+给我一点提示；分步讲给我听；查看完整解析；我会了 / 看提示后会了 / 加入错题本；额度不足时阻止深度调用并给出可理解提示。 | 默认直接给完整答案；长篇大段无分层输出；额度不足仍继续调用高成本模型。
+--- END TABLE ---
+--- TABLE ---
+场景 | 前端表现 | 工程要求
+试用中 | 顶部轻量状态条：“内测体验中”。 | entitlement.status = free_trial。
+会员有效 | 显示会员有效期，不打断任务。 | member_until 可展示。
+额度偏低 | 深度解析前轻提示。 | credit_low 不阻塞基础链路。
+额度为空 | 深度解析按钮进入激活/联系开通提示。 | 不得继续调用高成本模型。
+激活码输入 | 弹层或入口页输入框。 | Phase 0 Mock；Phase 1 接 /api/activation/redeem。
+支付入口 | 只做“即将开放/联系开通”占位。 | Phase 0/1 不接微信、支付宝、IAP SDK。
+--- END TABLE ---
+--- TABLE ---
+数据 | 手机本地策略 | 删除策略
+错题文本、知识点、错因、解析 | IndexedDB 长期缓存，可离线查看。 | 支持删除单题、删除某次作业、删除孩子全部学习资料。
+原图、增强图、裁切图 | Cache Storage / App 私有目录短期缓存。 | 支持只删除图片，不删除结构化错题。
+AI 对话全文 | 仅缓存当前题最近上下文或摘要。 | 支持随错题或作业删除。
+支付订单、充值流水、额度流水 | 不以本地为准。 | 不得承诺一键物理删除；应按财务与风控要求保留必要记录。
+--- END TABLE ---
+--- TABLE ---
+Phase 0 做 | Phase 0 不做
+点击题目列表 → 高亮对应 bbox | 点击 bbox 反向定位列表
+非选中区域加 20% 暗色蒙版 | 拖拽 bbox
+当前 bbox 边框护眼青色并微微浮起 | 手动画框
+当前题卡同步高亮 | Canvas 编辑器 / 合并题 / 拆分题
+--- END TABLE ---
+--- TABLE ---
+方案 | 实现复杂度 | 用户体验 | 裁定
+真流式 SSE / Stream | 高 | 最真实，字随生成出来 | Phase 1 升级。
+假打字机 | 低 | 稍假但可接受 | Phase 0 采用。
+--- END TABLE ---
+--- TABLE ---
+断点 | 策略
+375px-430px | 核心优先视口，必须验收。
+768px+ | 平板 / 小桌面扩展。
+1024px+ | 桌面端可使用左右分栏。
+--- END TABLE ---
+--- TABLE ---
+Token | 值 | 用途
+--color-bg-base | #FAFAF7 | 奶油白页面背景
+--color-surface | #FFFFFF | 卡片与内容面
+--color-primary | #4DBBAA | 主操作色、bbox 高亮
+--color-primary-light | #E8F7F5 | 悬停/激活底色
+--color-border | #E8EAE6 | 低对比边框
+--color-text-main | #1A1A1A | 主文字
+--color-text-sub | #6B7280 | 辅助文字
+--color-warning | #F5A623 | 低置信度、轻警示、额度偏低
+--color-error | #E57373 | 错误/失败、额度不足
+--radius-card | 20px | 主卡片圆角
+--radius-button | 14px | 按钮与输入框圆角
+--- END TABLE ---
+--- TABLE ---
+允许 | 限制
+大圆角卡片、柔和阴影、低对比边框、大留白、轻微玻璃拟态 | 玻璃拟态不得用于题干正文、解析正文、公式区。
+浅色背景 + 清晰白底内容卡片 | 不要高饱和蓝、强红强绿、医疗感、儿童玩具感。
+权益和额度状态使用轻量标签 | 不要把首页做成充值页或广告页。
+--- END TABLE ---
+--- TABLE ---
+场景 | 规范
+中文字体 | PingFang SC / Microsoft YaHei / Noto Sans SC / system-ui
+英文字体 | Inter / system-ui
+正文最小字号 | 14px
+孩子阅读区域 | 16px 起
+OCR 题干 | 16px-18px，行高 1.6-1.8
+AI 解析正文 | 15px-16px，行高 1.6-1.8
+长解析行宽 | 640px-760px，避免过长行
+数学公式 | KaTeX（唯一裁定，使用 react-katex；不引入其他公式渲染库）
+题号 / 计数 / 金额 / 学豆余额 | tabular-nums
+代码 / JSON / 调试日志 | monospace
+--- END TABLE ---
+--- TABLE ---
+状态类型 | 方案 | 说明
+服务端数据 | TanStack Query | 解析任务状态、题目列表、任务结果、失败重试、轮询、entitlement 查询。
+UI 交互状态 | Zustand | 当前选中题、bbox 高亮、遮罩聚焦、当前页面步骤。
+对话打字机状态 | Zustand / useReducer | 当前回答文本、打字机进度、视觉重读状态。
+本地缓存状态 | IndexedDB helper / localCacheStore | 错题结构化缓存、图片缓存索引、删除队列。
+API 请求 | typed fetch client | 统一错误处理、统一返回结构、后续便于替换。
+--- END TABLE ---
+--- TABLE ---
+失败阶段 | 用户提示 | 操作出口
+上传失败 | 上传失败，请重新选择图片 | 重新上传
+OCR 失败 | 图片可能太模糊，识别失败 | 重拍 / 重试
+切题失败 | 部分题目未能识别 | 标记问题 / 继续查看
+Vision 超时 | AI 正忙，请稍后重试 | 重试视觉解析
+DeepSeek 超时 | 解析超时，请重新请求 | 重新生成讲解
+Schema 校验失败 | 系统已自动降级处理 | 不暴露技术细节
+额度不足 | AI 能量不足，暂不能继续深度解析 | 输入激活码 / 联系开通 / 继续看历史内容
+本地缓存删除失败 | 本地缓存清理未完成 | 重试清理 / 仅删除云端记录后提示
+--- END TABLE ---
+--- TABLE ---
+Phase 0 必做 | Phase 0 暂不做
+高颜值入口页 / 首页工作台 | 真实微信登录 / 短信验证码
+图片 / PDF 上传 | 真实支付 SDK / 正式激活码核销系统
+解析状态页 + polling | 完整家长后台 / 多孩子权限
+增强图展示 + bbox div 覆盖 | 完整错题本检索 / 知识点体系
+题目列表 + 单向高亮 | bbox 编辑器 / 手动画框 / 合并拆分题
+单题 DeepSeek 假打字机辅导 | DOCX 解析 / 完整微信作业系统
+视觉二次路由等待动画 | 完整移动端原生 App
+题目状态标记 / 切题错误记录 | 去阴影 / 去反光通用能力
+成本 / 延迟 / 成功失败日志 | 复杂商业化系统
+API_BASE_URL、entitlement、activation、credit、payment placeholder 类型预留 | 微信/支付宝/IAP 真实支付接入
+本地错题缓存与家长删除入口预留 | 仅本地保存、无法云端同步的死架构
+激活码输入框 Mock / 占位 | 真实激活码权益核销、自动到账、发票/对账
+--- END TABLE ---
+--- TABLE ---
+类别 | 验收点
+UI | 用户第一眼能看懂这是家庭学习工作台，首页有明确上传入口。
+移动端 | 375px-430px 视口下上传、解析、题目列表、单题辅导可用。
+解析状态 | 有阶段进度、时长预期、超时提示，用户不会误以为卡死。
+bbox | 点击题目列表可高亮对应 bbox，位置映射正确，无明显偏移。
+辅导 | 点击任意题能进入单题辅导，DeepSeek 输出有假打字机效果。
+视觉追问 | 图形/表格/线段追问能出现“AI 正在仔细观察原图...”状态。
+错误态 | 上传/OCR/切题/DeepSeek 超时/额度不足均有可理解提示和操作出口。
+技术 | 不少于 20 张真实整页图片/PDF 页面验证，切题成功率目标 ≥ 85%。
+日志 | OCR / Vision / LLM 调用记录成本、延迟、成功失败状态。
+商业化预留 | 存在 entitlement 类型、激活码 Mock、额度不足状态、payment placeholder；但未接真实支付 SDK。
+本地缓存删除 | 能看到删除本地缓存、删除某次作业、删除孩子资料的设计入口或状态预留。
+文案边界 | 不得出现“永久免费”“无限次识别”“违反平台规则或绕开审核规则”等不适合作为产品前端文案的表述。
+--- END TABLE ---
+--- TABLE ---
+复查项 | 结论 | 说明
+文档完整性 | 通过 | 已整合原前端基准、本轮云端/收款/本地缓存讨论，以及最终联调补丁；目录已同步至二十七章。
+阶段边界 | 通过 | Phase 0 仍只做主链路和 Mock/占位，不提前变成商业系统。
+商业化预留 | 通过 | 保留 entitlement、activation、credit、payment placeholder；不接真实支付 SDK。
+数据库/服务器逻辑 | 通过 | Phase 0 不强制租服务器，但前端预留云端 API 和主账本字段。
+本地缓存与删除 | 通过 | 支持本地错题缓存和家长删除入口，同时不把本地缓存作为唯一数据源。
+支付记录删除边界 | 通过 | 学习数据可删，支付/充值/额度流水不承诺一键物理删除。
+开工风险 | 可控 | 复杂账号/支付、Canvas 编辑器、真流式、WebSocket、完整后台均已后置或禁止。
+--- END TABLE ---
+--- TABLE ---
+风险点 | 错误做法 | 最终裁定
+上传 Payload | 把 3MB 图片转 Base64 塞进 JSON，导致体积膨胀、Pydantic 内存飙升、请求超时。 | /api/parse-jobs 必须使用 multipart/form-data 上传原文件或压缩后的 Blob；禁止 Base64 JSON 上传。
+Next.js 水合 | 在组件顶层直接读取 IndexedDB / LocalStorage / window，导致 Hydration Mismatch。 | 所有本地缓存读取必须放进 useEffect 或 client-only hook；首次渲染用 skeleton / loading 占位。
+轮询防刷新 | job_id 只存在 Zustand，刷新页面后任务状态丢失，用户被迫重新上传。 | 创建任务成功后立即把 job_id 写入 URL；页面初始化优先从 URL 恢复轮询。
+CORS 跨域 | 前端部署后才发现 OPTIONS 预检被拦截。 | FastAPI 必须提前全局配置 CORSMiddleware，明确允许前端域名、请求方法和请求头。
+假打字机与扣费 | 后端已扣额度，前端动画未播完时用户刷新，导致内容丢失。 | /tutor 成功返回后先缓存完整解析，再更新展示余额；刷新后从 IndexedDB 恢复已扣费解析。
+PWA 本地缓存 | 把 IndexedDB 当唯一数据源，iOS 清理缓存后数据丢失。 | 云端主账本为准；PWA 启动时校验并静默同步云端任务、作业和错题列表。
+激活码防刷 | 真实核销接口没有限流，容易被脚本枚举。 | Phase 1 接真实核销时，后端按 IP/user/child/device 限流；前端处理 429 并提示稍后再试。
+--- END TABLE ---
+--- TABLE ---
+验收项 | 通过标准
+multipart 上传 | 开发者工具 Network 中 /api/parse-jobs 为 multipart/form-data，请求体无 Base64 JSON。
+刷新恢复 | 上传后刷新 /workspace?job_id=xxx，页面能继续轮询或展示已完成结果。
+水合安全 | 首次进入页面无 Hydration Mismatch、window is not defined、localStorage is not defined 报错。
+跨域联调 | 本地前端 + 独立 FastAPI 域名下 OPTIONS 预检通过。
+扣费恢复 | tutor 请求成功后刷新页面，已生成解析能恢复，不重复扣费、不丢内容。
+PWA 缓存清理 | 清空 IndexedDB 后重新打开，能从云端任务/错题列表恢复关键结构化数据。
+激活码限流 | 模拟多次输错后，前端能识别 429 并显示“尝试次数过多，请稍后再试”。
+--- END TABLE ---
+--- TABLE ---
+最终边界：本补丁只要求预留和防坑，不要求 Phase 0 接真实支付、真实激活码核销、正式云端订单系统。Phase 0 的目标仍是高颜值主链路可演示、可录屏、可小范围验证。
+--- END TABLE ---
+--- TABLE ---
+问题 | 最终裁定 | 对应章节
+API 请求身份标识缺失 | Phase 0 typed fetch client 统一携带 X-Child-Id；Phase 1 升级 JWT。 | 六 6.0
+entitlementStore 与 TanStack Query 数据源冲突 | TanStack Query 为唯一远程数据源，onSuccess 单向同步 entitlementStore；组件只读 store。 | 十五 15.1
+/vision 扣费恢复缺失 | /vision 成功后先写 IndexedDB，再更新余额展示并 refetch entitlement。 | 十一 11.1
+公式渲染库选型歧义 | 唯一采用 KaTeX + react-katex；Phase 0/1 不引入其他公式渲染库。 | 十四
+PDF 多页处理 UI 缺失 | Phase 0 只处理 PDF 第 1 页；page_range=1；Phase 1 再做页码选择。 | 八 8.3
+client_task_id 未定义 | 前端 UUIDv4 幂等键；后端以 child_id + client_task_id 防重复创建任务。 | 二十四
+Service Worker 与 IndexedDB 边界不清 | SW/Cache Storage 缓存静态资源和可重拉图片；IndexedDB 存结构化业务数据。 | 八 8.8
+API 错误格式不统一 | 统一 {ok:false, code, message, request_id, details}；typed fetch client 只解析 code/message。 | 六 6.3
+--- END TABLE ---
+--- TABLE ---
+类别 | 终审修订 | 最终裁定
+身份与联调 | 补入 X-Child-Id / X-Demo-User-Id，Phase 1 升级 JWT | Phase 0 可联调，Phase 1 不信任前端 child_id
+状态源 | 补入 TanStack Query 与 entitlementStore 单向数据流 | 远端查询为唯一事实源，Zustand 只做 UI 展示态
+高成本调用 | 补入 /tutor 与 /vision 扣费后缓存恢复 | 成功结果先落本地缓存，再更新余额展示
+上传协议 | 补入 multipart/form-data 与 client_task_id 幂等 | 禁止 Base64 JSON 上传，防止重复任务
+PDF 边界 | 补入 Phase 0 只处理 PDF 第 1 页 | 多页选择延后到 Phase 1
+本地缓存 | 区分 Service Worker、Cache Storage、IndexedDB 职责 | 业务结构化数据进 IndexedDB，不把 PWA 缓存当唯一主账本
+错误格式 | 补入 { ok:false, code, message, request_id, details } | 前端统一解析 code/message，不暴露 traceback
+公式渲染 | 裁定 KaTeX + react-katex | 不引入 MathJax 或其他公式渲染库
+--- END TABLE ---
+--- TABLE ---
+复审项 | 结论
+Phase 边界 | 清楚。Phase 0 做高颜值主链路与 Mock 预留；Phase 1/2 再升级真实核销、支付、云端主账本与多页 PDF。
+支付与激活码 | 无冲突。Phase 0 不接真实支付 SDK、不做真实激活码核销；仅保留 UI、类型和 Mock 状态。
+云端与本地 | 无冲突。云端是最终主账本，本地是离线/体验缓存；PWA 本地数据不作为唯一可靠存储。
+家长删除 | 无冲突。学习数据、图片缓存、错题记录可删；支付订单、额度流水按财务和风控要求留痕。
+AI 成本闭环 | 可执行。所有高成本调用前置权益检查，返回 usage/credit_cost/billing_status，占位支持后续真实扣费。
+前后端联调 | 可执行。身份 Header、统一错误响应、CORS、multipart、job_id URL 恢复、幂等键均已补齐。
+移动端体验 | 可执行。375-430px、100dvh、软键盘、假打字机、视觉重读等待态已纳入。
+--- END TABLE ---
+--- TABLE ---
+复查项 | 最终结论
+总基准关系 | 总施工基准以《悠米伴学-施工基准文档御三家GPT终审版》为最高工程基准；本文档为其前端实现基准。
+接口一致性 | /chat 已收敛为 /tutor mode=initial|followup；/parse-jobs、/vision、/entitlement、/activation、/payment placeholder 与施工基准一致。
+AI Gateway | 前端不得接触模型 API Key；Qwen-VL、DeepSeek、OCR 等模型调用全部由后端 AI Gateway 统一执行。
+任务异步 | parse-jobs 立即返回 job_id，前端 URL 恢复与 polling 不等待模型链路同步完成；Phase 1 可替换为 Redis/Worker，不改前端接口。
+错题库与缓存 | 云端为主账本，手机本地为 IndexedDB / Cache Storage 缓存；学习数据支持家长删除，支付与额度流水按必要规则留痕。
+成本与扩容 | 前端不按 500 人并发写死资源策略；代码按可扩容接口写，资源随用户增长升级。
+合规与文案 | 前端不得出现永久免费、无限识别、违反平台规则或绕开审核规则等不适合上线的承诺。
+--- END TABLE ---

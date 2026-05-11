@@ -1,0 +1,498 @@
+悠米伴学 施工基准文档御三家GPT终审版
+Phase 0/1 总体工程、前端 v1.1、云端低成本、AI Gateway、错题库、商业化预留与最终开工裁定稿
+
+目录
+0. GPT终审修订意见
+1. 产品定位与总目标
+2. 唯一基准与前端对齐原则
+3. 阶段路线与边界
+4. 总体技术架构
+5. 数据库、服务器与云端资源策略
+6. 账号、孩子身份与鉴权占位
+7. API Contract 与联调协议
+8. 上传、PDF、幂等与状态恢复
+9. 模型分工、Provider 与成本日志
+10. 会员、激活码、学豆与支付结算预留
+11. 本地缓存、错题保存与家长删除
+12. 核心数据模型、字段与索引
+13. 解析任务状态机与异步执行
+14. 物理切题、bbox 与人工修正
+15. DeepSeek 辅导、对话上限与视觉二次路由
+16. 公式、数学验证与前端渲染
+17. 可观测性、错误格式、安全与限流
+18. Phase 0 不做清单
+19. Phase 0 最小开工任务
+20. 验收标准与样本分布
+21. 给开发 Agent 的开工口径
+22. 御三家终审补丁裁定
+23. 最终终审结论
+
+24. GPT终审意见与最终输出裁定
+0. GPT终审修订意见
+原施工基准的核心模型链路继续保留：OCR 认字，OpenCV/OCR block/版面规则切物理块，视觉模型理解图形与版面，DeepSeek 负责讲题辅导。
+本版与《悠米伴学-前端工程v1.1-GPT终审版》对齐：Next.js 是用户可见工作台，Gradio/Streamlit 仅作为内部调试层；前端 API、Header、multipart 上传、job_id URL 恢复、CORS、Hydration、防刷新、PWA 缓存边界均纳入总基准。
+本轮终审补丁全部纳入：学豆与会员归属、图片过期时间戳、retry_count、reason_code、needs_review 使用路径、对话摘要/截断、迁移策略、Secrets 管理、激活码限流、加密支付回调、model_call_log 字段统一、question_attempt 字段、chat sequence_number、后端对话上限、next_review_at、样本分布、索引策略。
+本次成本扩容整合补丁纳入：所有模型 API Key 禁止进入前端/客户端；统一通过后端 AI Gateway 调用模型；Phase 1 起采用队列 + Worker Pool 处理并发；固定成本按用户规模分阶段升级，不按 500 人并发提前采购；错题库以结构化数据入库、图片/PDF 入对象存储并设置生命周期；云端主账本与手机本地缓存边界继续保留。
+御三家定稿补丁纳入：Phase 0/1 不新增 /chat 接口，统一用 /tutor 承担首次辅导与追问；ai_tutoring_chat 跟随错题生命周期；parse-jobs 使用 BackgroundTasks/异步执行立即返回 job_id；AI Gateway 按错误类型分流重试；activation_codes 使用 used_by_parent_user_id；mistake_book_item 使用 error_type_code + reason_desc。
+本版仍是 Phase 0/1 开工基准，不是完整商业 App、完整支付系统或完整移动端 App 的一次性建设方案。
+1. 产品定位与总目标
+悠米伴学不是普通拍照搜题 App，而是面向家庭场景的学习工作台：把整页作业、PDF、微信截图等输入，整理成可点击的题目清单、单题 AI 辅导、错题沉淀、孩子学习状态与下一步目标。
+
+2. 唯一基准与前端对齐原则
+
+
+3. 阶段路线与边界
+
+4. 总体技术架构
+
+统一架构裁定：家长端、PWA、App 不得直接接触 Qwen-VL、OCR、DeepSeek 等模型供应商 API Key。所有模型调用必须进入 FastAPI 后端的 AI Gateway，由后端完成身份校验、权益检查、限流、排队、模型调用、model_call_log 记录和 credit_ledger 扣减。
+建议逻辑链路：家长端/PWA → typed fetch client → FastAPI API 层 → QueueAdapter → AI Worker/ModelProvider → PostgreSQL/R2/model_call_log/credit_ledger。前端只拿 job_id、状态和结果，不直接调用模型。
+5. 数据库、服务器与云端资源策略
+最终产品需要云端数据库、对象存储和后端 API，但 Phase 0 不建议一开始租传统云服务器或自建数据库。先用轻量云服务与本地开发跑通验证，避免把精力消耗在运维、备份、安全组、HTTPS、数据库维护上。
+
+
+5.1 低固定成本启动原则
+变动成本主要来自模型 API，可通过会员额度、学豆、降级模型和限流控制；初期真正要压低的是没人用也会产生的固定成本，包括云服务器、托管数据库、Redis 实例和常驻 Worker。
+Phase 0/1 不按 500 人生产并发提前采购固定资源。优先使用静态托管、Supabase Free/Pro、Cloudflare R2/OSS、Upstash Redis 按量、低配 FastAPI 服务和 1 个 Worker。未达到稳定付费用户前，不自建高配 ECS/PostgreSQL/Redis。
+推荐成本阶段：0-50 个内测用户固定成本目标 0-100 元/月；50-200 个真实用户固定成本目标 100-600 元/月；500 个高频用户再升级到托管数据库、Redis 队列、1-3 个 Worker 和对象存储生命周期管理，固定成本约 600-2000 元/月，模型 API 成本另计。
+5.2 可扩容代码架构原则
+不是“用户多了再大改代码”，而是“代码架构现在一次写对，云资源按用户量逐步加钱”。从第一版开始必须抽象 Repository、StorageAdapter、QueueAdapter、ModelProvider/AI Gateway，避免业务代码写死 SQLite、本地文件、同步模型调用或单一供应商。
+Phase 0 可以用本地/轻量实现：SQLite 兼容 PostgreSQL 语法、本地文件或 R2、小队列/Upstash、单 Worker；Phase 1/2 通过配置切换为 PostgreSQL、R2/OSS、Redis/Upstash、多个 Worker，不推翻前端 API 和业务流程。
+5.3 500 用户并发处理裁定
+500 个家长同时使用时，后端不得让请求同步直冲模型。/api/parse-jobs 必须保存文件、写 parse_job、入队并立即返回 job_id；前端通过轮询或后续 SSE 获取状态。真正打到模型供应商的并发由 Worker 数量和 Provider 限流控制。
+高峰期允许队列变长，但不允许系统崩溃、重复扣费或 API 成本失控。必须有队列长度、平均等待时间、失败率、重试次数、单用户调用量和模型费用监控。
+5.4 错题库容量与存储分层
+低成本数据库可以承载初期错题库，但前提是数据库只存结构化错题数据、知识点、错因、掌握度、对话摘要、支付流水和成本日志；原图、增强图、PDF 页面图、裁切图不得长期塞进 PostgreSQL。
+图片/PDF 必须进入对象存储 R2/OSS，并设置默认 7 天生命周期与家长提前删除能力。错题长期展示依赖 question_text、visual_description、structured_conditions、mistake_reason、knowledge_points、redo_status，不依赖临时图片 URL。
+500 高频用户场景下，Supabase Free 只能用于 Demo/内测，不能承载长期高频错题库。随着用户增长，应升级 Supabase Pro、增加数据库空间或迁移独立 PostgreSQL。model_call_log 和原始模型 JSON 可做 30-90 天热数据保留与归档；ai_tutoring_chat 属于错题学习资产，跟随 mistake_book_item 生命周期，家长删除错题/孩子资料时再删除，不按普通运营日志时间窗清理。
+6. 账号、孩子身份与鉴权占位
+所有和作业、权益、学豆、错题、AI 调用相关的接口，都必须能识别“哪个家长/哪个孩子”。Phase 0 可使用 Header 占位，Phase 1 升级为 JWT。
+
+Phase 0 typedFetch headers:
+X-Child-Id: demo_child_001
+X-Demo-User-Id: demo_parent_001
+
+Phase 1 typedFetch headers:
+Authorization: Bearer ***
+7. API Contract 与联调协议
+API Contract 必须先于前后端开工锁定。所有前端业务组件必须通过 typed fetch client 调用接口，不允许散落 fetch。FastAPI 必须提前配置 CORSMiddleware 和统一错误格式。
+
+统一响应格式：
+成功：{ "ok": true, "data": { ... }, "request_id": "req_xxx" }
+失败：{ "ok": false, "code": "ocr_failed", "message": "用户可见提示", "request_id": "req_xxx" }
+追问接口裁定：Phase 0/1 不新增 /chat 接口。所有首次辅导与后续追问统一走 POST /api/questions/{question_id}/tutor，请求体使用 mode: initial | followup 区分；前端只传增量 message，后端负责读取 ai_tutoring_chat 上下文、校验轮数、生成结果并写入 sequence_number。
+8. 上传、PDF、幂等与状态恢复
+图片上传前由前端 Canvas 压缩：长边建议不超过 2200px，大小不超过 3MB；PDF 不由前端压缩。
+禁止 Base64 JSON 上传图片。/api/parse-jobs 必须使用 multipart/form-data 上传原文件或压缩后的 Blob。
+Phase 0 PDF 只处理第 1 页；但后端必须先用 PyMuPDF 判断文字型 / 扫描型 / 混合型，不能简单全部当图片处理。
+client_task_id 由前端生成 UUID，用于幂等防重。后端应在同一 child_id 下防止用户连点创建重复任务。
+拿到 job_id 后，前端必须立即写入 URL，例如 /workspace?job_id=xxx；组件初始化时优先从 URL 恢复轮询。
+读取 IndexedDB / LocalStorage 的逻辑必须放在 useEffect 挂载后执行，避免 Next.js Hydration Mismatch。
+Phase 0 图像增强只做方向纠正、尺寸规范化、必要灰度/对比度增强；不做去阴影、去反光、复杂超分。
+
+9. 模型分工、Provider 与成本日志
+
+
+
+模型供应商 API Key 只允许保存在服务端环境变量或云 Secret Manager，不得写入前端仓库、移动端包、PWA 静态资源或用户可见配置。家长不需要、也不应该提供自己的 API Key。
+AI Gateway 必须在模型调用前执行 entitlement/credit 检查、单用户限流、全局队列限流和幂等校验；模型调用成功后统一写 model_call_log，再按规则写 credit_ledger。失败、超时、重试和降级必须可追踪。
+模型重试裁定：AI Gateway 必须按失败类型分流。Schema 校验失败时携带上一次校验错误重试并可调整 Prompt，最多 2 次；Provider 网络超时使用指数退避，最多 3 次，不换 Prompt；Provider 429/rate_limit 禁止立即重试，应写入队列延后处理，避免触发更严限流或封禁。
+10. 会员、激活码、学豆与支付结算预留
+商业化底层要提前预留，但 Phase 0 不能变成支付系统。当前最小闭环是：前端展示权益状态和激活码入口，后端保留 activation_codes、credit_ledger、model_call_log 的接口和表结构；真实支付 SDK 延后。
+
+
+
+11. 本地缓存、错题保存与家长删除
+错题可以保存在手机本地，但不能把本地缓存当作唯一数据源。正式产品以云端主账本为准，手机本地作为离线体验和隐私友好的缓存层。
+
+Service Worker 只缓存静态资源和可再获取的图片 URL，不缓存错题正文、对话、学豆余额等业务真相。
+IndexedDB 负责结构化业务缓存：question_text、visual_description、tutor_result、vision_retry_result、local_cache_version。
+PWA 本地缓存不可靠，iOS 可能清理长期未使用站点数据；每次打开 App 必须校验本地版本与云端 parse-jobs/questions 列表。
+家长删除入口至少包括：删除本地缓存、删除某次作业、只删除图片、删除某个孩子全部学习资料。
+错题库采用“云端主账本 + 手机本地缓存”。手机本地可以缓存错题列表、题目文本、解析全文、最近对话和少量图片缓存，但不能作为唯一数据源；换手机、清缓存、PWA 被系统清理后，必须能从云端恢复。
+家长删除学习数据时，必须同时触发本地缓存清理与云端删除/软删除流程。支付订单、充值流水、学豆流水、风控日志按财务与争议处理要求保留必要记录，不纳入一键物理删除承诺。
+12. 核心数据模型、字段与索引
+
+
+
+13. 解析任务状态机与异步执行
+任务状态必须与前端解析状态动画对齐。前端动画可以做知觉欺骗，但状态字段必须真实、可轮询、可恢复。
+
+
+异步队列是 Phase 1 并发能力的边界，不是可选优化。即使 Phase 0 采用本地单进程，也必须保留 enqueue_parse_job / worker_process_job / save_result 的函数边界，禁止把上传、模型调用、写库和返回结果写成一个同步长请求。
+Worker 并发数量按资源配置逐步增加：初期 1 个 Worker 允许排队；中期 1-3 个 Worker；500 人高频使用时再扩展 Worker Pool。扩容主要是部署资源调整，不应要求重写业务代码。
+14. 物理切题、bbox 与人工修正
+切题主路径：OpenCV/OCR block/题号规则生成候选切块，视觉模型做语义重组与复核。
+bbox 来源必须是 OpenCV、OCR block、版面规则生成的物理候选框或人工确认结果，不得由视觉大模型直接生成最终精准 bbox。
+前端 bbox 渲染使用 <img> + 绝对定位 div，不做 Canvas 编辑器。必须等 img.onLoad 后读取 display_width/display_height，再用 ResizeObserver 处理布局变化。
+Phase 0 人工修正只做“标记错误 + 记录原因 + 手动选择候选块验证”；正式 bbox 编辑器推迟到 Phase 1。
+
+15. DeepSeek 辅导、对话上限与视觉二次路由
+
+DeepSeek 不负责看图，不接收图片 Base64 作为普通文本。
+前端假打字机只负责展示节奏，不能作为后端计费成功的依据。
+tutor 和 vision 两类高成本调用都必须具备扣费恢复机制。
+ai_tutoring_chat 的上下文拼接必须按 sequence_number 排序，不依赖 created_at。
+16. 公式、数学验证与前端渲染
+
+
+17. 可观测性、错误格式、安全与限流
+
+18. Phase 0 不做清单
+不做真实微信/支付宝/IAP 支付 SDK。
+不做真实激活码核销；只做 Mock 视觉入口和接口类型。
+不做完整 App、完整账号体系、完整商业后台。
+不做 DOCX 导出、复杂文档解析或正式文档管理能力。
+不做正式 bbox 编辑器。
+不做复杂知识点体系和完整画像。
+不做复杂自动对账、退款、发票系统。
+不做去阴影/去反光等高成本图像增强黑洞。
+不自托管 Qwen-VL。
+不让视觉大模型直接生成最终精准 bbox。
+不把联网搜索用于每道题解题。
+不写“永久免费”“无限次识别”“违反平台规则”等不可控产品文案。
+不把模型供应商 API Key 打包进前端/PWA/客户端。
+不按 500 人生产并发提前采购固定服务器、固定 Redis 或高配数据库。
+不承诺“秒出结果”“无限次识别”“无限追问”。Phase 0 可接受排队、慢处理和额度限制。
+不把图片/PDF/裁切图长期存入数据库。数据库只保存结构化错题数据和必要日志。
+19. Phase 0 最小开工任务
+
+20. 验收标准与样本分布
+
+21. 给开发 Agent 的开工口径
+
+全自动完成，严禁向用户提问；非高风险问题由 Agent 自行判断、拆分、修改、验证。
+先实现主链路：整页上传/PDF 第一页 → parse job → 状态轮询 → questions → tutor → vision retry → 本地恢复。
+前端必须使用 typed fetch client，统一 Header、API_BASE_URL、错误解析和 entitlement 数据流。
+后端必须按 API Contract 返回统一 ok/data 或 ok/code/message/request_id。
+parse-jobs 必须 multipart/form-data；禁止 Base64 JSON 上传图片。
+Phase 0 不接真实支付、不做真实激活码核销；只做状态、Mock 和接口占位。
+TanStack Query 是 entitlement 网络唯一数据源；成功后单向写入 Zustand entitlementStore；组件只读 store。
+tutor 与 vision 成功结果均先写 IndexedDB 再更新展示余额，支持刷新恢复。
+数据库 schema 必须用 Alembic 管理，按本文件字段补齐 retry_count、image_expires_at、sequence_number、reason_code、索引和 model_call_log 完整字段。
+所有 API Key、数据库连接串、支付密钥不得硬编码，不得提交 .env。
+PDF Phase 0 只处理第 1 页；page_range 留到 Phase 1。
+公式渲染仅用 KaTeX + react-katex。
+完成后必须跑 build/lint/typecheck/关键接口测试/Alembic migration 测试，并输出实际验证结果。
+后端必须预留 AI Gateway、QueueAdapter、Worker、Repository、StorageAdapter、ModelProvider 边界；禁止前端或客户端直连模型供应商 API。
+云资源按低固定成本策略实现：Phase 0/1 不按 500 人并发采购高配资源；优先支持 Supabase/R2/Upstash/低配 FastAPI/单 Worker，后续通过配置和部署扩容。
+错题库只把结构化长期数据写入数据库；原图、增强图、PDF 页面图、裁切图走对象存储生命周期管理；不得把二进制文件长期写入 PostgreSQL。
+所有高成本模型调用必须入队或保留入队边界，必须记录 model_call_log，并与 credit_ledger 成本扣减闭环。
+ai_tutoring_chat 是错题学习资产，跟随错题生命周期，不按 model_call_log 的 30-90 天热数据策略清理。
+parse-jobs Phase 0 必须用 BackgroundTasks/异步任务立即返回 job_id；429/rate_limit 不得立即重试。
+activation_codes 字段统一使用 used_by_parent_user_id；mistake_book_item 使用 error_type_code + reason_desc，不使用不可聚合的自由 reason 字段。
+Phase 0/1 不新增 /chat；首次辅导和追问统一走 /api/questions/{question_id}/tutor，使用 mode=initial/followup 区分。
+22. 御三家终审补丁裁定
+本节纳入最后一轮 Claude 终审意见，并按 GPT 裁定做取舍：六项均采纳，但 /chat 不独立新增，统一收敛到 /tutor，确保前后端接口少、逻辑清晰、联调风险低。
+23. 最终终审结论
+《悠米伴学-施工基准文档御三家GPT终审版》已经把原施工基准的模型链路、前端 v1.1 GPT终审版的联调约束、数据库/服务器/收款/激活码/学豆/本地缓存/家长删除逻辑、18 个开工前补丁、云端低固定成本、AI Gateway、队列扩容、500 人并发、错题库容量与存储分层，以及本轮 6 项御三家终审补丁全部合并为一份可开工总基准。
+
+
+
+
+
+
+
+
+
+
+
+24. GPT终审意见与最终输出裁定
+本轮 final check 的最终裁定：本文档已经具备作为悠米伴学项目总施工基准的开工条件。它与《悠米伴学-前端工程v1.1-GPT终审版》在接口、状态、数据、Phase 边界、商业化预留和低成本扩容策略上保持一致；后续 Agent 开工必须以本文件为总基准，以前端 v1.1 GPT终审版为前端专项基准。
+GPT终审意见：本文件不是一次性建设完整商业 App 的大而全方案，而是 Phase 0/1 可执行、可扩容、可控成本的施工蓝图。文档已把模型 API Key 安全、AI Gateway、异步任务、队列/Worker 边界、成本日志、学豆扣减、错题库云端主账本、本地缓存、家长删除、激活码/支付占位和数据库索引策略统一到同一套工程口径中。
+最终开工硬规则：
+前端、PWA、App 不得直接保存或调用 Qwen-VL、DeepSeek、OCR 等供应商 API Key；所有模型调用必须走后端 AI Gateway。
+POST /api/parse-jobs 必须 multipart/form-data 上传，并立即返回 job_id；Phase 0 也必须用 BackgroundTasks/异步任务执行解析链路。
+Phase 0/1 不新增 /chat 接口；首次辅导与追问统一走 /api/questions/{question_id}/tutor，并用 mode=initial/followup 区分。
+tutor、vision、parse job 等高成本调用必须执行身份、权益、额度、限流、幂等、日志与扣费闭环。
+错题库采用云端主账本 + 手机本地缓存；结构化错题长期入数据库，图片/PDF/裁切图进入对象存储并设生命周期。
+model_call_log 可按 30-90 天热数据归档；ai_tutoring_chat 跟随错题生命周期，不按模型日志窗口清理。
+数据库 schema 必须由 Alembic 管理，字段、索引、枚举、retry_count、image_expires_at、sequence_number、reason_code、error_type_code 必须落库。
+所有 Secrets 只能通过环境变量或云 Secret Manager 注入，.env 不得提交仓库。
+模型重试必须按失败类型分流：Schema 错误可携带错误重试，网络超时指数退避，429/rate_limit 不得立即重试。
+任何宣传或 UI 文案不得承诺永久免费、无限识别、无限追问、秒出结果或违反平台规则的方案。
+最终复审结果：
+最终输出裁定：本文件可作为 RooCode / Cursor / Codex / Orchestrator 的总开工输入。开发时不得再引用未整合的旧版施工稿或旧补丁；如后续出现新评审，只能以本 GPT终审版为基底做增量修订。
+--- TABLE ---
+最终定位
+本文件在原《悠米伴学-施工基准》基础上，整合《悠米伴学-前端工程v1.1-GPT终审版》、数据库/服务器/收款/激活码/学豆、AI Gateway、低固定成本扩容、错题库云端主账本与本地缓存、Claude 6 项终审补丁，形成当前唯一可开工总基准。
+--- END TABLE ---
+--- TABLE ---
+维度 | 裁定
+核心目标 | 先证明“整页图片/PDF → 切题 JSON → 点第 N 题 → DeepSeek 辅导/追问”主链路稳定。
+第一眼体验 | 用户可见层必须接近正式产品，不接受默认 Gradio/Streamlit 风格。
+工程原则 | 主链路优先，复杂业务延后；高颜值前端可做，但支付、登录、画像、复杂错题系统不抢 Phase 0。
+商业化原则 | Phase 0 只做权益状态、激活码入口和支付占位，不接真实支付 SDK，不承诺无限免费使用。
+--- END TABLE ---
+--- TABLE ---
+唯一有效基准
+总施工基准以本文件为准；前端工程以《悠米伴学-前端工程v1.1-GPT终审版》为准。旧前端 v1、旧施工稿、未整合商业化与云端逻辑的版本均不得作为开工默认依据。
+--- END TABLE ---
+--- TABLE ---
+对齐项 | 施工基准裁定 | 前端必须执行
+用户可见层 | Next.js 高颜值家庭学习工作台。 | App Router + shadcn/ui + Tailwind + TanStack Query + Zustand。
+内部调试层 | Gradio/Streamlit 只给开发调 OCR、切题、模型。 | 不得作为家长/孩子第一眼界面。
+身份机制 | Phase 0 Header 占位，Phase 1 JWT。 | typed fetch client 统一带 X-Child-Id，不允许组件手写。
+上传协议 | 图片/PDF 文件上传必须 multipart/form-data。 | 不得把图片转 Base64 塞进 JSON。
+支付与激活码 | Phase 0 Mock，Phase 1 人工收款后激活码核销。 | 只做入口、状态和 Mock，不接真实 SDK。
+本地缓存 | 手机本地可缓存错题文本和近期结果，但云端是主账本。 | IndexedDB 存结构化业务数据，Service Worker 只缓存静态资源。
+--- END TABLE ---
+--- TABLE ---
+阶段 | 目标 | 技术/资源 | 明确不做
+Phase 0 技术验证 + 高颜值前端 Demo | 打通整页上传、解析状态、题目列表、单题辅导、视觉重读、权益状态 Mock。 | 本地 FastAPI/Python + Next.js 前端；SQLite/本地文件可用；云端接口预留。 | 不做真实支付、不做真实激活码核销、不做完整 App、不做完整错题本和画像、不做 DOCX。
+Phase 1 小范围内测 | 私域内测、账号/child、云端主账本、激活码真实核销、基础错题与额度流水。 | FastAPI 云部署 + PostgreSQL/Supabase + Object Storage/R2 + Redis/Upstash。 | 不急做 iOS 正式上架、不接复杂自动对账、不做完整画像商业后台。
+Phase 2 商业化闭环 | 正式订单、支付回调、学豆流水、退款/对账、成本预警、模型降级。 | payment_order + credit_ledger + model_call_log；微信/支付宝/H5 视主体与渠道接入。 | 不得把端外充值写成规避、绕过或替代平台规则的口径；iOS 单独做合规评估。
+Phase 3 移动端与增强 | 原生/跨端移动端、长期错题复习、画像、复杂知识点体系、DOCX。 | React Native/Flutter/原生 App 另行评估。 | 不在 Phase 0 锁死移动端技术栈。
+--- END TABLE ---
+--- TABLE ---
+层级 | Phase 0 | Phase 1/2 演进
+用户可见前端 | Next.js 工作台 Demo/PWA 壳，承载上传、解析状态、题目列表、单题辅导、视觉重读、权益状态。 | 继续演进为 Web/PWA 主产品；如需移动端，再评估 React Native/Flutter/原生。
+调试前端 | Gradio/Streamlit 展示原图、增强图、OCR 文本、切题候选、JSON、失败样本。 | 保留为内部调试台，不面向用户。
+后端 API | FastAPI 本地运行即可；接口形状按正式 API 设计。 | 云部署 FastAPI；统一 CORS、错误格式、鉴权、限流、日志。
+数据层 | 本地 SQLite/本地 PostgreSQL 可跑 Demo；schema 用 Alembic 管理并尽量采用 PostgreSQL 兼容语法。 | PostgreSQL/Supabase 保存账号、孩子、作业、题目、订单、额度、模型日志。
+文件层 | 本地文件夹或临时对象存储；图片 URL 可过期。 | Cloudflare R2/OSS/S3 保存原图、增强图、裁切图；结构化文本长期保留。
+队列/缓存 | 同步执行或简单队列，优先可调试。 | Redis/Upstash + ARQ/Dramatiq；支持重试、限流、状态恢复。
+--- END TABLE ---
+--- TABLE ---
+阶段 | 服务器 | 数据库 | 对象存储 | Redis/队列 | 裁定
+Phase 0 本地 Demo | 不必须租服务器。本地 FastAPI + Next.js。 | SQLite 或本地 PostgreSQL；Schema 由 Alembic 管理。 | 本地文件夹即可。 | 不必须。 | 以技术验证为先。
+Phase 0/1 小范围内测 | 可用 Render/Fly/轻量云或本地穿透临时测试。 | 建议 Supabase PostgreSQL。 | 建议 Cloudflare R2/OSS。 | 需要时用 Upstash Redis。 | 开始保留账号、作业、错题、激活码。
+Phase 1 正式 Web/PWA | 需要云端 FastAPI 服务。 | PostgreSQL 必须。 | 对象存储必须。 | 任务并发后必须。 | 进入真实多用户和云端主账本。
+Phase 2 商业化 | 必须稳定部署。 | 订单、余额、流水、成本日志必须云端留痕。 | 图片生命周期与隐私删除必须可控。 | 用于限流、异步任务、模型降级。 | 支付和权益闭环。
+--- END TABLE ---
+--- TABLE ---
+迁移裁定
+Phase 0 → Phase 1 不重建 Schema。数据库结构从第一版起使用 Alembic 管理，字段类型尽量采用 PostgreSQL 兼容设计；迁移到 Supabase/PostgreSQL 时以更换连接串和对象存储路径为主，避免 SQLite 特有语法锁死。
+--- END TABLE ---
+--- TABLE ---
+阶段 | 前端请求身份 | 后端处理 | 风险边界
+Phase 0 | 统一 Header：X-Child-Id: demo_child_001；可选 X-Demo-User-Id: demo_parent_001。 | 以后端读取的 Header 为准；请求体/表单里的 child_id 不能作为权威身份字段。 | 不得在组件里手写，必须由 typed fetch client 注入。
+Phase 1 | Authorization: Bearer *** | 从 token 推导 parent_user_id，并校验 child_id 是否属于该家长。 | 不再信任前端随意传入 child_id。
+Phase 2 | JWT + 设备/风控/支付回调校验。 | 支付、额度、模型调用均绑定 parent_user_id/child_id。 | 异常登录、暴力核销、刷接口必须限流。
+--- END TABLE ---
+--- TABLE ---
+接口 | 方法 | 用途 | Phase 0 裁定
+/api/parse-jobs | POST | 创建解析任务，上传整页图片/PDF。 | 必须 multipart/form-data；携带 file、client_task_id；PDF 默认只处理第 1 页。
+/api/parse-jobs/{job_id} | GET | 轮询任务状态。 | 1.5 秒 polling；job_id 必须写入 URL，刷新后恢复。
+/api/parse-jobs/{job_id}/questions | GET | 获取切题结果列表。 | 必须返回题号、题干、bbox、crop_url 可空、visual_description。
+/api/questions/{question_id}/tutor | POST | DeepSeek 单题首次辅导与后续追问；Phase 0/1 不新增 /chat。 | 请求体 mode=initial/followup，message、client_message_id、use_vision 可选；后端统一校验轮数、额度和 chat_limit_reached。
+/api/questions/{question_id}/vision | POST | 视觉二次路由/重读。 | 高成本调用；成功结果同样写 IndexedDB，以 question_id + timestamp 缓存。
+/api/me/entitlement | GET | 查询会员、学豆、权益状态。 | Phase 0 Mock；TanStack Query 是唯一网络数据源。
+/api/activation/redeem | POST | 激活码核销。 | Phase 0 只做 Mock；Phase 1 真实核销并限流。
+/api/payment/create-order | POST | 创建正式支付订单。 | 仅占位；Phase 0/1 不接真实 SDK。
+/api/payment/callback | POST | 支付回调。 | Phase 2 才实现；必须验签、幂等、记录加密 payload 与 hash。
+--- END TABLE ---
+--- TABLE ---
+字段 | 来源 | 用途 | 后端规则
+client_task_id | 前端 UUID | 上传幂等、防重复任务。 | 同一 child_id + client_task_id 重复提交时返回已有 job。
+job_id | 后端生成 | 任务状态轮询与 URL 恢复。 | 必须可查询历史状态，刷新不重新上传。
+child_id | Header | 任务归属。 | Phase 0 以后端 Header 为准；Phase 1 从 JWT 推导。
+page_range | Phase 1 才启用 | PDF 多页选择。 | Phase 0 忽略或固定第一页。
+--- END TABLE ---
+--- TABLE ---
+模块 | 职责 | 禁止/注意
+OCR | 认字、识别题号、选项、页码、PDF 文字。 | 不负责理解图形、表格逻辑，不负责解题。
+OpenCV/OCR block/版面规则 | 物理切题、候选 bbox、页面块排序。 | 最终精准 bbox 不得由视觉大模型直接生成。
+视觉模型 | 理解图形、表格、线段图、题目归属、题目是否完整。 | 负责语义理解和复核，不负责像素级画框。
+DeepSeek | 解题、讲解、错因分析、孩子对话、家长话术。 | 不负责看图，不接收图片 Base64 作为普通文本。
+MathVerifier | 表达式求值、单位换算、选择题反代校验。 | Phase 0 预留接口，Phase 1 起逐步接入。
+--- END TABLE ---
+--- TABLE ---
+model_call_log 字段 | 说明
+id, request_id, task_id, question_id | 追踪一次模型调用与具体业务对象的关系。
+parent_user_id, child_id | 用于成本归属、额度扣减、风控和统计。
+provider_name, model_name, feature_code | 如 ocr、vision_cutting、tutor、vision_retry。
+prompt_name, prompt_version, schema_version | 保证 Prompt 与 Schema 可复盘。
+input_tokens, output_tokens, latency_ms | 成本和性能追踪。
+estimated_cost, credit_cost, billing_status | 成本闭环与学豆扣减依据。
+success, error_code, retry_count | 失败定位和模型降级依据。
+--- END TABLE ---
+--- TABLE ---
+Schema 与 Prompt 版本化
+OCR / Vision / LLM 输出必须经过 Pydantic Schema 校验；Schema 校验失败最多重试 2 次；必须记录 prompt_name / prompt_version / schema_version / retry_count。
+--- END TABLE ---
+--- TABLE ---
+能力 | Phase 0 | Phase 1 | Phase 2
+权益状态 | /api/me/entitlement Mock。 | 真实会员/额度查询。 | 套餐、风控、退款、模型降级。
+激活码 | 前端输入框 + Mock 状态变更。 | 人工收款后发码，/activation/redeem 真实核销。 | 批量发码、渠道码、限流、防刷。
+学豆/AI 能量 | 只展示余额与 credit_low/credit_empty。 | credit_account + credit_ledger 真实流水。 | 支付订单充值、退款、对账、异常冻结。
+支付 | create-order 占位。 | 可先不接 SDK，继续人工收款。 | 微信/支付宝/H5/其他渠道按主体资质接入。
+iOS/PWA | 优先 PWA，不写平台规则敏感口径。 | 端外购买与端内消费需单独合规评估。 | iOS 正式上架另行评估 IAP/外链/地区规则。
+--- END TABLE ---
+--- TABLE ---
+表 | 关键裁定 | 用途
+activation_codes | code_type、credit_amount、plan_code、status、used_by_parent_user_id、expires_at。 | 人工收款/内测/赠送额度后的核销；命名统一绑定家长账号。
+membership | 以 parent_user_id 为主键；不按 child_id 购买多份会员。 | 家长购买，全家共享会员权益。
+credit_account | 余额以 parent_user_id 为主；不把 child_id 放入余额主键。 | 家长充值，全家共享余额。
+credit_ledger | child_id 只出现在流水中；使用 reason_code + reason_desc。 | 记录“谁用的、为什么扣/加”。
+reason_code 枚举 | tutor_call / vision_call / activation_reward / admin_grant / refund / payment_recharge。 | 成本归因和报表 GROUP BY。
+payment_order | parent_user_id、amount_cents、channel、status、provider_order_id、paid_at。 | 正式支付订单预留。
+payment_callback_log | Phase 2 存 encrypted_payload + raw_payload_hash + verify_status。 | 既能调试申诉，又不明文存敏感原文。
+--- END TABLE ---
+--- TABLE ---
+扣费时序裁定
+后端完成 tutor/vision 调用并返回完整结果后，前端必须先把结果写入 IndexedDB，再更新 entitlementStore 的余额展示。刷新或退出后再次进入页面，应从 IndexedDB 恢复已扣费结果，避免“已扣学豆但结果丢失”。
+--- END TABLE ---
+--- TABLE ---
+数据 | 本地策略 | 云端策略 | 删除裁定
+题目文本/视觉描述/结构化条件 | IndexedDB 长期缓存。 | PostgreSQL 长期保留。 | 家长可删除学习数据。
+单题辅导/视觉重读结果 | IndexedDB 缓存最近结果，用于扣费恢复。 | 按 question_id/attempt 归档。 | 可删除对话和学习记录。
+原图/增强图/裁切图 | Cache Storage 或浏览器缓存只作短期辅助。 | 对象存储 7 天默认生命周期，image_expires_at 到期后删除。 | 支持只删除图片，不删结构化错题。
+静态资源 | Service Worker + Cache Storage。 | CDN/静态托管。 | 随版本更新清理。
+支付订单/额度流水 | 不以本地为准。 | 云端按财务与风控要求保留必要记录。 | 不承诺一键物理删除支付流水。
+--- END TABLE ---
+--- TABLE ---
+表 | 关键字段 / 裁定
+parent_user | id, phone_or_email, display_name, status, created_at。
+child_profile | id, parent_user_id, nickname, grade, semester, textbook_version, created_at, deleted_at。
+assignment | id, parent_user_id, child_id, source_type, source_name, status, created_at, deleted_at。
+assignment_page | id, assignment_id, page_no, original_image_url nullable, enhanced_image_url nullable, image_expired boolean, image_expires_at, created_at。
+parse_job | id, client_task_id, parent_user_id, child_id, assignment_id, status, progress, error_code, retry_count, created_at, completed_at。
+question_item | id, assignment_id, page_id, question_no, bbox_json, question_text, visual_description, structured_conditions, crop_url nullable, image_expired boolean, image_expires_at。
+question_attempt | id, question_id, child_id, status, child_answer, correct_answer, first_attempt_result, time_spent_seconds, confidence_self_reported, created_at。
+ai_tutoring_chat | id, question_id, child_id, sequence_number, role, content, summary, model_call_id nullable, created_at；跟随 mistake_book_item 生命周期，不按 30-90 天普通日志清理。
+mistake_book_item | id, child_id, question_id, error_type_code, reason_desc, mastery_status, next_review_at, deleted_at；error_type_code 枚举：calculation_error / conceptual_error / careless_mistake / reading_error / unknown；Phase 0 默认 unknown，标记错题时 next_review_at = 当天 +1 天。
+model_call_log | 字段以第 9 节为准：feature_code、input_tokens、output_tokens、schema_version、retry_count 必须包含。
+membership / credit_account | 均以 parent_user_id 为主，不用 child_id 作为权益或余额主键。
+credit_ledger | parent_user_id, child_id, change_amount, balance_after, reason_code, reason_desc, related_id, created_at。
+payment_callback_log | payment_order_id, channel, encrypted_payload, raw_payload_hash, verify_status, created_at；Phase 2 实现。
+--- END TABLE ---
+--- TABLE ---
+图片过期执行
+assignment_page 和 question_item 均必须有 image_expires_at。创建图片记录时写入 created_at + 7 days；定时任务扫描 image_expires_at < now() 的记录，删除对象存储图片并置 image_expired=true。
+--- END TABLE ---
+--- TABLE ---
+索引 | 覆盖查询
+idx_child_profile_parent_user_id | 按家长查孩子列表。
+idx_assignment_child_created | 按 child_id + created_at 查历史作业。
+idx_assignment_page_assignment_id | 按作业查页面。
+idx_parse_job_child_status_created | 按 child_id/status/created_at 查任务。
+idx_parse_job_child_client_task | 幂等：child_id + client_task_id。
+idx_question_item_assignment_id | 按作业查题目列表。
+idx_ai_chat_question_sequence | 按 question_id + sequence_number 拼上下文。
+idx_model_call_task_created | 按 task_id/created_at 查成本日志。
+idx_credit_ledger_parent_created | 按 parent_user_id + created_at 查流水。
+idx_image_expires_at | 扫描图片过期记录。
+--- END TABLE ---
+--- TABLE ---
+状态 | 含义 | 前端展示/退出路径
+uploaded | 文件已接收。 | 任务卡片创建，显示上传完成。
+enhancing | 图片压缩/增强/PDF 渲染。 | 扫描线/图片处理中。
+ocr_running | OCR 识别文字。 | 骨架屏文字块。
+cutting | 物理切题与候选 bbox。 | 题目卡片逐渐出现。
+vision_reviewing | 视觉模型复核图形/表格/题目完整性。 | AI 图标呼吸灯。
+schema_validating | Pydantic JSON Schema 校验。 | 结构化卡片校验动画。
+completed | 成功生成题目列表。 | 进入题目列表页。
+needs_review | 部分切题/识别存在疑点。 | 允许直接进入题目列表查看已识别题目；疑点题标记“需复核”，不阻塞成功题。
+failed | 任务失败。 | 显示统一错误 message，不暴露 traceback。
+--- END TABLE ---
+--- TABLE ---
+阶段 | 任务机制
+Phase 0 | POST /api/parse-jobs 必须立即返回 job_id。解析链路使用 FastAPI BackgroundTasks 或 asyncio.create_task 在后台执行；即使不接 Redis，也必须保留 enqueue_parse_job / worker_process_job / save_result 边界；Schema 校验失败最多重试 2 次，retry_count 落库。
+Phase 1 | ARQ + Redis 或 Dramatiq + Redis，支持失败重试、限流、状态恢复。
+Phase 2 | 任务编排复杂后再考虑 Celery / Temporal。
+--- END TABLE ---
+--- TABLE ---
+题号模式 | 样例 | 处理方式
+阿拉伯数字 | 1. 2. 3. | 优先锚点。
+中文大题 | 一、二、三、 | 识别为大题分组。
+括号小题 | （1）（2）（3） | 大题内切分。
+圈号 | ①②③ | 作为小题锚点。
+无显式题号 | 短题/图片题 | 结合 OCR block 与视觉复核生成候选。
+--- END TABLE ---
+--- TABLE ---
+场景 | 处理
+纯计算步骤、为什么这样算、公式解释 | 直接用 DeepSeek 基于 question_text、visual_description、structured_conditions 和最近对话回答。
+追问包含图、图中、线段、几何、表格、箭头、阴影、方格、坐标等关键词 | 触发 /vision，重新读取该题裁切图，生成更详细 visual_description，并写入 IndexedDB 恢复缓存。
+单题对话过长 | Phase 0 后端只保留最近 6 轮参与上下文；Phase 1 超过 10 轮时同步调用 DeepSeek 摘要前 8 轮，后续上下文为“摘要 + 最近 2 轮 + 新问题”。ai_tutoring_chat 跟随错题生命周期保留。
+对话轮数上限 | 由后端在 /api/questions/{question_id}/tutor 入口统一校验；不新增 /chat 接口。超限返回 code: chat_limit_reached，前端根据 code 展示提示。
+额度不足 | credit_empty 时前端必须拦截；后端也必须二次校验，不能只信前端。
+--- END TABLE ---
+--- TABLE ---
+模块 | 职责 | 阶段
+KaTeX + react-katex | 前端唯一公式渲染库，满足小学/初中主流数学公式展示。 | Phase 0/1。
+MathVerifier | SymPy 表达式求值、方程 solve、单位换算、选择题反代校验。 | Phase 1 起逐步实现。
+Formula OCR Provider | 复杂分数、根号、公式、化学式转 LaTeX/MathML。 | Phase 2 或复杂样本触发。
+--- END TABLE ---
+--- TABLE ---
+公式裁定
+Phase 0/1 唯一采用 KaTeX + react-katex，不引入 MathJax 或其他公式渲染库，避免 bundle 体积和异步渲染复杂度。
+--- END TABLE ---
+--- TABLE ---
+类别 | 要求
+结构化日志 | 记录 request_id、task_id、stage_name、latency_ms、provider_name、error_code、child_id、feature_code。
+失败样本 | 保存失败原因：OCR失败、切题失败、视觉理解失败、Schema失败、LLM解析失败、支付/额度失败。
+统一错误 | FastAPI 不暴露 traceback、Pydantic 栈或第三方原始错误；只返回 code + message。
+CORS | 前后端分离部署前，FastAPI 必须全局挂载 CORSMiddleware，允许开发域名和正式域名。
+限流 | activation/redeem、tutor、vision、parse-jobs 均需要限流预留；激活码输错 5 次建议锁定 1 小时。
+限流维度 | Phase 0 以 IP 为 key；Phase 1 登录态下以 parent_user_id 为主、IP 为辅；前端收到 429 显示“尝试次数过多，请 1 小时后再试”。
+Secrets | API Key、数据库连接串、支付密钥一律通过环境变量注入，不得硬编码；.env 必须进 .gitignore；Phase 1 迁移到云平台 Secret Manager。
+隐私 | 学习数据可删除；支付订单、充值流水和额度流水按财务与风控要求保留必要记录。
+重试分流 | Schema 校验失败最多 2 次并携带错误；网络超时指数退避最多 3 次；429/rate_limit 禁止立即重试，进入延后队列。
+--- END TABLE ---
+--- TABLE ---
+顺序 | 任务
+1 | 搭建 Next.js 用户可见工作台：上传页、解析状态页、题目列表、单题辅导页、权益状态 Mock、激活码入口 Mock。
+2 | 搭建 Gradio/Streamlit 内部调试台：原图、增强图、OCR 文本、切题候选、JSON、失败原因。
+3 | FastAPI 实现最小 API Contract：parse-jobs、status、questions、tutor、vision、entitlement Mock、activation Mock。
+4 | 实现 multipart/form-data 上传、client_task_id 幂等、job_id URL 恢复和统一错误响应。
+5 | 接入云 OCR Provider，记录 provider、延迟、费用、失败率。
+6 | 实现 OpenCV/OCR block/题号规则候选切块，禁止大模型直接画最终框。
+7 | 接入 Qwen-VL via DashScope，输出 visual_description 和语义重组结果。
+8 | 接入 DeepSeek 单题辅导，完成假打字机展示、后端轮数校验和扣费恢复缓存逻辑。
+9 | 用 Alembic 建立数据库 schema：parent_user、child_profile、assignment、parse_job、question_item、attempt、model_call_log、activation/credit/payment 预留表。
+10 | 完成 20+ 样本测试与退出报告，记录切题成功率、P50/P95 延迟、失败率、单页成本和家长通过率。
+--- END TABLE ---
+--- TABLE ---
+类别 | 标准
+真实样本分布 | 20 张样本必须包含：清晰打印 5 张、手机拍摄含轻微倾斜/阴影 5 张、含图形/表格题 4 张、语文/英语非计算题 3 张、低清晰度或微信截图 3 张。
+切题成功率 | ≥ 85%，且每个失败样本记录失败原因。
+DeepSeek 单题解析 | 家长通过率 ≥ 80%。
+视觉二次路由 | 至少成功触发 5 次，并能恢复已返回结果。
+接口联调 | multipart 上传、X-Child-Id、统一错误格式、CORS、job_id URL 恢复全部通过。
+商业化预留 | entitlement 状态、activation Mock、credit_low/credit_empty 拦截、model_call_log billing 字段全部存在。
+本地缓存 | IndexedDB 恢复 tutor/vision 结果；Service Worker 不保存业务真相；家长删除入口存在。
+成本报告 | Qwen-VL/OCR/DeepSeek P50/P95 延迟、失败率、重试次数和单页平均成本可查询。
+数据库验证 | Alembic migration 可执行；必要索引存在；图片过期字段和 retry_count 字段存在。
+--- END TABLE ---
+--- TABLE ---
+开工提示词必须包含
+当前唯一总基准为《悠米伴学-施工基准文档御三家定稿版》，前端唯一基准为《悠米伴学-前端工程v1.1-GPT终审版》。旧施工稿、旧前端 v1、未整合云端/支付/接口/成本扩容/御三家终审补丁的版本全部作废。
+--- END TABLE ---
+--- TABLE ---
+问题 | 最终裁定 | 落点
+/chat 接口缺失 | Phase 0/1 不新增 /chat；首次辅导与追问统一走 /api/questions/{question_id}/tutor，请求体 mode=initial/followup。 | 第 7、15、21 节
+ai_tutoring_chat 保留策略 | ai_tutoring_chat 属于错题学习资产，跟随 mistake_book_item 生命周期；model_call_log/原始模型 JSON 才按 30-90 天热数据归档。 | 第 5.4、11、12、15 节
+Phase 0 同步执行超时 | POST /api/parse-jobs 必须立即返回 job_id；Phase 0 用 FastAPI BackgroundTasks 或 asyncio.create_task 后台执行，Phase 1 替换为 ARQ/Dramatiq。 | 第 13、21 节
+模型失败重试混淆 | Schema 失败、网络超时、429/rate_limit 三类错误分流；429 不立即重试，进入延后队列。 | 第 9、17、21 节
+activation_codes 命名不一致 | used_by_user_id 改为 used_by_parent_user_id，与 parent_user_id 体系一致。 | 第 10、12 节
+mistake_book_item.reason 自由文本 | 拆分为 error_type_code + reason_desc；Phase 0 默认 unknown，Phase 1 由 DeepSeek 归因。 | 第 12、21 节
+--- END TABLE ---
+--- TABLE ---
+终审项 | 结论
+逻辑一致性 | 通过。前端、后端、数据库、支付预留与 Phase 边界已统一。
+数据库完整性 | 通过。权益归属、图片过期、重试、流水枚举、对话顺序、索引和迁移策略已补齐。
+范围控制 | 通过。Phase 0 不被商业化、支付 SDK、完整账号体系或复杂错题画像拖垮。
+联调可执行性 | 通过。身份 Header、multipart、client_task_id、job_id URL、CORS、统一错误格式已明确。
+商业化预留 | 通过。activation、entitlement、credit、payment、model_call_log 均有接口和表结构预留。
+隐私与删除 | 通过。学习数据可删，支付流水必要留痕，本地缓存不作为唯一数据源。
+最终裁定 | 准予按本文件 + 前端 GPT终审版直接进入 Phase 0/1 开工；御三家终审补丁已纳入，未发现新的结构性风险。
+御三家补丁 | 通过。/chat 收敛为 /tutor、ai_tutoring_chat 生命周期、BackgroundTasks、重试分流、activation 字段命名、错因枚举已纳入。
+--- END TABLE ---
+--- TABLE ---
+终审项 | 最终裁定
+唯一总基准 | 本文件为悠米伴学项目当前唯一总施工基准；旧施工稿、旧补丁稿、未整合评审稿均按历史残留处理。
+前端专项基准 | 前端实现必须继续对齐《悠米伴学-前端工程v1.1-GPT终审版》。
+Phase 0 边界 | 只打通整页上传/PDF 第一页、parse job、题目列表、tutor、vision retry、本地恢复和 Mock 权益入口。
+商业化边界 | 不接真实支付 SDK，不做真实激活码核销；只做权益状态、学豆字段、接口占位和成本闭环预留。
+扩容边界 | 代码架构一次写对，资源按用户增长升级；禁止前期按 500 人并发采购高固定成本资源。
+--- END TABLE ---
+--- TABLE ---
+检查项 | 结论 | 说明
+接口一致性 | 通过 | API Contract、typed fetch、/tutor 收敛、multipart、job_id URL 恢复、CORS 与错误格式一致。
+数据一致性 | 通过 | parent_user_id/child_id、membership、credit_account、credit_ledger、model_call_log、ai_tutoring_chat 生命周期已统一。
+成本与扩容 | 通过 | 低固定成本启动、AI Gateway、QueueAdapter、Worker Pool、对象存储生命周期、数据库升级路径已统一。
+隐私与删除 | 通过 | 家长可删除学习数据、本地缓存和图片；支付、额度和风控流水保留必要记录。
+Phase 边界 | 通过 | Phase 0/1 不做真实支付、不做完整账号后台、不做正式移动 App、不做高成本图像增强黑洞。
+开工风险 | 可控 | 剩余风险主要是模型供应商限额、真实样本质量、Prompt 稳定性和付费转化，均可通过 Phase 0 验收逐步验证。
+--- END TABLE ---

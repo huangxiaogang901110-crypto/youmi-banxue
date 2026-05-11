@@ -8,6 +8,7 @@ import type {
   Entitlement,
   AuthLoginResponse,
   AuthRegisterResponse,
+  RecentJob,
 } from './types';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
@@ -179,6 +180,10 @@ export const parseJobApi = {
     MOCK_MODE
       ? mockDelay().then(() => ({ ok: true as const, data: MOCK_QUESTIONS, request_id: 'mock-req' }))
       : typedFetch<Question[]>(`${API_BASE_URL}/api/parse-jobs/${encodeURIComponent(jobId)}/questions`),
+
+  /** 获取当前 child 最近 10 条解析任务 */
+  getRecent: () =>
+    typedFetch<RecentJob[]>(`${API_BASE_URL}/api/parse-jobs/recent`),
 };
 
 /**
