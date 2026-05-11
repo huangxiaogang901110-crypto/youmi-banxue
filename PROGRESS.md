@@ -6,7 +6,7 @@
 
 - 项目：悠米伴学 (Youmi Companion Learning)
 - 阶段：**Phase 0 全部完成 ✅** → 待进入 Phase 1 小范围内测
-- 最后更新：2026-05-10 23:59 CST
+- 最后更新：2026-05-11 16:30 CST
 - 部署：ECS 39.107.119.136，Nginx 静态 `/out` + FastAPI `:8000`
 - 构建：Next.js 16.2.6 (Node v20.18.1)，7 路由全静态导出，零错误
 - 数据库：SQLite + ECS 系统盘（阿里云 ESSD 云盘），不再迁移 PostgreSQL
@@ -40,10 +40,12 @@
 | R2 | 后端 POST /api/homework/parse Mock | ✅ 完成 | 支持「语文:背诵第12课」等微信格式 |
 | R3 | 前端 types.ts + api.ts 补接口 | ✅ 完成 | HomeworkSubject + HomeworkParseData + homeworkApi |
 | R4 | TextPaste 组件 | ✅ 完成 | 粘贴框 + 发送 + loading + 错误，集成在 upload 页 |
-| R5 | HomeworkList + 勾选 + 进度条 | ✅ 完成 | 按科目分组，checked 状态 + 进度百分比 |
-| R6 | 状态持久化 + 合并预览 | ✅ 完成 | localStorage 持久化，精确文本匹配去重 |
+| R5 | HomeworkList + 勾选 + 进度条 | ✅ 完成 | 按科目分组，科目级进度小条、任务删除、只读模式 |
+| R6 | 状态持久化 | ✅ 完成 | 日期化管理：同天合并去重、跨天隔离、历史只读、跨天复制 |
 | R7 | 首页集成 | ✅ 完成 | 首页"识别作业"入口卡片 |
-| R8 | 构建 + 联调 + 部署 | ✅ 完成 | TabBar 5 个标签（作业合并入「识别作业」），build 零错误 |
+| R8 | 构建 + 联调 + 部署 | ✅ 完成 | TabBar 5 个标签，build 零错误 |
+| R9 | DeepSeek 作业文本解析 | ✅ 完成 | 2026-05-11 接入 deepseek-v4-flash，替换 Mock 正则解析 |
+| R10 | 日期化管理 + 进度 + 空态 | ✅ 完成 | 2026-05-11 useHomeworkDays hook，完整产品闭环 |
 
 ### 设计决策
 - **TabBar 保持 5 个**：不新增"作业"标签，作业清单合并入 `/upload` 页面的双 Tab 切换
@@ -68,6 +70,18 @@
 ---
 
 ## 日志
+
+### 2026-05-11
+
+- ✅ 识别管线升级：Qwen-VL 全图识题优先（qwen-vl-max），OCR 回落。成本降 5×，延迟降 50%
+- ✅ DeepSeek v4-flash 作业文本解析接入 `/api/homework/parse`，Mock 回落
+- ✅ 作业清单日期化管理：同天合并去重、跨天隔离、历史只读、跨天复制、任务删除、进度可视化、空态引导
+- ⚠️ 踩坑：Qwen-VL 返回 `"VOCABULARY 1"` 非数字题号 → int() 崩溃 → 修复 try/except 容错
+- ⚠️ 踩坑：`save_result` 替换 `_jobs[jid]` 丢失 `poll_count` → 前端轮询死循环 → 修复保底
+- ⚠️ 踩坑：DeepSeek prompt 把编号列表拆成多科 → 修复「先判断单科/多科」规则
+- ⚠️ 踩坑：`useParseJobPolling` 未识别 `ok:false` → 永远转圈 → 修复显式检查
+- ⚠️ 踩坑：轮询/结果态无上传入口 → 加「新上传」按钮
+- 📄 新建基准文档：`识别管线说明.md`、`作业清单日期化管理说明.md`
 
 ### 2026-05-10
 
