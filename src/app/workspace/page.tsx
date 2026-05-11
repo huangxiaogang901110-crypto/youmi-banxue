@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { Upload, ArrowRight, Clock, Loader2, X, Image, Camera, FileText, CheckCircle2 } from "lucide-react";
 import ProcessingStatus from "@/components/processing/ProcessingStatus";
 import BboxOverlay from "@/components/question-list/BboxOverlay";
+import QuestionGroup, { calcGroupSize, groupQuestions } from "@/components/question-list/QuestionGroup";
 import { useParseJobPolling } from "@/hooks/useParseJobPolling";
 import ErrorDisplay from "@/components/common/ErrorDisplay";
 import { compressImage } from "@/lib/imageCompress";
@@ -16,7 +17,7 @@ import type { RecentJob } from "@/lib/types";
 
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp", "application/pdf"];
 const LS_LAST_JOB = "yomi_last_job";
-const LS_RECENT_TTL = 24 * 60 * 60 * 1000; // 24h
+const LS_RECENT_TTL = 24 * 60 * 60 * 1000;
 
 type UploadPhase = "idle" | "selected" | "compressing" | "uploading" | "error";
 
@@ -38,6 +39,16 @@ function WorkspaceContent() {
   const [recentJobs, setRecentJobs] = useState<RecentJob[]>([]);
   const [recentLoading, setRecentLoading] = useState(false);
 
+  // ── 恢复中（防止闪烁）──
+  const [isRestoring, setIsRestoring] = useState(false);
+
+  // 当进入 polling / failed / completed 时解除恢复状态
+  useEffect(() => {
+    if (status === "polling" || status === "failed" || status === "completed") {
+      setIsRestoring(false);
+    }
+  }, [status]);
+
   // 页面加载时：恢复上次未完成的任务 + 拉取最近列表
   useEffect(() => {
     if (status !== "idle") return;
@@ -46,6 +57,7 @@ function WorkspaceContent() {
       if (saved) {
         const { job_id, ts } = JSON.parse(saved);
         if (Date.now() - ts < LS_RECENT_TTL) {
+          setIsRestoring(true);
           router.replace(`/workspace?job_id=${job_id}`);
           return;
         }
@@ -120,7 +132,6 @@ function WorkspaceContent() {
     setCompressInfo("");
   };
 
-  // 格式化相对时间
   const formatRelative = (iso: string): string => {
     const diff = Date.now() - new Date(iso).getTime();
     const mins = Math.floor(diff / 60000);
@@ -131,6 +142,20 @@ function WorkspaceContent() {
     return `${Math.floor(hours / 24)} 天前`;
   };
 
+  // ── 恢复中：显示进度占位 ──
+  if (isRestoring && (status === "loading" || status === "polling")) {
+    return <ProcessingStatus status={job?.status || "uploaded"} />;
+  }
+
+  // ── loading ──
+  if (status === "loading") {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Loader2 className="w-8 h-8 text-primary animate-spin" />
+      </div>
+    );
+  }
+
   // ── idle: 上传入口 ──
   if (status === "idle") {
     return (
@@ -140,7 +165,6 @@ function WorkspaceContent() {
           <span className="text-primary font-medium">剩余 50 学豆</span>
         </div>
 
-        {/* 上传成功 */}
         {phase === "compressing" || phase === "uploading" ? (
           <div className="bg-card rounded-2xl p-10 shadow-sm border border-border text-center space-y-4">
             <Loader2 className="w-12 h-12 text-primary mx-auto animate-spin" strokeWidth={1.5} />
@@ -156,7 +180,6 @@ function WorkspaceContent() {
         ) : phase === "error" ? (
           <ErrorDisplay message={uploadError} action="请检查文件后重试" onRetry={startUpload} />
         ) : file ? (
-          /* 已选文件，确认上传 */
           <div className="space-y-4">
             <div className="bg-card rounded-2xl p-4 shadow-sm border border-border space-y-3">
               <div className="flex items-center justify-between">
@@ -193,7 +216,6 @@ function WorkspaceContent() {
             </button>
           </div>
         ) : (
-          /* 默认：上传入口 */
           <>
             <div
               className="bg-primary/5 border-2 border-dashed border-primary/30 rounded-2xl p-8 text-center space-y-3 hover:bg-primary/10 transition cursor-pointer"
@@ -259,17 +281,9 @@ function WorkspaceContent() {
     );
   }
 
-  // ── loading ──
-  if (status === "loading") {
-    return (
-      <div className="flex items-center justify-center py-20">
-        <Loader2 className="w-8 h-8 text-primary animate-spin" />
-      </div>
-    );
-  }
-
   // ── failed ──
   if (status === "failed") {
+    setIsRestoring(false);
     return (
       <ErrorDisplay
         message={error}
@@ -285,11 +299,17 @@ function WorkspaceContent() {
 
   // ── polling ──
   if (status === "polling") {
+    setIsRestoring(false);
     return <ProcessingStatus status={job?.status || "uploaded"} />;
   }
 
   // ── completed ──
-  const bboxes: Bbox[] = (questions || [])
+  setIsRestoring(false);
+  const qs = questions || [];
+  const groupSize = calcGroupSize(qs.length);
+  const groups = groupQuestions(qs, groupSize);
+
+  const bboxes: Bbox[] = qs
     .filter((q) => q.bbox && q.bbox.length === 4)
     .map((q) => ({
       question_id: q.question_id,
@@ -301,10 +321,10 @@ function WorkspaceContent() {
     <div className="space-y-4 pb-4">
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-semibold text-foreground">
-          共 {job?.questions_count || questions?.length || 0} 题
+          共 {job?.questions_count || qs.length} 题
         </h2>
         <span className="text-xs text-muted-foreground">
-          点击题目查看 AI 辅导
+          点击题目组展开查看
         </span>
       </div>
 
@@ -314,27 +334,22 @@ function WorkspaceContent() {
         imageUrl={undefined}
       />
 
-      <div className="space-y-2">
-        {(questions || []).map((q, i) => (
-          <Link
-            key={q.question_id}
-            href={`/question?qid=${q.question_id}`}
-            onClick={() => setActiveIndex(i)}
-            className={`block bg-card rounded-xl p-4 shadow-sm border transition ${
-              i === activeIndex ? "border-primary ring-1 ring-primary/20" : "border-border hover:shadow-md"
-            }`}
-          >
-            <div className="flex items-center gap-3">
-              <span className="text-xs text-muted-foreground w-6 shrink-0">
-                #{q.question_number}
-              </span>
-              <span className="flex-1 text-sm text-foreground line-clamp-2">
-                {q.question_text}
-              </span>
-              <ArrowRight className="w-4 h-4 text-muted-foreground shrink-0" />
-            </div>
-          </Link>
-        ))}
+      {/* 分组题目 */}
+      <div className="space-y-3">
+        {groups.map((g, gi) => {
+          const start = gi * groupSize + 1;
+          const end = start + g.length - 1;
+          return (
+            <QuestionGroup
+              key={gi}
+              groupIndex={gi}
+              startNumber={start}
+              endNumber={end}
+              questions={g}
+              defaultOpen={gi === 0}
+            />
+          );
+        })}
       </div>
     </div>
   );
