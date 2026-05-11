@@ -1,6 +1,6 @@
 """
 阿里云 OCR 客户端 — 使用官方 SDK。
-Phase 0：通用文字识别（RecognizeGeneral）。
+Phase 1：教育题目识别（RecognizeEduQuestionOcr），针对作业/试卷场景优化。
 """
 import os
 import json
@@ -35,16 +35,20 @@ class AliyunOCRClient:
 
     def recognize(self, image_bytes: bytes) -> dict:
         """
-        调用通用文字识别 API。
+        调用教育题目识别 API（RecognizeEduQuestionOcr）。
+        针对作业/试卷题目场景专项优化，比通用 OCR 更准。
         Args:
-            image_bytes: 图片原始字节（JPG/PNG/PDF），不需要 base64 编码。
+            image_bytes: 图片原始字节（JPG/PNG），不需要 base64 编码。
         Returns:
             API 原始响应 dict，含 Data.content 和 Data.prism_wordsInfo
         """
-        from alibabacloud_ocr_api20210707.models import RecognizeGeneralRequest
+        from alibabacloud_ocr_api20210707.models import RecognizeEduQuestionOcrRequest
         client = _get_client()
-        req = RecognizeGeneralRequest(body=image_bytes)
-        resp = client.recognize_general(req)
+        req = RecognizeEduQuestionOcrRequest(
+            need_rotate=False,
+            body=image_bytes,
+        )
+        resp = client.recognize_edu_question_ocr(req)
         data = resp.body.data
         if isinstance(data, str):
             data = json.loads(data)
