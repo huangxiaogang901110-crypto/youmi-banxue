@@ -744,19 +744,8 @@ def get_active_pricing(provider: str, model_name: str) -> dict | None:
 
 
 def seed_default_pricing():
-    """初始化默认价格（仅当表为空时执行）"""
-    c = _conn()
-    count = c.execute("SELECT COUNT(*) FROM model_price_snapshots").fetchone()[0]
-    if count > 0:
-        c.close()
-        return
-    # 阿里云 Qwen-VL Max 价格（参考 2026-05 官网）
-    save_price_snapshot("aliyun_dashscope", "qwen-vl-max", 0.003, 0.012,
-                        region="cn-hangzhou", currency="CNY", source="dashscope.aliyun.com")
-    # 阿里云 OCR 教育题目识别
-    save_price_snapshot("aliyun_ocr", "RecognizeEduQuestionOcr", 0.0, 0.0,
-                        region="cn-hangzhou", currency="CNY", source="ocr-api.aliyuncs.com")
-    # DeepSeek v4-flash
-    save_price_snapshot("deepseek", "deepseek-v4-flash", 0.001, 0.004,
-                        currency="CNY", source="platform.deepseek.com")
-    c.close()
+    """初始化默认价格。
+    ⚠️ 价格由外部 Agent 每日巡查模型厂商后填入，此处不做硬编码。
+    仅创建表结构，不插入种子数据。
+    """
+    pass  # 价格由外部 Agent 维护，不硬编码
