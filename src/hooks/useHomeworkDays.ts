@@ -203,5 +203,20 @@ export function useHomeworkDays() {
     });
   }, [days]);
 
-  return { days, getToday, getHistory, upsertToday, toggleTask, deleteTask, copyToToday };
+  const removeDay = useCallback((date: string) => {
+    setDays((prev) => {
+      const entries = prev.filter((d) => d.date !== date);
+      saveDays(entries);
+      return entries;
+    });
+  }, []);
+
+  const clearAll = useCallback(() => {
+    try {
+      localStorage.removeItem(LS_KEY);
+    } catch {}
+    setDays([]);
+  }, []);
+
+  return { days, getToday, getHistory, upsertToday, toggleTask, deleteTask, copyToToday, removeDay, clearAll };
 }

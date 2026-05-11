@@ -58,12 +58,24 @@ export async function loadVisionResult(questionId: string): Promise<unknown | nu
   });
 }
 export async function clearAllCache() {
+  // 1. 清除 IndexedDB
   const db = await openDB();
-  return new Promise<void>((resolve, reject) => {
+  await new Promise<void>((resolve, reject) => {
     const tx = db.transaction(["tutor_results", "vision_results"], "readwrite");
     tx.objectStore("tutor_results").clear();
     tx.objectStore("vision_results").clear();
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
+
+  // 2. 清除 localStorage（保留登录 token，登出单独处理）
+  const LOCAL_KEYS = [
+    "yomi_job_history",
+    "yomi_homework_days",
+    "yomi_homework_subjects",
+    "yomi_homework_done",
+  ];
+  for (const key of LOCAL_KEYS) {
+    try { localStorage.removeItem(key); } catch {}
+  }
 }

@@ -2,13 +2,14 @@
 
 import { useState, useRef, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Camera, Image, FileText, X, Loader2, CheckCircle2, ClipboardList, Send, Copy, ChevronDown, ChevronRight } from "lucide-react";
+import { Camera, Image, FileText, X, Loader2, CheckCircle2, ClipboardList, Send, Copy, ChevronDown, ChevronRight, Trash2 } from "lucide-react";
 import { compressImage } from "@/lib/imageCompress";
 import { uuidv4 } from "@/lib/uuid";
 import { parseJobApi, homeworkApi } from "@/lib/api";
 import type { HomeworkSubject } from "@/lib/types";
 import ErrorDisplay from "@/components/common/ErrorDisplay";
 import HomeworkList from "@/components/homework/HomeworkList";
+import SwipeableCard from "@/components/common/SwipeableCard";
 import { useHomeworkDays } from "@/hooks/useHomeworkDays";
 
 type UploadStatus = "idle" | "selected" | "compressing" | "uploading" | "success" | "error";
@@ -42,6 +43,7 @@ function UploadContent() {
     toggleTask: toggleDayTask,
     deleteTask: deleteDayTask,
     copyToToday,
+    removeDay,
   } = useHomeworkDays();
 
   const todayEntry = getToday();
@@ -51,6 +53,7 @@ function UploadContent() {
   const [parseLoading, setParseLoading] = useState(false);
   const [parseError, setParseError] = useState("");
   const [historyExpanded, setHistoryExpanded] = useState<Record<string, boolean>>({});
+
 
   // ── 拍照逻辑 ──
   const handleFile = (f: File | undefined) => {
@@ -241,22 +244,31 @@ function UploadContent() {
           )}
 
           {/* 历史记录 */}
-          {historyEntries.length > 0 && (
-            <section className="space-y-3">
+          <section className="space-y-3">
+            <div className="flex items-center justify-between">
               <h2 className="text-sm font-semibold text-foreground">历史记录</h2>
-              {historyEntries.map((entry) => {
+              {historyEntries.length > 0 && (
+                <span className="text-xs text-muted-foreground">← 左划可删除</span>
+              )}
+            </div>
+
+            {historyEntries.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-4">暂无历史记录</p>
+            ) : (
+              historyEntries.map((entry) => {
                 const expanded = historyExpanded[entry.date] || false;
                 const doneCount = Object.values(entry.doneMap).filter(Boolean).length;
                 const totalCount = Object.keys(entry.doneMap).length;
                 return (
-                  <div
+                  <SwipeableCard
                     key={entry.date}
-                    className="bg-card rounded-xl border border-border overflow-hidden"
+                    onTap={() => toggleHistoryExpand(entry.date)}
+                    actions={[
+                      { label: "取消", color: "blue", onClick: () => {} },
+                      { label: "删除", color: "red", onClick: () => removeDay(entry.date) },
+                    ]}
                   >
-                    <button
-                      onClick={() => toggleHistoryExpand(entry.date)}
-                      className="w-full flex items-center justify-between px-4 py-3 hover:bg-muted/30 transition"
-                    >
+                    <div className="w-full flex items-center justify-between px-0 py-0">
                       <div className="flex items-center gap-2">
                         {expanded ? (
                           <ChevronDown className="w-4 h-4 text-muted-foreground" />
@@ -280,9 +292,9 @@ function UploadContent() {
                         <Copy className="w-3 h-3" />
                         复制到今日
                       </button>
-                    </button>
+                    </div>
                     {expanded && (
-                      <div className="px-4 pb-4">
+                      <div className="mt-3">
                         <HomeworkList
                           subjects={entry.subjects}
                           doneMap={entry.doneMap}
@@ -291,11 +303,11 @@ function UploadContent() {
                         />
                       </div>
                     )}
-                  </div>
+                  </SwipeableCard>
                 );
-              })}
-            </section>
-          )}
+              })
+            )}
+          </section>
         </div>
       )}
 

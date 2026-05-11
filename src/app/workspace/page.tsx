@@ -2,7 +2,7 @@
 
 import { Suspense, useState, useRef, useCallback, useEffect } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Upload, ArrowRight, Clock, Loader2, X, Image, Camera, FileText, Trash2 } from "lucide-react";
 import ProcessingStatus from "@/components/processing/ProcessingStatus";
 import BboxOverlay from "@/components/question-list/BboxOverlay";
@@ -10,6 +10,7 @@ import QuestionGroup, { calcGroupSize, groupQuestions } from "@/components/quest
 import { useParseJobPolling } from "@/hooks/useParseJobPolling";
 import { useJobHistory } from "@/hooks/useJobHistory";
 import ErrorDisplay from "@/components/common/ErrorDisplay";
+import SwipeableCard from "@/components/common/SwipeableCard";
 import { compressImage } from "@/lib/imageCompress";
 import { uuidv4 } from "@/lib/uuid";
 import { parseJobApi } from "@/lib/api";
@@ -22,6 +23,7 @@ type UploadPhase = "idle" | "selected" | "compressing" | "uploading" | "error";
 
 function WorkspaceContent() {
   const { job, questions, status, error } = useParseJobPolling();
+  const searchParams = useSearchParams();
   const [activeIndex, setActiveIndex] = useState(-1);
   const router = useRouter();
 
@@ -35,13 +37,15 @@ function WorkspaceContent() {
   const cameraRef = useRef<HTMLInputElement>(null);
 
   // ── 7 天滚动历史缓存 ──
-  const { history, upsert, clearAll } = useJobHistory();
+  const { history, upsert, removeEntry, clearAll } = useJobHistory();
 
   // ── API 补充（localStorage 清除后的恢复）──
   const [apiRecent, setApiRecent] = useState<RecentJob[]>([]);
 
   // ── 恢复中（防止闪烁）──
   const [isRestoring, setIsRestoring] = useState(false);
+
+
 
   useEffect(() => {
     if (status === "polling" || status === "failed" || status === "completed") {
@@ -63,10 +67,7 @@ function WorkspaceContent() {
         }
       }
     }
-    // 补充 API 数据
-    parseJobApi.getRecent().then((resp) => {
-      if (resp.ok && resp.data) setApiRecent(resp.data);
-    }).catch(() => {});
+
   }, [status, router, history]);
 
   // 任务完成 → 更新历史
@@ -143,7 +144,10 @@ function WorkspaceContent() {
   };
 
   const formatRelative = (iso: string): string => {
-    const diff = Date.now() - new Date(iso).getTime();
+    const ts = new Date(iso).getTime();
+    if (isNaN(ts)) return "未知时间";
+    const diff = Date.now() - ts;
+    if (diff < 0) return "刚刚";
     const mins = Math.floor(diff / 60000);
     if (mins < 1) return "刚刚";
     if (mins < 60) return `${mins} 分钟前`;
@@ -152,10 +156,10 @@ function WorkspaceContent() {
     return `${Math.floor(hours / 24)} 天前`;
   };
 
-  // 合并展示：本地历史 + API 补充（去重）
+  // 合并展示：本地历史（全部）+ API 补充（去重）
   const localIds = new Set(history.map((h) => h.job_id));
   const apiOnly = apiRecent.filter((r) => !localIds.has(r.job_id));
-  const completedHistory = history.filter((h) => h.status === "completed");
+  const completedHistory = history.filter((h) => h.status === "completed" || h.status === "uploaded");
 
   // ── 恢复中 ──
   if (isRestoring && (status === "loading" || status === "polling")) {
@@ -268,52 +272,36 @@ function WorkspaceContent() {
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-sm font-semibold text-foreground">历史记录（最近 7 天）</h2>
             {completedHistory.length > 0 && (
-              <button
-                onClick={clearAll}
-                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-destructive transition"
-              >
-                <Trash2 className="w-3 h-3" />
-                清除
-              </button>
+              <span className="text-xs text-muted-foreground">← 左划可删除</span>
             )}
           </div>
 
-          {completedHistory.length === 0 && apiOnly.length === 0 ? (
+          {completedHistory.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-4">暂无记录</p>
           ) : (
             <>
               {completedHistory.map((h) => (
-                <Link
+                <SwipeableCard
                   key={h.job_id}
-                  href={`/workspace?job_id=${h.job_id}`}
-                  className="block bg-card rounded-xl p-4 shadow-sm border border-border flex items-center gap-3 hover:shadow-md transition mb-2"
+                  onTap={() => router.push(`/workspace?job_id=${h.job_id}`)}
+                  actions={[
+                    { label: "取消", color: "blue", onClick: () => {} },
+                    { label: "删除", color: "red", onClick: () => removeEntry(h.job_id) },
+                  ]}
                 >
-                  <Clock className="w-5 h-5 text-muted-foreground shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm text-foreground truncate">{h.file_name}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {formatRelative(h.created_at)} · {h.questions_count || "?"} 题
-                    </p>
+                  <div className="flex items-center gap-3">
+                    <Clock className="w-5 h-5 text-muted-foreground shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-foreground truncate">{h.file_name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {formatRelative(h.created_at)} · {h.questions_count || "?"} 题
+                      </p>
+                    </div>
+                    <ArrowRight className="w-4 h-4 text-muted-foreground shrink-0" />
                   </div>
-                  <ArrowRight className="w-4 h-4 text-muted-foreground shrink-0" />
-                </Link>
+                </SwipeableCard>
               ))}
-              {completedHistory.length === 0 && apiOnly.map((r) => (
-                <Link
-                  key={r.job_id}
-                  href={`/workspace?job_id=${r.job_id}`}
-                  className="block bg-card rounded-xl p-4 shadow-sm border border-border flex items-center gap-3 hover:shadow-md transition mb-2"
-                >
-                  <Clock className="w-5 h-5 text-muted-foreground shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm text-foreground truncate">{r.file_name}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {formatRelative(r.created_at)} · {r.questions_count || "?"} 题
-                    </p>
-                  </div>
-                  <ArrowRight className="w-4 h-4 text-muted-foreground shrink-0" />
-                </Link>
-              ))}
+
             </>
           )}
         </section>
@@ -328,6 +316,16 @@ function WorkspaceContent() {
         message={error}
         action="请重新上传作业"
         onRetry={() => {
+          const jid = searchParams.get("job_id");
+          if (jid) {
+            upsert({
+              job_id: jid,
+              file_name: job?.file_name || "",
+              questions_count: 0,
+              status: "failed",
+              created_at: job?.created_at || new Date().toISOString(),
+            });
+          }
           router.push("/workspace");
           resetUpload();
         }}
@@ -399,6 +397,15 @@ function WorkspaceContent() {
           );
         })}
       </div>
+
+      {/* 拍下一张入口 */}
+      <button
+        onClick={() => { resetUpload(); router.push("/workspace"); }}
+        className="w-full mt-4 rounded-xl bg-primary text-primary-foreground py-3.5 text-sm font-medium hover:opacity-90 transition shadow-sm flex items-center justify-center gap-2"
+      >
+        <Camera className="w-4 h-4" />
+        拍下一张作业
+      </button>
     </div>
   );
 }

@@ -55,6 +55,14 @@ export function useJobHistory() {
     });
   }, []);
 
+  const removeEntry = useCallback((jobId: string) => {
+    setHistory((prev) => {
+      const entries = prev.filter((e) => e.job_id !== jobId);
+      saveHistory(entries);
+      return entries;
+    });
+  }, []);
+
   const clearAll = useCallback(() => {
     try {
       localStorage.removeItem(LS_KEY);
@@ -62,5 +70,5 @@ export function useJobHistory() {
     setHistory([]);
   }, []);
 
-  return { history, upsert, clearAll };
+  return { history, upsert, removeEntry, clearAll };
 }
