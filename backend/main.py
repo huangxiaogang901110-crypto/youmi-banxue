@@ -16,6 +16,7 @@ import time
 from ocr_client import AliyunOCRClient
 from question_cutter import cut_to_questions
 from model_logger import make_log_entry
+from db import get_active_pricing
 from vision_client import QwenVLClient
 from deepseek_client import DeepSeekClient
 from tutor_prompt import build_tutor_messages
@@ -429,17 +430,28 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
             print(f"[BG] Qwen-VL extracting questions for {jid}...", flush=True)
             qwen_result = qwen_vl.extract_questions(contents)
             qwen_latency = int((time.time() - t_start) * 1000)
+            usage = qwen_result.get("usage", {}) if qwen_result.get("success") else {}
+            input_tokens = usage.get("prompt_tokens", 0) if isinstance(usage, dict) else 0
+            output_tokens = usage.get("completion_tokens", 0) if isinstance(usage, dict) else 0
+            image_tokens = usage.get("prompt_tokens_details", {}).get("image_tokens", 0) if isinstance(usage, dict) else 0
+
+            pricing = get_active_pricing("aliyun_dashscope", "qwen-vl-max")
 
             _log = make_log_entry(
                 task_id=jid,
-                provider_name="dashscope",
+                provider_name="aliyun_dashscope",
                 model_name="qwen-vl-max",
-                feature_code="full_page_extract",
+                feature_code="qwen_vl_fullpage_extract",
                 latency_ms=qwen_latency,
                 success=qwen_result["success"],
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                image_count=1,
+                image_total_bytes=len(contents),
                 parent_user_id=parent_id,
                 child_id=child_id,
                 billing_status="free_tier" if qwen_result["success"] else "failed",
+                pricing=pricing,
                 blocks_count=len(qwen_result.get("questions", [])),
             )
             _model_calls.append(_log)
@@ -541,9 +553,10 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
                         _vlog = make_log_entry(
                             task_id=jid,
                             question_id=q.question_id,
-                            provider_name="dashscope",
+                            job_id=jid,
+                            provider_name="aliyun_dashscope",
                             model_name="qwen-vl-max",
-                            feature_code="vision_cutting",
+                            feature_code="qwen_vl_question_cutting",
                             latency_ms=vl_ms,
                             success=vl_result["success"],
                             parent_user_id=parent_id,
@@ -850,7 +863,7 @@ async def tutor_question(question_id: str, body: TutorRequest, request: Request,
             question_id=question_id,
             provider_name="deepseek",
             model_name="deepseek-chat",
-            feature_code="tutor",
+            feature_code="deepseek_tutor_initial",
             latency_ms=result.get("latency_ms", latency_ms),
             success=result["success"],
             error_code=result.get("error"),
@@ -964,9 +977,9 @@ async def vision_retry(question_id: str, request: Request = None):
         _vlog = make_log_entry(
             task_id="vision_retry",
             question_id=question_id,
-            provider_name="dashscope",
+            provider_name="aliyun_dashscope",
             model_name="qwen-vl-plus",
-            feature_code="vision_retry",
+            feature_code="qwen_vl_vision_retry",
             latency_ms=vl_ms,
             success=vl_result["success"],
             error_code=vl_result.get("error"),

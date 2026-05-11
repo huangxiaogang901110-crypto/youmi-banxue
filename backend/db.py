@@ -201,6 +201,25 @@ def init():
             confidence_self_reported TEXT DEFAULT '',
             created_at TEXT DEFAULT (datetime('now'))
         );
+
+        -- ── 模型价格快照（成本测算基础）──────────────
+        CREATE TABLE IF NOT EXISTS model_price_snapshots (
+            id TEXT PRIMARY KEY,
+            provider TEXT NOT NULL,
+            model_name TEXT NOT NULL,
+            region TEXT DEFAULT '',
+            input_price_per_1m REAL NOT NULL DEFAULT 0.0,
+            output_price_per_1m REAL NOT NULL DEFAULT 0.0,
+            cache_hit_price_per_1m REAL DEFAULT 0.0,
+            cache_miss_price_per_1m REAL DEFAULT 0.0,
+            currency TEXT DEFAULT 'CNY',
+            effective_from TEXT NOT NULL,
+            effective_to TEXT,
+            source TEXT DEFAULT '',
+            is_active INTEGER DEFAULT 1,
+            created_at TEXT DEFAULT (datetime('now')),
+            updated_at TEXT DEFAULT (datetime('now'))
+        );
     """)
     c.commit()
 
@@ -224,6 +243,29 @@ def init():
         "ALTER TABLE parse_jobs ADD COLUMN questions_count INTEGER DEFAULT 0",
         "ALTER TABLE parse_jobs ADD COLUMN status TEXT DEFAULT 'uploaded'",
         "ALTER TABLE parse_jobs ADD COLUMN created_at TEXT DEFAULT ''",
+        # model_calls 成本与关联字段（幂等）
+        "ALTER TABLE model_calls ADD COLUMN provider TEXT DEFAULT ''",
+        "ALTER TABLE model_calls ADD COLUMN model_name TEXT DEFAULT ''",
+        "ALTER TABLE model_calls ADD COLUMN input_tokens INTEGER DEFAULT 0",
+        "ALTER TABLE model_calls ADD COLUMN output_tokens INTEGER DEFAULT 0",
+        "ALTER TABLE model_calls ADD COLUMN image_count INTEGER DEFAULT 0",
+        "ALTER TABLE model_calls ADD COLUMN image_total_bytes INTEGER DEFAULT 0",
+        "ALTER TABLE model_calls ADD COLUMN cache_hit_tokens INTEGER DEFAULT 0",
+        "ALTER TABLE model_calls ADD COLUMN cache_miss_tokens INTEGER DEFAULT 0",
+        "ALTER TABLE model_calls ADD COLUMN unit_price_input REAL DEFAULT 0.0",
+        "ALTER TABLE model_calls ADD COLUMN unit_price_output REAL DEFAULT 0.0",
+        "ALTER TABLE model_calls ADD COLUMN unit_price_cache_hit REAL DEFAULT 0.0",
+        "ALTER TABLE model_calls ADD COLUMN unit_price_cache_miss REAL DEFAULT 0.0",
+        "ALTER TABLE model_calls ADD COLUMN currency TEXT DEFAULT 'CNY'",
+        "ALTER TABLE model_calls ADD COLUMN raw_cost REAL DEFAULT 0.0",
+        "ALTER TABLE model_calls ADD COLUMN cost_cny REAL DEFAULT 0.0",
+        "ALTER TABLE model_calls ADD COLUMN pricing_snapshot_id TEXT DEFAULT ''",
+        "ALTER TABLE model_calls ADD COLUMN latency_ms INTEGER DEFAULT 0",
+        "ALTER TABLE model_calls ADD COLUMN status TEXT DEFAULT 'success'",
+        "ALTER TABLE model_calls ADD COLUMN error_code TEXT DEFAULT ''",
+        "ALTER TABLE model_calls ADD COLUMN request_id TEXT DEFAULT ''",
+        "ALTER TABLE model_calls ADD COLUMN job_id TEXT DEFAULT ''",
+        "ALTER TABLE model_calls ADD COLUMN question_id TEXT DEFAULT ''",
     ]
     for sql in migrations:
         try:
@@ -288,14 +330,50 @@ def save_model_call(data: dict):
     call_id = data.get("id", "")
     task_id = data.get("task_id", "")
     feature_code = data.get("feature_code", "")
+    job_id = data.get("job_id", "")
+    question_id = data.get("question_id", "")
+    provider = data.get("provider_name", data.get("provider", ""))
+    model_name = data.get("model_name", "")
     prompt_version = data.get("prompt_version", data.get("prompt_name", ""))
     schema_version = data.get("schema_version", "")
-    credit_cost = data.get("credit_cost", data.get("estimated_cost", 0.0))
-    retry_count = data.get("retry_count", 0)
+    request_id = data.get("request_id", "")
+    input_tokens = int(data.get("input_tokens", 0))
+    output_tokens = int(data.get("output_tokens", 0))
+    image_count = int(data.get("image_count", 0))
+    image_total_bytes = int(data.get("image_total_bytes", 0))
+    cache_hit_tokens = int(data.get("cache_hit_tokens", data.get("cached_tokens", 0)))
+    cache_miss_tokens = int(data.get("cache_miss_tokens", 0))
+    unit_price_input = float(data.get("unit_price_input", 0.0))
+    unit_price_output = float(data.get("unit_price_output", 0.0))
+    unit_price_cache_hit = float(data.get("unit_price_cache_hit", 0.0))
+    unit_price_cache_miss = float(data.get("unit_price_cache_miss", 0.0))
+    currency = data.get("currency", "CNY")
+    raw_cost = float(data.get("raw_cost", data.get("estimated_cost", 0.0)))
+    cost_cny = float(data.get("cost_cny", data.get("credit_cost", 0.0)))
+    pricing_snapshot_id = data.get("pricing_snapshot_id", "")
+    latency_ms = int(data.get("latency_ms", 0))
+    status = data.get("status", "success" if data.get("success", True) else "failed")
+    error_code = data.get("error_code", "")
+    credit_cost = float(data.get("credit_cost", data.get("estimated_cost", 0.0)))
+    retry_count = int(data.get("retry_count", 0))
     c.execute(
-        "INSERT OR REPLACE INTO model_calls (id, task_id, feature_code, prompt_version, schema_version, credit_cost, retry_count, data) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        (call_id, task_id, feature_code, prompt_version, schema_version, float(credit_cost), int(retry_count), json.dumps(data, default=str)),
+        "INSERT OR REPLACE INTO model_calls "
+        "(id, task_id, feature_code, job_id, question_id, provider, model_name, "
+        "prompt_version, schema_version, request_id, "
+        "input_tokens, output_tokens, image_count, image_total_bytes, "
+        "cache_hit_tokens, cache_miss_tokens, "
+        "unit_price_input, unit_price_output, unit_price_cache_hit, unit_price_cache_miss, "
+        "currency, raw_cost, cost_cny, pricing_snapshot_id, "
+        "latency_ms, status, error_code, credit_cost, retry_count, data) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (call_id, task_id, feature_code, job_id, question_id, provider, model_name,
+         prompt_version, schema_version, request_id,
+         input_tokens, output_tokens, image_count, image_total_bytes,
+         cache_hit_tokens, cache_miss_tokens,
+         unit_price_input, unit_price_output, unit_price_cache_hit, unit_price_cache_miss,
+         currency, raw_cost, cost_cny, pricing_snapshot_id,
+         latency_ms, status, error_code, credit_cost, retry_count,
+         json.dumps(data, default=str)),
     )
     c.commit()
     c.close()
@@ -624,3 +702,61 @@ def add_credit_ledger_entry(parent_user_id: str, child_id: str, amount: int, rea
     c.commit()
     c.close()
     return new_balance
+
+# ═══════════════════════════════════════════════════════════════
+# 模型价格快照
+# ═══════════════════════════════════════════════════════════════
+
+def save_price_snapshot(provider: str, model_name: str, input_price: float, output_price: float,
+                        region: str = "", cache_hit_price: float = 0.0, cache_miss_price: float = 0.0,
+                        currency: str = "CNY", source: str = "") -> str:
+    """写入新价格快照（旧快照自动标记 is_active=0）"""
+    import uuid
+    c = _conn()
+    now = datetime.now().isoformat()
+    sid = uuid.uuid4().hex[:12]
+    # 停用同 provider+model 的旧快照
+    c.execute("UPDATE model_price_snapshots SET is_active=0, updated_at=? WHERE provider=? AND model_name=? AND is_active=1",
+              (now, provider, model_name))
+    c.execute(
+        "INSERT INTO model_price_snapshots (id, provider, model_name, region, "
+        "input_price_per_1m, output_price_per_1m, cache_hit_price_per_1m, cache_miss_price_per_1m, "
+        "currency, effective_from, source, is_active, created_at, updated_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)",
+        (sid, provider, model_name, region,
+         input_price, output_price, cache_hit_price, cache_miss_price,
+         currency, now, source, now, now),
+    )
+    c.commit()
+    c.close()
+    return sid
+
+
+def get_active_pricing(provider: str, model_name: str) -> dict | None:
+    """获取当前生效的价格快照"""
+    c = _conn()
+    row = c.execute(
+        "SELECT * FROM model_price_snapshots WHERE provider=? AND model_name=? AND is_active=1 ORDER BY created_at DESC LIMIT 1",
+        (provider, model_name),
+    ).fetchone()
+    c.close()
+    return dict(row) if row else None
+
+
+def seed_default_pricing():
+    """初始化默认价格（仅当表为空时执行）"""
+    c = _conn()
+    count = c.execute("SELECT COUNT(*) FROM model_price_snapshots").fetchone()[0]
+    if count > 0:
+        c.close()
+        return
+    # 阿里云 Qwen-VL Max 价格（参考 2026-05 官网）
+    save_price_snapshot("aliyun_dashscope", "qwen-vl-max", 0.003, 0.012,
+                        region="cn-hangzhou", currency="CNY", source="dashscope.aliyun.com")
+    # 阿里云 OCR 教育题目识别
+    save_price_snapshot("aliyun_ocr", "RecognizeEduQuestionOcr", 0.0, 0.0,
+                        region="cn-hangzhou", currency="CNY", source="ocr-api.aliyuncs.com")
+    # DeepSeek v4-flash
+    save_price_snapshot("deepseek", "deepseek-v4-flash", 0.001, 0.004,
+                        currency="CNY", source="platform.deepseek.com")
+    c.close()

@@ -164,4 +164,5 @@ class QwenVLClient:
             "visual_description": r["content"] if r["content"] else f"[Qwen-VL 返回空] {question_text[:80]}",
             "latency_ms": r["latency_ms"],
             "success": True,
+            "usage": r.get("usage", {}),
         }
