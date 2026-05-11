@@ -618,7 +618,12 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
         _model_calls.append(_flog)
         _db.save_model_call(_flog)
         print(f"[BG] WORKER FAILED ({jid}): {e}", flush=True)
-        _jobs[jid]["job"].status = JobStatus.failed
+        # 防御：job entry 可能被破坏
+        try:
+            if "job" in _jobs[jid] and hasattr(_jobs[jid]["job"], "status"):
+                _jobs[jid]["job"].status = JobStatus.failed
+        except Exception:
+            pass
         # 尝试保存失败状态，让前端能看到
         try:
             save_result(jid, [], now, file, JobStatus.failed)
@@ -684,8 +689,10 @@ async def get_parse_job_status(job_id: str):
         if job_id not in _jobs:
             raise HTTPException(status_code=404, detail={"ok": False, "code": "not_found", "message": "任务不存在", "request_id": uuid.uuid4().hex})
         j = _jobs[job_id]
+        # 防御：job entry 被异常路径破坏时返回 404（与 get_recent 行为一致）
+        if "job" not in j or not hasattr(j.get("job"), "status"):
+            raise HTTPException(status_code=404, detail={"ok": False, "code": "not_found", "message": "任务已过期或数据异常", "request_id": uuid.uuid4().hex})
         j["poll_count"] = j.get("poll_count", 0) + 1
-        # State driven by real OCR pipeline, not auto-advanced
         j["job"].updated_at = _ts()
         return {"ok": True, "data": j["job"].model_dump(), "request_id": uuid.uuid4().hex}
     except HTTPException:
@@ -700,6 +707,8 @@ async def get_parse_job_questions(job_id: str):
         await asyncio.sleep(0.3)
         if job_id not in _jobs:
             raise HTTPException(status_code=404, detail={"ok": False, "code": "not_found", "message": "任务不存在", "request_id": uuid.uuid4().hex})
+        if "questions" not in _jobs[job_id]:
+            return {"ok": True, "data": [], "request_id": uuid.uuid4().hex}
         return {"ok": True, "data": [q.model_dump() for q in _jobs[job_id]["questions"]], "request_id": uuid.uuid4().hex}
     except HTTPException:
         raise
