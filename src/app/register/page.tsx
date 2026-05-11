@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { authApi, getToken, setToken } from "@/lib/api"
-import { Eye, EyeOff } from "lucide-react"
+import { Eye, EyeOff, MessageCircle } from "lucide-react"
 
 export default function RegisterPage() {
   const router = useRouter()
@@ -102,8 +102,29 @@ export default function RegisterPage() {
         <p className="text-xs text-slate-500 mt-1 tracking-wide">AI Family Learning Workspace</p>
         <p className="text-sm text-slate-600 mt-2">让学习更轻松，成长更快乐 ❤️</p>
 
-        {/* 插画占位：兔子 */}
-        <div className="mt-4 text-5xl select-none">🐰🎒⭐</div>
+        {/* 插画占位：3D 风格兔子（简化 CSS 版） */}
+        <div className="mt-4 relative">
+          <div className="w-20 h-24 relative">
+            {/* 身体 */}
+            <div className="absolute bottom-0 left-2 w-16 h-16 bg-white rounded-full shadow-md" />
+            {/* 头 */}
+            <div className="absolute top-0 left-4 w-12 h-12 bg-white rounded-full shadow-sm" />
+            {/* 耳朵 */}
+            <div className="absolute -top-5 left-3 w-3 h-8 bg-white rounded-full rotate-[-15deg] origin-bottom" />
+            <div className="absolute -top-5 left-8 w-3 h-8 bg-white rounded-full rotate-[5deg] origin-bottom" />
+            {/* 眼睛 */}
+            <div className="absolute top-2 left-7 w-1.5 h-1.5 bg-slate-800 rounded-full" />
+            <div className="absolute top-2 left-11 w-1.5 h-1.5 bg-slate-800 rounded-full" />
+            {/* 嘴 */}
+            <div className="absolute top-5 left-8 w-2 h-1 border-b-2 border-slate-400 rounded-b-full" />
+            {/* 书包 */}
+            <div className="absolute top-6 -right-1 w-6 h-7 bg-[#29C7B5] rounded-lg shadow-sm" />
+          </div>
+          {/* 星星装饰 */}
+          <span className="absolute -top-1 -right-3 text-amber-400 text-base">✦</span>
+          <span className="absolute top-4 -left-4 text-amber-300 text-xs">✧</span>
+          <span className="absolute -top-3 left-1 text-sky-400 text-sm rotate-12">✈</span>
+        </div>
       </header>
 
       {/* ── ② 表单卡片 ── */}
@@ -131,98 +152,98 @@ export default function RegisterPage() {
               </p>
             )}
 
-            {/* ① 手机号 */}
-            <div className="relative">
-              <div className="flex items-center rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 focus-within:ring-2 focus-within:ring-[#29C7B5]/30 focus-within:border-[#29C7B5] transition">
-                <span className="text-[#29C7B5] mr-2.5">📱</span>
-                <input
-                  type="tel"
-                  placeholder="手机号"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  maxLength={11}
-                  required
-                  disabled={loading}
-                  className="flex-1 bg-transparent text-sm text-slate-800 placeholder:text-slate-400 outline-none disabled:opacity-50"
-                />
-                <button
-                  type="button"
-                  onClick={handleSendCode}
-                  disabled={codeCountdown > 0 || phone.trim().length < 11 || loading}
-                  className="shrink-0 rounded-lg bg-[#29C7B5]/10 px-3 py-1.5 text-xs font-medium text-[#29C7B5] transition hover:bg-[#29C7B5]/20 disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  {codeCountdown > 0 ? `${codeCountdown}s` : "获取验证码"}
-                </button>
-              </div>
+            {/* ① 手机号 + 验证码按钮嵌入 */}
+            <div className="flex items-center rounded-xl border border-slate-200 bg-slate-50 pl-4 pr-1.5 py-1.5 focus-within:ring-2 focus-within:ring-[#29C7B5]/30 focus-within:border-[#29C7B5] transition">
+              <span className="text-[#29C7B5] mr-2.5 shrink-0">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
+              </span>
+              <input
+                type="tel"
+                placeholder="手机号"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                maxLength={11}
+                required
+                disabled={loading}
+                className="flex-1 bg-transparent text-sm text-slate-800 placeholder:text-slate-400 outline-none disabled:opacity-50 min-w-0"
+              />
+              <button
+                type="button"
+                onClick={handleSendCode}
+                disabled={codeCountdown > 0 || phone.trim().length < 11 || loading}
+                className="shrink-0 rounded-lg bg-[#29C7B5]/10 px-3 py-2 text-xs font-medium text-[#29C7B5] transition hover:bg-[#29C7B5]/20 disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap"
+              >
+                {codeCountdown > 0 ? `${codeCountdown}s` : "获取验证码"}
+              </button>
             </div>
 
             {/* ② 验证码 */}
-            <div className="relative">
-              <div className="flex items-center rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 focus-within:ring-2 focus-within:ring-[#29C7B5]/30 focus-within:border-[#29C7B5] transition">
-                <span className="text-[#29C7B5] mr-2.5">🛡️</span>
-                <input
-                  type="text"
-                  placeholder="短信验证码"
-                  value={code}
-                  onChange={(e) => setCode(e.target.value)}
-                  maxLength={6}
-                  required
-                  disabled={loading}
-                  className="flex-1 bg-transparent text-sm text-slate-800 placeholder:text-slate-400 outline-none disabled:opacity-50"
-                />
-              </div>
+            <div className="flex items-center rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 focus-within:ring-2 focus-within:ring-[#29C7B5]/30 focus-within:border-[#29C7B5] transition">
+              <span className="text-[#29C7B5] mr-2.5">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+              </span>
+              <input
+                type="text"
+                placeholder="短信验证码"
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+                maxLength={6}
+                required
+                disabled={loading}
+                className="flex-1 bg-transparent text-sm text-slate-800 placeholder:text-slate-400 outline-none disabled:opacity-50"
+              />
             </div>
 
             {/* ③ 密码 */}
-            <div className="relative">
-              <div className="flex items-center rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 focus-within:ring-2 focus-within:ring-[#29C7B5]/30 focus-within:border-[#29C7B5] transition">
-                <span className="text-[#29C7B5] mr-2.5">🔒</span>
-                <input
-                  type={showPwd ? "text" : "password"}
-                  placeholder="设置密码（6-20位，含字母或数字）"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  minLength={6}
-                  maxLength={20}
-                  required
-                  disabled={loading}
-                  className="flex-1 bg-transparent text-sm text-slate-800 placeholder:text-slate-400 outline-none disabled:opacity-50"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPwd(!showPwd)}
-                  className="ml-2 text-slate-400 hover:text-slate-600 transition shrink-0"
-                  tabIndex={-1}
-                >
-                  {showPwd ? <EyeOff size={18} /> : <Eye size={18} />}
-                </button>
-              </div>
+            <div className="flex items-center rounded-xl border border-slate-200 bg-slate-50 pl-4 pr-3 py-3 focus-within:ring-2 focus-within:ring-[#29C7B5]/30 focus-within:border-[#29C7B5] transition">
+              <span className="text-[#29C7B5] mr-2.5">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+              </span>
+              <input
+                type={showPwd ? "text" : "password"}
+                placeholder="设置密码（6-20位，含字母或数字）"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                minLength={6}
+                maxLength={20}
+                required
+                disabled={loading}
+                className="flex-1 bg-transparent text-sm text-slate-800 placeholder:text-slate-400 outline-none disabled:opacity-50"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPwd(!showPwd)}
+                className="ml-2 text-slate-400 hover:text-slate-600 transition shrink-0"
+                tabIndex={-1}
+              >
+                {showPwd ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
             </div>
 
             {/* ④ 确认密码 */}
-            <div className="relative">
-              <div className="flex items-center rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 focus-within:ring-2 focus-within:ring-[#29C7B5]/30 focus-within:border-[#29C7B5] transition">
-                <span className="text-[#29C7B5] mr-2.5">🔒</span>
-                <input
-                  type={showConfirm ? "text" : "password"}
-                  placeholder="确认密码"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  minLength={6}
-                  maxLength={20}
-                  required
-                  disabled={loading}
-                  className="flex-1 bg-transparent text-sm text-slate-800 placeholder:text-slate-400 outline-none disabled:opacity-50"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowConfirm(!showConfirm)}
-                  className="ml-2 text-slate-400 hover:text-slate-600 transition shrink-0"
-                  tabIndex={-1}
-                >
-                  {showConfirm ? <EyeOff size={18} /> : <Eye size={18} />}
-                </button>
-              </div>
+            <div className="flex items-center rounded-xl border border-slate-200 bg-slate-50 pl-4 pr-3 py-3 focus-within:ring-2 focus-within:ring-[#29C7B5]/30 focus-within:border-[#29C7B5] transition">
+              <span className="text-[#29C7B5] mr-2.5">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+              </span>
+              <input
+                type={showConfirm ? "text" : "password"}
+                placeholder="确认密码"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                minLength={6}
+                maxLength={20}
+                required
+                disabled={loading}
+                className="flex-1 bg-transparent text-sm text-slate-800 placeholder:text-slate-400 outline-none disabled:opacity-50"
+              />
+              <button
+                type="button"
+                onClick={() => setShowConfirm(!showConfirm)}
+                className="ml-2 text-slate-400 hover:text-slate-600 transition shrink-0"
+                tabIndex={-1}
+              >
+                {showConfirm ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
             </div>
 
             {/* 协议勾选 */}
@@ -267,8 +288,8 @@ export default function RegisterPage() {
                 className="flex flex-col items-center gap-1 opacity-60 cursor-not-allowed"
                 title="微信注册（即将上线）"
               >
-                <span className="w-11 h-11 rounded-full bg-green-50 flex items-center justify-center text-xl">
-                  💬
+                <span className="w-11 h-11 rounded-full bg-[#07C160] flex items-center justify-center">
+                  <MessageCircle size={20} className="text-white" />
                 </span>
               </button>
               {/* QQ */}
@@ -278,8 +299,8 @@ export default function RegisterPage() {
                 className="flex flex-col items-center gap-1 opacity-60 cursor-not-allowed"
                 title="QQ注册（即将上线）"
               >
-                <span className="w-11 h-11 rounded-full bg-blue-50 flex items-center justify-center text-xl">
-                  🐧
+                <span className="w-11 h-11 rounded-full bg-[#12B7F5] flex items-center justify-center text-white text-sm font-bold">
+                  QQ
                 </span>
               </button>
               {/* Apple */}
@@ -289,8 +310,8 @@ export default function RegisterPage() {
                 className="flex flex-col items-center gap-1 opacity-60 cursor-not-allowed"
                 title="Apple ID注册（即将上线）"
               >
-                <span className="w-11 h-11 rounded-full bg-slate-100 flex items-center justify-center text-xl">
-                  🍎
+                <span className="w-11 h-11 rounded-full bg-black flex items-center justify-center">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>
                 </span>
               </button>
             </div>
@@ -302,13 +323,13 @@ export default function RegisterPage() {
       <footer className="relative flex flex-col items-center pb-10 pt-4 px-4">
         {/* 安全承诺 */}
         <div className="flex items-center gap-1.5 text-xs text-slate-400 mb-6">
-          <span>🛡️</span>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
           <span>我们将保护您的信息安全</span>
         </div>
 
         {/* 装饰 */}
         <div className="flex justify-between items-end w-full max-w-sm">
-          <span className="text-2xl select-none">🌿🍃</span>
+          <span className="text-[#29C7B5] text-2xl select-none">🌿🍃</span>
           <span className="text-2xl select-none">📚📖📕</span>
         </div>
       </footer>
