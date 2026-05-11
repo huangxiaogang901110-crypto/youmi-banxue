@@ -96,8 +96,9 @@ export default function RegisterPage() {
         </button>
 
         {/* 兔子 — 使用正式素材 */}
-        <div className="absolute left-[-10px] top-[32px] h-[176px] w-[154px] z-0 pointer-events-none select-none object-contain drop-shadow-[0_8px_18px_rgba(31,45,61,0.08)] min-[414px]:left-[-6px] min-[414px]:top-[28px] min-[414px]:h-[190px] min-[414px]:w-[168px] min-[430px]:left-[4px] min-[430px]:top-[24px] min-[430px]:h-[202px] min-[430px]:w-[178px]">
-          <img src="/rabbit-hero.png" alt="" className="w-full h-full" />
+        <div className="absolute left-0 top-4 w-32 h-44 z-0 pointer-events-none select-none">
+          <img src="/rabbit-hero.png" alt="" className="w-full h-full object-contain"
+            style={{ filter: "drop-shadow(0 4px 12px rgba(0,0,0,0.06))" }} />
         </div>
 
         {/* Logo 品牌区 */}
