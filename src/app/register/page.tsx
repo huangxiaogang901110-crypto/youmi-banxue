@@ -95,40 +95,12 @@ export default function RegisterPage() {
           🌐 简体中文 ▾
         </button>
 
-        {/* 兔子插画 — 左上角 */}
-        <div className="absolute left-0 top-4 w-32 h-44 z-0 pointer-events-none select-none">
-          {/* 身体 */}
-          <div className="absolute bottom-0 left-4 w-22 h-22 bg-white rounded-[45%_45%_48%_48%] shadow-[0_6px_16px_rgba(0,0,0,0.06)]" />
-          {/* 头 */}
-          <div className="absolute top-8 left-8 w-18 h-16 bg-white rounded-full shadow-[0_3px_10px_rgba(0,0,0,0.05)]">
-            {/* 左耳 + 粉色内侧 */}
-            <div className="absolute -top-8 left-1.5 w-5 h-11 bg-white rounded-full rotate-[-14deg] origin-bottom shadow-sm">
-              <div className="absolute inset-x-1.5 top-2 bottom-1.5 bg-pink-200/70 rounded-full" />
-            </div>
-            {/* 右耳 + 粉色内侧 */}
-            <div className="absolute -top-8 right-2 w-5 h-11 bg-white rounded-full rotate-[6deg] origin-bottom shadow-sm">
-              <div className="absolute inset-x-1.5 top-2 bottom-1.5 bg-pink-200/70 rounded-full" />
-            </div>
-            {/* 眼睛 */}
-            <div className="absolute top-3.5 left-3.5 w-2.5 h-3 bg-slate-800 rounded-full" />
-            <div className="absolute top-3.5 right-4 w-2.5 h-3 bg-slate-800 rounded-full" />
-            {/* 微笑 */}
-            <div className="absolute top-6 left-1/2 -translate-x-1/2 w-4 h-2 border-b-[2.5px] border-slate-400 rounded-b-full" />
-            {/* 腮红 */}
-            <div className="absolute top-5 left-2 w-2.5 h-2 bg-pink-200/60 rounded-full" />
-            <div className="absolute top-5 right-2.5 w-2.5 h-2 bg-pink-200/60 rounded-full" />
-          </div>
-          {/* 绿色书包 */}
-          <div className="absolute top-9 right-1 w-9 h-12 bg-[#20B8A8] rounded-2xl shadow-md">
-            <div className="absolute top-2.5 left-1.5 w-3 h-2.5 bg-[#0E8F83] rounded-sm" />
-            <div className="absolute top-6 left-1.5 w-6 h-1.5 bg-white/25 rounded-full" />
-          </div>
-          {/* 左手 */}
-          <div className="absolute top-14 left-2 w-5 h-9 bg-white rounded-full rotate-[25deg] shadow-sm" />
-          {/* 星星纸飞机 */}
-          <span className="absolute -top-1 right-2 text-amber-400 text-base">✦</span>
-          <span className="absolute top-2 left-0 text-amber-300 text-xs">✧</span>
-          <span className="absolute -top-5 left-12 text-sky-400 text-sm rotate-12">✈</span>
+        {/* 兔子 — 使用正式 Logo 图片 */}
+        <div className="absolute pointer-events-none select-none z-10"
+          style={{ left: "22px", top: "28px", width: "210px", height: "250px" }}>
+          <img src="/logo.png" alt=""
+            className="w-full h-full object-contain"
+            style={{ filter: "drop-shadow(0 6px 16px rgba(0,0,0,0.06))" }} />
         </div>
 
         {/* Logo 品牌区 */}
