@@ -3,14 +3,14 @@
 import { useState, useEffect, useRef } from "react"
 import { useRouter } from "next/navigation"
 import { authApi, getToken, setToken } from "@/lib/api"
-import { Eye, EyeOff, MessageCircle } from "lucide-react"
+import { Eye, EyeOff, MessageCircle, Camera, Bot, BarChart3, UserCheck, Users, User } from "lucide-react"
 
-type LoginTab = "password" | "code"
+type LoginTab = "code" | "password"
 
 export default function LoginPage() {
   const router = useRouter()
 
-  const [tab, setTab] = useState<LoginTab>("password")
+  const [tab, setTab] = useState<LoginTab>("code")
   const [phone, setPhone] = useState("")
   const [password, setPassword] = useState("")
   const [code, setCode] = useState("")
@@ -71,74 +71,112 @@ export default function LoginPage() {
     }
   }
 
-  const inputClass = "flex items-center rounded-[16px] border border-[#E7EEF0] bg-[#F8FAFB] pl-4 pr-3 h-[56px] focus-within:ring-2 focus-within:ring-[#20B8A8]/20 focus-within:border-[#20B8A8] transition"
+  const inputClass =
+    "flex items-center rounded-lg border border-[#EBEEF2] bg-[#F7F8FA] pl-4 pr-3 h-12 focus-within:ring-2 focus-within:ring-[#2EC899]/20 focus-within:border-[#2EC899] transition"
+
+  // 功能列表数据
+  const features = [
+    { icon: Camera, title: "拍照识别作业", desc: "一拍即识别，快速整理成清晰任务" },
+    { icon: Bot, title: "AI 单题辅导", desc: "分步讲解，启发思路，个性化学习" },
+    { icon: BarChart3, title: "错题沉淀与学习报告", desc: "错题自动归集，学习数据一目了然" },
+  ]
 
   return (
-    <main className="relative min-h-screen bg-gradient-to-b from-[#EAF8FF] via-white to-[#FFF5F7] flex flex-col overflow-hidden safe-top safe-bottom">
-      {/* ═══════════ ① Hero 区 ═══════════ */}
-      <header className="relative flex flex-col items-center pt-10 pb-3 px-6">
-        {/* 兔子 — 使用正式素材 */}
-        <div className="absolute left-0 top-4 w-32 h-44 z-0 pointer-events-none select-none">
-          <img src="/rabbit-hero.png" alt="" className="w-full h-full object-contain"
-            style={{ filter: "drop-shadow(0 4px 12px rgba(0,0,0,0.06))" }} />
-        </div>
+    <main className="relative min-h-screen flex flex-col items-center justify-center safe-top safe-bottom px-4 py-8"
+      style={{ background: "#F8F9FB" }}
+    >
+      {/* 背景星形装饰 */}
+      <div className="absolute inset-0 pointer-events-none select-none overflow-hidden">
+        <div className="absolute top-[10%] right-[15%] text-[#2EC899]/15 text-1xl opacity-50">✦</div>
+        <div className="absolute top-[20%] left-[10%] text-[#2EC899]/10 text-sm opacity-40">✦</div>
+        <div className="absolute bottom-[25%] right-[20%] text-[#2EC899]/10 text-lg opacity-30">✦</div>
+        <div className="absolute bottom-[15%] left-[18%] text-[#2EC899]/12 text-base opacity-35">✦</div>
+        <div className="absolute top-[35%] right-[8%] text-[#2EC899]/8 text-xs opacity-30">✧</div>
+      </div>
 
-        {/* Logo */}
-        <img src="/logo.png" alt="悠米伴学" className="w-16 h-16 object-contain mb-2 z-10" />
-        <h1 className="text-[26px] font-bold text-[#1F2D3D] tracking-tight z-10">悠米伴学</h1>
-        <p className="text-xs text-[#718096] mt-0.5 tracking-wider z-10">AI Family Learning Workspace</p>
-        <p className="text-sm text-[#718096] mt-2 z-10">
-          让学习更轻松，成长更快乐<span className="ml-0.5">❤️</span>
-        </p>
-      </header>
-
-      {/* ═══════════ ② 登录卡片 ═══════════ */}
-      <div className="flex-1 px-6 pb-10">
-        <div
-          className="mx-auto w-full rounded-[32px] bg-white px-7 py-7 mt-1"
-          style={{
-            maxWidth: "430px",
-            boxShadow: "0 8px 32px rgba(0,0,0,0.06), 0 2px 8px rgba(0,0,0,0.04)",
-          }}
+      {/* ═══════════ 主卡片: 左右两栏 ═══════════ */}
+      <div className="relative z-10 flex flex-col lg:flex-row w-full max-w-[960px] rounded-[20px] bg-white overflow-hidden"
+        style={{ boxShadow: "0 8px 32px rgba(0,0,0,0.06), 0 2px 8px rgba(0,0,0,0.04)" }}
+      >
+        {/* ═══ 左侧: 品牌 + 功能介绍 ═══ */}
+        <div className="flex-1 flex flex-col items-center justify-center px-8 py-10 lg:py-12"
+          style={{ background: "linear-gradient(180deg, #F0FDF9 0%, #FFFFFF 100%)" }}
         >
-          {/* Tab 切换 */}
-          <div className="flex rounded-xl bg-[#F1F5F9] p-1 mb-6">
-            <button type="button" onClick={() => setTab("password")}
-              className={`flex-1 rounded-lg py-2.5 text-[15px] font-semibold transition ${
-                tab === "password"
-                  ? "bg-white text-[#1F2D3D] shadow-sm"
-                  : "text-[#718096]"
-              }`}
-            >密码登录</button>
-            <button type="button" onClick={() => setTab("code")}
-              className={`flex-1 rounded-lg py-2.5 text-[15px] font-semibold transition ${
-                tab === "code"
-                  ? "bg-white text-[#1F2D3D] shadow-sm"
-                  : "text-[#718096]"
-              }`}
-            >验证码登录</button>
+          {/* 猫吉祥物 */}
+          <div className="w-[100px] h-[100px] rounded-full bg-[#E6F7F2] flex items-center justify-center mb-5">
+            <img src="/rabbit-hero.png" alt="悠米" className="w-[80px] h-[80px] object-contain" />
           </div>
 
-          <form onSubmit={handleSubmit} className="space-y-5">
+          {/* 品牌 */}
+          <h1 className="text-[28px] font-bold text-[#333]">悠米伴学</h1>
+          <p className="text-base text-[#666] mt-1.5">AI 家庭学习助手</p>
+
+          {/* 分隔线 */}
+          <div className="w-10 h-0.5 bg-[#2EC899] mt-5 mb-5" />
+
+          {/* 功能介绍 */}
+          <p className="text-sm text-[#666] mb-6">把作业整理成清晰任务，让孩子更高效学习</p>
+
+          <div className="space-y-6 w-full max-w-[280px]">
+            {features.map((f, i) => (
+              <div key={i} className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-full bg-[#E6F7F2] flex items-center justify-center shrink-0 mt-0.5">
+                  <f.icon size={18} className="text-[#2EC899]" strokeWidth={1.5} />
+                </div>
+                <div>
+                  <p className="text-[15px] font-semibold text-[#333]">{f.title}</p>
+                  <p className="text-[13px] text-[#666] mt-0.5">{f.desc}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* ═══ 右侧: 登录表单 ═══ */}
+        <div className="flex-1 flex flex-col px-8 py-10 lg:py-12">
+          {/* 欢迎标题 */}
+          <h2 className="text-[28px] font-bold text-[#333]">欢迎回来</h2>
+          <p className="text-sm text-[#666] mt-1.5 mb-8">登录后继续孩子的学习之旅</p>
+
+          {/* Tab 切换 */}
+          <div className="flex gap-6 mb-6">
+            <button type="button" onClick={() => setTab("code")}
+              className={`relative pb-2 text-base font-semibold transition ${
+                tab === "code" ? "text-[#2EC899]" : "text-[#999]"
+              }`}
+            >
+              验证码登录
+              {tab === "code" && <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#2EC899] rounded-full" />}
+            </button>
+            <button type="button" onClick={() => setTab("password")}
+              className={`relative pb-2 text-base font-semibold transition ${
+                tab === "password" ? "text-[#2EC899]" : "text-[#999]"
+              }`}
+            >
+              密码登录
+              {tab === "password" && <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#2EC899] rounded-full" />}
+            </button>
+          </div>
+
+          <form onSubmit={handleSubmit} className="space-y-4">
             {error && (
               <p className="rounded-xl bg-red-50 px-4 py-3 text-center text-sm text-red-600">{error}</p>
             )}
 
             {/* 手机号 */}
             <div className={inputClass}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#25B8A8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 mr-3">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#999" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 mr-3">
                 <rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/>
               </svg>
-              <span className="text-[15px] text-[#718096] mr-2 font-medium">+86</span>
               <input type="tel" placeholder="请输入手机号" value={phone}
                 onChange={(e) => setPhone(e.target.value)}
                 maxLength={11} required disabled={loading}
-                className="flex-1 bg-transparent text-[15px] text-[#1F2D3D] placeholder:text-[#9AA7B2] outline-none disabled:opacity-50 min-w-0"
+                className="flex-1 bg-transparent text-[15px] text-[#333] placeholder:text-[#999] outline-none disabled:opacity-50 min-w-0"
               />
               {tab === "code" && (
                 <button type="button" onClick={handleSendCode}
                   disabled={codeCountdown > 0 || phone.trim().length < 11 || loading}
-                  className="shrink-0 rounded-xl bg-[#EAF8FF] px-4 py-2 text-[13px] font-semibold text-[#20B8A8] transition hover:bg-[#D5F0F5] disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap ml-2"
+                  className="shrink-0 rounded-2xl bg-transparent px-3 py-1.5 text-[13px] font-semibold text-[#2EC899] transition hover:opacity-70 disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap ml-2"
                 >
                   {codeCountdown > 0 ? `${codeCountdown}s` : "获取验证码"}
                 </button>
@@ -148,97 +186,104 @@ export default function LoginPage() {
             {/* 密码 / 验证码 */}
             {tab === "password" ? (
               <div className={inputClass}>
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#25B8A8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 mr-3">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#999" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 mr-3">
                   <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
                 </svg>
                 <input type={showPwd ? "text" : "password"}
                   placeholder="请输入密码" value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   minLength={6} required disabled={loading}
-                  className="flex-1 bg-transparent text-[15px] text-[#1F2D3D] placeholder:text-[#9AA7B2] outline-none disabled:opacity-50"
+                  className="flex-1 bg-transparent text-[15px] text-[#333] placeholder:text-[#999] outline-none disabled:opacity-50"
                 />
                 <button type="button" onClick={() => setShowPwd(!showPwd)}
-                  className="ml-2 text-[#9AA7B2] hover:text-[#718096] transition shrink-0" tabIndex={-1}>
-                  {showPwd ? <EyeOff size={20} /> : <Eye size={20} />}
+                  className="ml-2 text-[#999] hover:text-[#666] transition shrink-0" tabIndex={-1}>
+                  {showPwd ? <EyeOff size={18} /> : <Eye size={18} />}
                 </button>
               </div>
             ) : (
               <div className={inputClass}>
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#25B8A8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 mr-3">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#999" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 mr-3">
                   <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
                 </svg>
                 <input type="text" placeholder="请输入验证码" value={code}
                   onChange={(e) => setCode(e.target.value)}
                   maxLength={6} required disabled={loading}
-                  className="flex-1 bg-transparent text-[15px] text-[#1F2D3D] placeholder:text-[#9AA7B2] outline-none disabled:opacity-50"
+                  className="flex-1 bg-transparent text-[15px] text-[#333] placeholder:text-[#999] outline-none disabled:opacity-50"
                 />
               </div>
             )}
 
             {/* 协议 */}
-            <label className="flex items-start gap-2 cursor-pointer select-none">
-              <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)}
-                className="mt-0.5 h-4 w-4 rounded border-[#CBD5E0] accent-[#20B8A8]" />
-              <span className="text-[13px] text-[#718096] leading-relaxed">
-                已阅读并同意
-                <span className="text-[#20B8A8] underline cursor-pointer">《用户协议》</span>和
-                <span className="text-[#20B8A8] underline cursor-pointer">《隐私政策》</span>
+            <label className="flex items-start gap-2 cursor-pointer select-none mt-5">
+              <div className="relative mt-0.5 shrink-0">
+                <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} className="sr-only" />
+                <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center transition ${agreed ? "border-[#2EC899] bg-[#2EC899]" : "border-[#999]"}`}>
+                  {agreed && <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3"><path d="M20 6 9 17l-5-5"/></svg>}
+                </div>
+              </div>
+              <span className="text-[13px] text-[#666] leading-relaxed">
+                我已阅读并同意
+                <span className="text-[#2EC899] underline cursor-pointer">《用户协议》</span>
+                <span className="text-[#2EC899] underline cursor-pointer">《隐私政策》</span>
               </span>
             </label>
 
-            {/* 登录按钮 */}
+            {/* 登录按钮 — 纯色 #2EC899 */}
             <button type="submit" disabled={!canSubmit}
-              className="w-full h-[58px] rounded-full text-white text-[18px] font-semibold transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98]"
-              style={{
-                background: canSubmit
-                  ? "linear-gradient(135deg, #20B8A8 0%, #27D3C1 100%)"
-                  : "linear-gradient(135deg, #CBD5E0 0%, #A0AEC0 100%)",
-                boxShadow: canSubmit ? "0 4px 16px rgba(32,184,168,0.3)" : "none",
-              }}
+              className="w-full h-12 rounded-lg text-white text-base font-semibold transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98] mt-5"
+              style={{ background: canSubmit ? "#2EC899" : "#CBD5E0" }}
             >
-              {loading ? "登录中..." : "登  录"}
+              {loading ? "登录中..." : "登录 / 进入工作台"}
             </button>
           </form>
 
           {/* 第三方登录 */}
-          <div className="mt-7 flex flex-col items-center gap-4">
+          <div className="mt-8 flex flex-col items-center gap-4">
             <div className="flex items-center gap-3 w-full">
-              <div className="flex-1 h-px bg-[#E7EEF0]" />
-              <span className="text-[13px] text-[#9AA7B2] shrink-0">其他登录方式</span>
-              <div className="flex-1 h-px bg-[#E7EEF0]" />
+              <div className="flex-1 h-px bg-[#EBEEF2]" />
+              <span className="text-[13px] text-[#999] shrink-0">其他登录方式</span>
+              <div className="flex-1 h-px bg-[#EBEEF2]" />
             </div>
-            <div className="flex gap-7">
+            <div className="flex gap-4">
+              {/* 微信登录 */}
               <button type="button" disabled
-                className="w-[52px] h-[52px] rounded-full bg-[#07C160] flex items-center justify-center shadow-[0_2px_8px_rgba(7,193,96,0.2)] opacity-70 cursor-not-allowed"
-                title="微信登录（即将上线）">
-                <MessageCircle size={24} className="text-white" />
+                className="flex flex-col items-center gap-1.5 opacity-70 cursor-not-allowed">
+                <div className="w-16 h-16 rounded-2xl bg-[#E6F7F2] flex items-center justify-center">
+                  <MessageCircle size={22} className="text-[#07C160]" />
+                </div>
+                <span className="text-[13px] text-[#666]">微信登录</span>
               </button>
+              {/* 家长账号 */}
               <button type="button" disabled
-                className="w-[52px] h-[52px] rounded-full bg-[#12B7F5] flex items-center justify-center shadow-[0_2px_8px_rgba(18,183,245,0.2)] opacity-70 cursor-not-allowed text-white text-sm font-bold"
-                title="QQ登录（即将上线）">QQ</button>
+                className="flex flex-col items-center gap-1.5 opacity-70 cursor-not-allowed">
+                <div className="w-16 h-16 rounded-2xl bg-[#FEEBEA] flex items-center justify-center">
+                  <Users size={22} className="text-[#E87A6E]" />
+                </div>
+                <span className="text-[13px] text-[#666]">家长账号</span>
+              </button>
+              {/* 游客体验 */}
               <button type="button" disabled
-                className="w-[52px] h-[52px] rounded-full bg-black flex items-center justify-center shadow-[0_2px_8px_rgba(0,0,0,0.15)] opacity-70 cursor-not-allowed"
-                title="Apple ID登录（即将上线）">
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="white"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>
+                className="flex flex-col items-center gap-1.5 opacity-70 cursor-not-allowed">
+                <div className="w-16 h-16 rounded-2xl bg-[#EBF3FE] flex items-center justify-center">
+                  <User size={22} className="text-[#5B9BD5]" />
+                </div>
+                <span className="text-[13px] text-[#666]">游客体验</span>
               </button>
             </div>
           </div>
+
+          {/* 底部引导 */}
+          <p className="text-center text-[14px] text-[#666] mt-8">
+            首次使用？<span className="text-[#2EC899] font-medium cursor-pointer">先体验 Demo</span>
+          </p>
         </div>
+      </div>
 
-        {/* 底部去注册 */}
-        <p className="text-center text-[15px] text-[#718096] mt-6">
-          还没有账号？
-          <button type="button" onClick={() => router.push("/register")}
-            className="ml-1 text-[#20B8A8] font-semibold hover:text-[#0E8F83] transition">
-            去注册
-          </button>
-        </p>
-
-        {/* 安全承诺 */}
-        <p className="text-center text-[13px] text-[#9AA7B2] mt-4 flex items-center justify-center gap-1.5">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-          我们将保护您的信息安全
-        </p>
+      {/* ═══════════ 底部插画装饰 ═══════════ */}
+      <div className="relative z-10 w-full max-w-[960px] mt-6 hidden lg:block">
+        <div className="absolute left-0 bottom-0 opacity-30 pointer-events-none select-none">
+          <div className="text-6xl">👩‍👧📱📚</div>
+        </div>
       </div>
     </main>
   )
