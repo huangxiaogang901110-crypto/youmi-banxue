@@ -95,12 +95,10 @@ export default function RegisterPage() {
           🌐 简体中文 ▾
         </button>
 
-        {/* 兔子 — 使用正式 Logo 图片 */}
-        <div className="absolute pointer-events-none select-none z-10"
-          style={{ left: "22px", top: "28px", width: "210px", height: "250px" }}>
-          <img src="/rabbit-hero.png" alt=""
-            className="w-full h-full object-contain"
-            style={{ filter: "drop-shadow(0 6px 16px rgba(0,0,0,0.06))" }} />
+        {/* 兔子 — 使用正式素材 */}
+        <div className="absolute left-0 top-4 w-32 h-44 z-0 pointer-events-none select-none">
+          <img src="/rabbit-hero.png" alt="" className="w-full h-full object-contain"
+            style={{ filter: "drop-shadow(0 4px 12px rgba(0,0,0,0.06))" }} />
         </div>
 
         {/* Logo 品牌区 */}
