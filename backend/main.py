@@ -592,7 +592,9 @@ async def get_recent_parse_jobs(user: tuple = Depends(get_current_user)):
         # 优先内存（更新鲜）
         for jid, j in _jobs.items():
             if j.get("child_id") == child_id:
-                job = j["job"]
+                job = j.get("job")
+                if not job or not hasattr(job, "status"):
+                    continue
                 entry = add_job(jid, job.status, job.questions_count or len(j.get("questions", [])),
                                 job.file_name, job.created_at)
                 if entry:
