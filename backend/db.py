@@ -500,7 +500,7 @@ def create_assignment_page(pid: str, assignment_id: str, page_no: int = 1, oss_k
 def create_question_item(qid: str, assignment_id: str, page_id: str, question_no: int, question_text: str, bbox: list, visual_description: str = ""):
     c = _conn()
     c.execute(
-        "INSERT INTO question_item (id, assignment_id, page_id, question_no, bbox_json, question_text, visual_description) "
+        "INSERT OR REPLACE INTO question_item (id, assignment_id, page_id, question_no, bbox_json, question_text, visual_description) "
         "VALUES (?, ?, ?, ?, ?, ?, ?)",
         (qid, assignment_id, page_id, question_no, json.dumps(bbox or []), question_text, visual_description or ""),
     )
