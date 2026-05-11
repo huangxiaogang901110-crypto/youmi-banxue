@@ -370,7 +370,7 @@ async def create_parse_job(
 
 # ─── 后台任务 worker（模块级，基准 Table 22 R1）────────────
 async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_id: str, child_id: str):
-    """后台异步执行：OCR → 切题 → Qwen-VL → Schema 校验 → 保存"""
+    """后台异步执行：Qwen-VL 全图识题优先 → OCR+切题回落 → Schema 校验 → 保存"""
     print(f"[BG] Starting OCR for {jid}...", flush=True)
     t_start = time.time()
 
@@ -415,117 +415,165 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
     _jobs[jid]["page_id"] = page_id
 
     try:
-        # Stage: enhancing
+        # ── Phase 1: Qwen-VL 全图识题优先 ──
         _jobs[jid]["job"].status = JobStatus.enhancing
-
-        # Stage: ocr_running
-        _jobs[jid]["job"].status = JobStatus.ocr_running
-        ocr = AliyunOCRClient()
-        result = ocr.recognize(contents)
-        extracted = ocr.extract_text_and_blocks(result)
-        latency_ms = int((time.time() - t_start) * 1000)
-
-        _log = make_log_entry(
-            task_id=jid,
-            provider_name="aliyun_ocr",
-            model_name="ocr_api20210707",
-            feature_code="ocr",
-            latency_ms=latency_ms,
-            success=True,
-            parent_user_id=parent_id,
-            child_id=child_id,
-            request_id=result.get("RequestId", ""),
-            billing_status="free_tier",
-            blocks_count=len(extracted["blocks"]),
-        )
-        _model_calls.append(_log)
-        _db.save_model_call(_log)
-
-        # Stage: cutting — 智能切题（题号规则 + 版面规则）
-        _jobs[jid]["job"].status = JobStatus.cutting
-        cut_results = cut_to_questions(extracted["blocks"])
-        questions = []
-        for i, cq in enumerate(cut_results):
-            qid = f"{jid}-{cq['question_number']}-{i}"
-            questions.append(Question(
-                question_id=qid,
-                question_number=cq["question_number"],
-                question_text=cq["question_text"],
-                bbox=cq["bbox"],
-                visual_description=None,
-                status=QuestionStatus.completed,
-            ))
-            # 写入 question_item 独立表（基准 Table 12）
-            _db.create_question_item(qid, aid, page_id, cq["question_number"], cq["question_text"], cq["bbox"])
-        print(f"[BG] Cut {len(extracted['blocks'])} blocks → {len(questions)} questions", flush=True)
-
-        # Stage: vision_reviewing - Qwen-VL (Table 11 R3), 失败重试分流 (Table 14)
-        _jobs[jid]["job"].status = JobStatus.vision_reviewing
-        MAX_SCHEMA_RETRIES = 2     # Schema 校验失败
-        MAX_NETWORK_RETRIES = 3    # 网络超时（指数退避）
         qwen_vl = QwenVLClient()
-        for qi, q in enumerate(questions):
-            schema_retries = 0
-            network_retries = 0
-            while True:
-                try:
-                    t_vs = time.time()
-                    vl_result = qwen_vl.analyze_question(
-                        image_bytes=contents,
-                        bbox=q.bbox or [0, 0, 0, 0],
-                        question_text=q.question_text,
-                    )
-                    vl_ms = int((time.time() - t_vs) * 1000)
-                    q.visual_description = vl_result["visual_description"]
-                    q.status = QuestionStatus.completed
-                    # 同时更新 question_item 的 visual_description
-                    _db.create_question_item(q.question_id, aid, page_id, q.question_number, q.question_text, q.bbox or [], q.visual_description or "")
+        use_qwen_vl = False
+        questions = []
 
-                    _vlog = make_log_entry(
-                        task_id=jid,
-                        question_id=q.question_id,
-                        provider_name="dashscope",
-                        model_name="qwen-vl-plus",
-                        feature_code="vision_cutting",
-                        latency_ms=vl_ms,
-                        success=vl_result["success"],
-                        parent_user_id=parent_id,
-                        child_id=child_id,
-                        error_code=vl_result.get("error"),
-                        billing_status="free_tier" if vl_result["success"] else "failed",
-                        prompt_name="qwen_vl_analyze",
-                        retry_count=schema_retries + network_retries,
-                    )
-                    _model_calls.append(_vlog)
-                    _db.save_model_call(_vlog)
-                    print(f"[BG] Vision #{qi}: {vl_ms}ms success={vl_result['success']} retries={schema_retries + network_retries}", flush=True)
-                    break
-                except Exception as ve:
-                    err_str = str(ve).lower()
-                    # 429 / rate_limit → 不立即重试，延后 5s
-                    if "429" in err_str or "rate_limit" in err_str or "too many requests" in err_str:
-                        print(f"[BG] Vision #{qi} RATE LIMITED, sleeping 5s: {ve}", flush=True)
-                        await asyncio.sleep(5)
-                        network_retries += 1
-                    # 网络超时 → 指数退避，最多 3 次
-                    elif "timeout" in err_str or "connection" in err_str or "timed out" in err_str:
-                        network_retries += 1
-                        if network_retries > MAX_NETWORK_RETRIES:
-                            print(f"[BG] Vision #{qi} NETWORK FAILED after {MAX_NETWORK_RETRIES} retries: {ve}", flush=True)
-                            q.status = QuestionStatus.failed
-                            break
-                        wait_s = 2 ** network_retries
-                        print(f"[BG] Vision #{qi} network retry {network_retries}/{MAX_NETWORK_RETRIES}, waiting {wait_s}s: {ve}", flush=True)
-                        await asyncio.sleep(wait_s)
-                    # Schema 校验失败 → 最多 2 次
-                    else:
-                        schema_retries += 1
-                        if schema_retries > MAX_SCHEMA_RETRIES:
-                            print(f"[BG] Vision #{qi} SCHEMA FAILED after {MAX_SCHEMA_RETRIES} retries: {ve}", flush=True)
-                            q.status = QuestionStatus.failed
-                            break
-                        print(f"[BG] Vision #{qi} schema retry {schema_retries}/{MAX_SCHEMA_RETRIES}: {ve}", flush=True)
-                        await asyncio.sleep(1)
+        if qwen_vl._available():
+            _jobs[jid]["job"].status = JobStatus.ocr_running  # 复用状态表示"识别中"
+            print(f"[BG] Qwen-VL extracting questions for {jid}...", flush=True)
+            qwen_result = qwen_vl.extract_questions(contents)
+            qwen_latency = int((time.time() - t_start) * 1000)
+
+            _log = make_log_entry(
+                task_id=jid,
+                provider_name="dashscope",
+                model_name="qwen-vl-max",
+                feature_code="full_page_extract",
+                latency_ms=qwen_latency,
+                success=qwen_result["success"],
+                parent_user_id=parent_id,
+                child_id=child_id,
+                billing_status="free_tier" if qwen_result["success"] else "failed",
+                blocks_count=len(qwen_result.get("questions", [])),
+            )
+            _model_calls.append(_log)
+            _db.save_model_call(_log)
+
+            if qwen_result["success"] and qwen_result["questions"]:
+                use_qwen_vl = True
+                raw_questions = qwen_result["questions"]
+                question_count = len(raw_questions)
+                print(f"[BG] Qwen-VL extracted {question_count} questions in {qwen_latency}ms", flush=True)
+
+                # 分组展示用：用 raw_content 作为视觉描述
+                shared_vd = qwen_result.get("raw_content", f"Qwen-VL 全图识别，共 {question_count} 题")
+
+                for i, rq in enumerate(raw_questions):
+                    qid = f"{jid}-{rq.get('number', i+1)}-{i}"
+                    q_text = rq.get("content", f"第{rq.get('number', i+1)}题")
+                    q_no = int(rq.get("number", i+1)) if isinstance(rq.get("number"), (int, str)) else i+1
+                    questions.append(Question(
+                        question_id=qid,
+                        question_number=q_no,
+                        question_text=q_text,
+                        bbox=[0, 0, 0, 0],  # 全图识题无精确 bbox
+                        visual_description=shared_vd,
+                        status=QuestionStatus.completed,
+                    ))
+                    _db.create_question_item(qid, aid, page_id, q_no, q_text, [0, 0, 0, 0], shared_vd[:200])
+            else:
+                print(f"[BG] Qwen-VL failed: {qwen_result.get('error', 'no questions')}, falling back to OCR", flush=True)
+
+        # ── OCR 回落（Qwen-VL 失败或不可用时）──
+        if not use_qwen_vl:
+            _jobs[jid]["job"].status = JobStatus.ocr_running
+            ocr = AliyunOCRClient()
+            result = ocr.recognize(contents)
+            extracted = ocr.extract_text_and_blocks(result)
+            latency_ms = int((time.time() - t_start) * 1000)
+
+            _log = make_log_entry(
+                task_id=jid,
+                provider_name="aliyun_ocr",
+                model_name="ocr_api20210707",
+                feature_code="ocr",
+                latency_ms=latency_ms,
+                success=True,
+                parent_user_id=parent_id,
+                child_id=child_id,
+                request_id=result.get("RequestId", ""),
+                billing_status="free_tier",
+                blocks_count=len(extracted["blocks"]),
+            )
+            _model_calls.append(_log)
+            _db.save_model_call(_log)
+
+            # Stage: cutting — 智能切题（题号规则 + 版面规则）
+            _jobs[jid]["job"].status = JobStatus.cutting
+            cut_results = cut_to_questions(extracted["blocks"])
+            questions = []
+            for i, cq in enumerate(cut_results):
+                qid = f"{jid}-{cq['question_number']}-{i}"
+                questions.append(Question(
+                    question_id=qid,
+                    question_number=cq["question_number"],
+                    question_text=cq["question_text"],
+                    bbox=cq["bbox"],
+                    visual_description=None,
+                    status=QuestionStatus.completed,
+                ))
+                _db.create_question_item(qid, aid, page_id, cq["question_number"], cq["question_text"], cq["bbox"])
+            print(f"[BG] OCR+Cut: {len(extracted['blocks'])} blocks → {len(questions)} questions", flush=True)
+
+        # Stage: vision_reviewing - Qwen-VL 逐题复审（仅 OCR 回落路径）
+        if not use_qwen_vl:
+            _jobs[jid]["job"].status = JobStatus.vision_reviewing
+            MAX_SCHEMA_RETRIES = 2
+            MAX_NETWORK_RETRIES = 3
+            qwen_vl = QwenVLClient()
+            for qi, q in enumerate(questions):
+                schema_retries = 0
+                network_retries = 0
+                while True:
+                    try:
+                        t_vs = time.time()
+                        vl_result = qwen_vl.analyze_question(
+                            image_bytes=contents,
+                            bbox=q.bbox or [0, 0, 0, 0],
+                            question_text=q.question_text,
+                        )
+                        vl_ms = int((time.time() - t_vs) * 1000)
+                        q.visual_description = vl_result["visual_description"]
+                        q.status = QuestionStatus.completed
+                        _db.create_question_item(q.question_id, aid, page_id, q.question_number, q.question_text, q.bbox or [], q.visual_description or "")
+
+                        _vlog = make_log_entry(
+                            task_id=jid,
+                            question_id=q.question_id,
+                            provider_name="dashscope",
+                            model_name="qwen-vl-max",
+                            feature_code="vision_cutting",
+                            latency_ms=vl_ms,
+                            success=vl_result["success"],
+                            parent_user_id=parent_id,
+                            child_id=child_id,
+                            error_code=vl_result.get("error"),
+                            billing_status="free_tier" if vl_result["success"] else "failed",
+                            prompt_name="qwen_vl_analyze",
+                            retry_count=schema_retries + network_retries,
+                        )
+                        _model_calls.append(_vlog)
+                        _db.save_model_call(_vlog)
+                        print(f"[BG] Vision #{qi}: {vl_ms}ms success={vl_result['success']} retries={schema_retries + network_retries}", flush=True)
+                        break
+                    except Exception as ve:
+                        err_str = str(ve).lower()
+                        if "429" in err_str or "rate_limit" in err_str or "too many requests" in err_str:
+                            print(f"[BG] Vision #{qi} RATE LIMITED, sleeping 5s: {ve}", flush=True)
+                            await asyncio.sleep(5)
+                            network_retries += 1
+                        elif "timeout" in err_str or "connection" in err_str or "timed out" in err_str:
+                            network_retries += 1
+                            if network_retries > MAX_NETWORK_RETRIES:
+                                print(f"[BG] Vision #{qi} NETWORK FAILED after {MAX_NETWORK_RETRIES} retries: {ve}", flush=True)
+                                q.status = QuestionStatus.failed
+                                break
+                            wait_s = 2 ** network_retries
+                            print(f"[BG] Vision #{qi} network retry {network_retries}/{MAX_NETWORK_RETRIES}, waiting {wait_s}s: {ve}", flush=True)
+                            await asyncio.sleep(wait_s)
+                        else:
+                            schema_retries += 1
+                            if schema_retries > MAX_SCHEMA_RETRIES:
+                                print(f"[BG] Vision #{qi} SCHEMA FAILED after {MAX_SCHEMA_RETRIES} retries: {ve}", flush=True)
+                                q.status = QuestionStatus.failed
+                                break
+                            print(f"[BG] Vision #{qi} schema retry {schema_retries}/{MAX_SCHEMA_RETRIES}: {ve}", flush=True)
+                            await asyncio.sleep(1)
+        else:
+            print(f"[BG] Qwen-VL full-page mode: skipping per-question vision review", flush=True)
 
         # Stage: schema_validating — 基准 Table 21
         _jobs[jid]["job"].status = JobStatus.schema_validating
