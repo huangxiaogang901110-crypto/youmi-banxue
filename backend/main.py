@@ -564,37 +564,8 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
         print(f"[BG] OCR FAILED: {e}", flush=True)
         _jobs[jid]["job"].status = JobStatus.failed
 
-# ─── 2. GET /api/parse-jobs/{job_id} ───────────────────────
-@app.get("/api/parse-jobs/{job_id}")
-async def get_parse_job_status(job_id: str):
-    try:
-        await asyncio.sleep(0.3)
-        if job_id not in _jobs:
-            raise HTTPException(status_code=404, detail={"ok": False, "code": "not_found", "message": "任务不存在", "request_id": uuid.uuid4().hex})
-        j = _jobs[job_id]
-        j["poll_count"] += 1
-        # State driven by real OCR pipeline, not auto-advanced
-        j["job"].updated_at = _ts()
-        return {"ok": True, "data": j["job"].model_dump(), "request_id": uuid.uuid4().hex}
-    except HTTPException:
-        raise
-    except Exception as e:
-        return {"ok": False, "code": "status_error", "message": str(e), "request_id": uuid.uuid4().hex}
 
-# ─── 3. GET /api/parse-jobs/{job_id}/questions ─────────────
-@app.get("/api/parse-jobs/{job_id}/questions")
-async def get_parse_job_questions(job_id: str):
-    try:
-        await asyncio.sleep(0.3)
-        if job_id not in _jobs:
-            raise HTTPException(status_code=404, detail={"ok": False, "code": "not_found", "message": "任务不存在", "request_id": uuid.uuid4().hex})
-        return {"ok": True, "data": [q.model_dump() for q in _jobs[job_id]["questions"]], "request_id": uuid.uuid4().hex}
-    except HTTPException:
-        raise
-    except Exception as e:
-        return {"ok": False, "code": "questions_error", "message": str(e), "request_id": uuid.uuid4().hex}
-
-# ─── 4. GET /api/parse-jobs/recent ──────────────────────────
+# ─── 2. GET /api/parse-jobs/recent (before {job_id} to avoid conflict) ──
 @app.get("/api/parse-jobs/recent")
 async def get_recent_parse_jobs(user: tuple = Depends(get_current_user)):
     """返回当前 child 最近 10 条解析任务（DB + 内存合并去重）。"""
@@ -640,6 +611,37 @@ async def get_recent_parse_jobs(user: tuple = Depends(get_current_user)):
         raise
     except Exception as e:
         return {"ok": False, "code": "recent_error", "message": str(e), "request_id": uuid.uuid4().hex}
+
+
+# ─── 3. GET /api/parse-jobs/{job_id} ───────────────────────
+@app.get("/api/parse-jobs/{job_id}")
+async def get_parse_job_status(job_id: str):
+    try:
+        await asyncio.sleep(0.3)
+        if job_id not in _jobs:
+            raise HTTPException(status_code=404, detail={"ok": False, "code": "not_found", "message": "任务不存在", "request_id": uuid.uuid4().hex})
+        j = _jobs[job_id]
+        j["poll_count"] += 1
+        # State driven by real OCR pipeline, not auto-advanced
+        j["job"].updated_at = _ts()
+        return {"ok": True, "data": j["job"].model_dump(), "request_id": uuid.uuid4().hex}
+    except HTTPException:
+        raise
+    except Exception as e:
+        return {"ok": False, "code": "status_error", "message": str(e), "request_id": uuid.uuid4().hex}
+
+# ─── 4. GET /api/parse-jobs/{job_id}/questions ─────────────
+@app.get("/api/parse-jobs/{job_id}/questions")
+async def get_parse_job_questions(job_id: str):
+    try:
+        await asyncio.sleep(0.3)
+        if job_id not in _jobs:
+            raise HTTPException(status_code=404, detail={"ok": False, "code": "not_found", "message": "任务不存在", "request_id": uuid.uuid4().hex})
+        return {"ok": True, "data": [q.model_dump() for q in _jobs[job_id]["questions"]], "request_id": uuid.uuid4().hex}
+    except HTTPException:
+        raise
+    except Exception as e:
+        return {"ok": False, "code": "questions_error", "message": str(e), "request_id": uuid.uuid4().hex}
 
 # ─── 3.5. GET /api/questions/{question_id} ──────────────────
 @app.get("/api/questions/{question_id}")

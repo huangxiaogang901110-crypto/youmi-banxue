@@ -223,6 +223,7 @@ def init():
         "ALTER TABLE parse_jobs ADD COLUMN file_name TEXT DEFAULT ''",
         "ALTER TABLE parse_jobs ADD COLUMN questions_count INTEGER DEFAULT 0",
         "ALTER TABLE parse_jobs ADD COLUMN status TEXT DEFAULT 'uploaded'",
+        "ALTER TABLE parse_jobs ADD COLUMN created_at TEXT DEFAULT (datetime('now'))",
     ]
     for sql in migrations:
         try:
