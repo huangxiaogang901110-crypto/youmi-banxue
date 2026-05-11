@@ -858,9 +858,11 @@ async def tutor_question(question_id: str, body: TutorRequest, request: Request,
         _db.save_tutor_message(call_id, question_id, child_id_for_credit, seq, "assistant", result["reply_text"], call_id)
 
         # Log model call — SQLite 持久化
+        pricing = get_active_pricing("deepseek", "deepseek-chat")
         _tlog = make_log_entry(
             task_id="tutor",
             question_id=question_id,
+            job_id=question_id,
             provider_name="deepseek",
             model_name="deepseek-chat",
             feature_code="deepseek_tutor_initial",
@@ -872,6 +874,7 @@ async def tutor_question(question_id: str, body: TutorRequest, request: Request,
             input_tokens=(result.get("usage") or {}).get("input_tokens", 0),
             output_tokens=(result.get("usage") or {}).get("output_tokens", 0),
             estimated_cost=0.0,
+            pricing=pricing,
         )
         _model_calls.append(_tlog)
         _db.save_model_call(_tlog)
@@ -974,9 +977,12 @@ async def vision_retry(question_id: str, request: Request = None):
         q_found.visual_description = vl_result["visual_description"]
 
         # 记录 model_call_log（与 /tutor 对称）
+        usage = vl_result.get("usage", {}) if vl_result.get("success") else {}
+        pricing = get_active_pricing("aliyun_dashscope", "qwen-vl-plus")
         _vlog = make_log_entry(
             task_id="vision_retry",
             question_id=question_id,
+            job_id=question_id,
             provider_name="aliyun_dashscope",
             model_name="qwen-vl-plus",
             feature_code="qwen_vl_vision_retry",
@@ -985,6 +991,9 @@ async def vision_retry(question_id: str, request: Request = None):
             error_code=vl_result.get("error"),
             billing_status="free_tier" if vl_result["success"] else "failed",
             prompt_name="qwen_vl_vision_retry",
+            input_tokens=usage.get("prompt_tokens", 0) if isinstance(usage, dict) else 0,
+            output_tokens=usage.get("completion_tokens", 0) if isinstance(usage, dict) else 0,
+            pricing=pricing,
         )
         _model_calls.append(_vlog)
         _db.save_model_call(_vlog)
@@ -1105,9 +1114,25 @@ async def payment_callback():
 
 # ─── 12. GET /api/billing/credit-ledger (Phase 0 占位) ─────
 @app.get("/api/billing/credit-ledger")
-async def get_credit_ledger():
-    """学豆流水查询占位"""
-    return {"ok": True, "data": {"entries": [], "total": 0}, "request_id": uuid.uuid4().hex}
+async def get_credit_ledger(user: tuple = Depends(get_current_user)):
+    """学豆流水查询 — 从 DB 真实读取"""
+    try:
+        parent_id, _ = user
+        c = _db._conn()
+        rows = c.execute(
+            "SELECT * FROM credit_ledger WHERE parent_user_id = ? ORDER BY created_at DESC LIMIT 100",
+            (parent_id,),
+        ).fetchall()
+        c.close()
+        entries = [dict(r) for r in rows]
+        total_change = sum(e["change_amount"] for e in entries)
+        return {
+            "ok": True,
+            "data": {"entries": entries, "total": total_change},
+            "request_id": uuid.uuid4().hex,
+        }
+    except Exception as e:
+        return {"ok": False, "code": "ledger_error", "message": str(e), "request_id": uuid.uuid4().hex}
 
 # ─── 13. GET /api/mistakes ──────────────────────────────────
 @app.get("/api/mistakes")
@@ -1232,6 +1257,24 @@ async def parse_homework(body: HomeworkParseRequest):
         ds = DeepSeekClient()
         if ds._available():
             ds_result = ds.parse_homework_text(body.text)
+            # ── 记 model_call log（成本可追溯）──
+            usage = ds_result.get("usage", {}) if ds_result.get("success") else {}
+            pricing = get_active_pricing("deepseek", "deepseek-v4-flash")
+            _hwlog = make_log_entry(
+                task_id=uuid.uuid4().hex[:12],
+                provider_name="deepseek",
+                model_name="deepseek-v4-flash",
+                feature_code="deepseek_homework_parse",
+                latency_ms=ds_result.get("latency_ms", 0),
+                success=ds_result["success"],
+                input_tokens=usage.get("prompt_tokens", 0) if isinstance(usage, dict) else 0,
+                output_tokens=usage.get("completion_tokens", 0) if isinstance(usage, dict) else 0,
+                billing_status="free_tier" if ds_result["success"] else "failed",
+                pricing=pricing,
+                subjects_count=len(ds_result.get("subjects", [])),
+            )
+            _model_calls.append(_hwlog)
+            _db.save_model_call(_hwlog)
             if ds_result["success"] and ds_result["subjects"]:
                 subjects = [HomeworkSubjectModel(name=s["name"], tasks=s["tasks"]) for s in ds_result["subjects"]]
                 print(f"[HW] DeepSeek parsed {len(subjects)} subjects in {ds_result['latency_ms']}ms", flush=True)
