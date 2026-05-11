@@ -1203,7 +1203,22 @@ def mock_parse_homework(text: str) -> list[HomeworkSubjectModel]:
 @app.post("/api/homework/parse")
 async def parse_homework(body: HomeworkParseRequest):
     try:
-        await asyncio.sleep(0.3)
+        # ── DeepSeek v4-flash 优先解析 ──
+        ds = DeepSeekClient()
+        if ds._available():
+            ds_result = ds.parse_homework_text(body.text)
+            if ds_result["success"] and ds_result["subjects"]:
+                subjects = [HomeworkSubjectModel(name=s["name"], tasks=s["tasks"]) for s in ds_result["subjects"]]
+                print(f"[HW] DeepSeek parsed {len(subjects)} subjects in {ds_result['latency_ms']}ms", flush=True)
+                return {
+                    "ok": True,
+                    "data": HomeworkParseResponse(subjects=subjects, raw_text=body.text).model_dump(),
+                    "request_id": uuid.uuid4().hex,
+                }
+            print(f"[HW] DeepSeek failed: {ds_result.get('error')}, falling back to mock", flush=True)
+
+        # ── Mock 回落 ──
+        await asyncio.sleep(0.2)
         subjects = mock_parse_homework(body.text)
         if not subjects:
             return {
