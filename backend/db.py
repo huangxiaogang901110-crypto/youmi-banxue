@@ -220,6 +220,9 @@ def init():
         "ALTER TABLE child_profiles ADD COLUMN textbook_version TEXT DEFAULT ''",
         "ALTER TABLE child_profiles ADD COLUMN deleted_at TEXT",
         "ALTER TABLE image_registry ADD COLUMN oss_key TEXT DEFAULT ''",
+        "ALTER TABLE parse_jobs ADD COLUMN file_name TEXT DEFAULT ''",
+        "ALTER TABLE parse_jobs ADD COLUMN questions_count INTEGER DEFAULT 0",
+        "ALTER TABLE parse_jobs ADD COLUMN status TEXT DEFAULT 'uploaded'",
     ]
     for sql in migrations:
         try:
