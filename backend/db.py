@@ -525,9 +525,9 @@ def save_parse_job(job_id: str, child_id: str, parent_id: str, file_name: str, q
     """持久化解析任务元数据，供 getRecent 跨重启查询。"""
     c = _conn()
     c.execute(
-        "INSERT OR REPLACE INTO parse_jobs (job_id, child_id, parent_id, file_name, questions_count, status, created_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (job_id, child_id, parent_id, file_name, questions_count, status, created_at),
+        "INSERT OR REPLACE INTO parse_jobs (job_id, child_id, parent_id, file_name, questions_count, status, created_at, data, updated_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, '{}', ?)",
+        (job_id, child_id, parent_id, file_name, questions_count, status, created_at, created_at),
     )
     c.commit()
     c.close()
