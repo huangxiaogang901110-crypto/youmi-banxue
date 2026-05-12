@@ -231,7 +231,7 @@ function WorkspaceContent() {
   }))].filter(h =>
     !hiddenIds.has(h.job_id) &&
     h.questions_count > 0
-  );
+  ).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
   // ── 恢复中 ──
   if (isRestoring && (status === "loading" || status === "polling")) {
