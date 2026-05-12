@@ -10,6 +10,7 @@ import QuestionGroup, { calcGroupSize, groupQuestions } from "@/components/quest
 import { useParseJobPolling } from "@/hooks/useParseJobPolling";
 import { useJobHistory } from "@/hooks/useJobHistory";
 import ErrorDisplay from "@/components/common/ErrorDisplay";
+import SwipeableCard from "@/components/common/SwipeableCard";
 import { compressImage } from "@/lib/imageCompress";
 import { uuidv4 } from "@/lib/uuid";
 import { parseJobApi } from "@/lib/api";
@@ -36,10 +37,13 @@ function WorkspaceContent() {
   const cameraRef = useRef<HTMLInputElement>(null);
 
   // ── 7 天滚动历史缓存 ──
-  const { history, upsert, clearAll } = useJobHistory();
+  const { history, upsert, removeEntry, clearAll } = useJobHistory();
 
   // ── API 补充（localStorage 清除/损坏后的恢复）──
   const [apiRecent, setApiRecent] = useState<RecentJob[]>([]);
+
+  // ── 已隐藏的 API 记录（左划删除后不再显示）──
+  const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set());
 
   // ── 恢复中（防止闪烁）──
   const [isRestoring, setIsRestoring] = useState(false);
@@ -50,6 +54,15 @@ function WorkspaceContent() {
       if (res.ok && res.data) setApiRecent(res.data);
     }).catch(() => {});
   }, []);
+
+  // 删除处理：localStorage 条目走 removeEntry，API 条目走 hiddenIds
+  const handleDelete = (jobId: string) => {
+    if (history.some(h => h.job_id === jobId)) {
+      removeEntry(jobId);
+    } else {
+      setHiddenIds(prev => new Set(prev).add(jobId));
+    }
+  };
 
 
 
@@ -172,7 +185,7 @@ function WorkspaceContent() {
     questions_count: r.questions_count || 0,
     status: r.status || "completed",
     created_at: r.created_at || "",
-  }))];
+  }))].filter(h => !hiddenIds.has(h.job_id));
 
   // ── 恢复中 ──
   if (isRestoring && (status === "loading" || status === "polling")) {
@@ -284,14 +297,19 @@ function WorkspaceContent() {
         <section>
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-sm font-semibold text-foreground">历史记录（最近 7 天）</h2>
+            {allHistory.length > 0 && (
+              <span className="text-xs text-muted-foreground">← 左划可删除</span>
+            )}
           </div>
 
           <div className="space-y-2">
             {allHistory.map((h) => (
-              <div
+              <SwipeableCard
                 key={h.job_id}
-                onClick={() => router.push(`/workspace?job_id=${h.job_id}`)}
-                className="bg-card rounded-xl p-4 shadow-sm border border-border active:scale-[0.98] transition cursor-pointer"
+                onTap={() => router.push(`/workspace?job_id=${h.job_id}`)}
+                actions={[
+                  { label: "删除", color: "red", onClick: () => handleDelete(h.job_id) },
+                ]}
               >
                 <div className="flex items-center gap-3">
                   <Clock className="w-5 h-5 text-muted-foreground shrink-0" />
@@ -303,7 +321,7 @@ function WorkspaceContent() {
                   </div>
                   <ArrowRight className="w-4 h-4 text-muted-foreground shrink-0" />
                 </div>
-              </div>
+              </SwipeableCard>
             ))}
           </div>
         </section>
