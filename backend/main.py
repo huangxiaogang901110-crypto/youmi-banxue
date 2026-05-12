@@ -28,6 +28,7 @@ from auth import (
     ParentUser, ChildProfile, _parents, _children,
 )
 import db as _db
+from logger import info as _log_info, warning as _log_warn, error as _log_error
 
 # 确保 root Python 能找到 hermes_me 安装的包（systemd 以 root 运行）
 import sys
@@ -299,7 +300,8 @@ class RegisterRequest(BaseModel):
 
 
 @app.post("/api/auth/login")
-async def login(body: LoginRequest):
+@limiter.limit("10/minute")
+async def login(body: LoginRequest, request: Request = None):
     """手机号 + 密码登录，返回 JWT token"""
     parent = get_parent_by_phone(body.phone)
     if not parent or not verify_password(body.password, parent.password_hash):
@@ -323,7 +325,8 @@ async def login(body: LoginRequest):
 
 
 @app.post("/api/auth/register")
-async def register(body: RegisterRequest):
+@limiter.limit("3/minute")
+async def register(body: RegisterRequest, request: Request = None):
     """注册（Phase 1 简化：自动创建 parent + 一个 child）"""
     if get_parent_by_phone(body.phone):
         return {"ok": False, "code": "phone_taken", "message": "该手机号已注册"}
@@ -412,7 +415,9 @@ async def create_parse_job(
 # ─── 后台任务 worker（模块级，基准 Table 22 R1）────────────
 async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_id: str, child_id: str):
     """后台异步执行：Qwen-VL 全图识题优先 → OCR+切题回落 → Schema 校验 → 保存"""
-    print(f"[BG] Starting OCR for {jid}...", flush=True)
+    import uuid as _uuid
+    trace_id = _uuid.uuid4().hex
+    _log_info(f"job_start jid={jid}", trace_id=trace_id, parent_id=parent_id, child_id=child_id)
     t_start = time.time()
 
     # 持久化原始图片供 vision 二次路由使用
@@ -455,8 +460,6 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
     _jobs[jid]["assignment_id"] = aid
     _jobs[jid]["page_id"] = page_id
 
-    # ── 生成链路 trace_id（Hermes 工作流规划 P0）──
-    trace_id = _uuid.uuid4().hex
     _jobs[jid]["trace_id"] = trace_id
     total_parse_cost = 0.0  # 累计 Qwen-VL 解析成本
 
@@ -747,7 +750,7 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
         )
         _model_calls.append(_flog)
         _db.save_model_call(_flog)
-        print(f"[BG] WORKER FAILED ({jid}): {e}", flush=True)
+        _log_error(f"worker_failed jid={jid}: {e}", trace_id=trace_id)
         # 保存错误到 job entry，让 status API 返回可见
         _jobs[jid]["error_code"] = str(e)[:200]
         _jobs[jid]["progress"] = f"worker_crash: {str(e)[:100]}"
@@ -1276,7 +1279,8 @@ class CreateOrderRequest(BaseModel):
     amount: int
 
 @app.post("/api/payment/create-order")
-async def create_payment_order(body: CreateOrderRequest):
+@limiter.limit("3/minute")
+async def create_payment_order(body: CreateOrderRequest, request: Request = None):
     """支付下单占位，Phase 0 返回 Mock"""
     try:
         order_id = f"order-{uuid.uuid4().hex[:12]}"
@@ -1429,7 +1433,8 @@ def mock_parse_homework(text: str) -> list[HomeworkSubjectModel]:
     return subjects
 
 @app.post("/api/homework/parse")
-async def parse_homework(body: HomeworkParseRequest):
+@limiter.limit("5/minute")
+async def parse_homework(body: HomeworkParseRequest, request: Request = None):
     try:
         # ── DeepSeek v4-flash 优先解析 ──
         ds = DeepSeekClient()

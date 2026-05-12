@@ -123,6 +123,7 @@ class QwenVLClient:
             "latency_ms": r["latency_ms"],
             "error": None,
             "raw_content": content,
+            "usage": r.get("usage", {}),
         }
 
     def analyze_question(
