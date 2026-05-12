@@ -204,9 +204,7 @@ function WorkspaceContent() {
     created_at: r.created_at || "",
   }))].filter(h =>
     !hiddenIds.has(h.job_id) &&
-    h.questions_count > 0 &&
-    h.file_name &&
-    h.created_at
+    h.questions_count > 0
   );
 
   // ── 恢复中 ──
@@ -336,7 +334,7 @@ function WorkspaceContent() {
                 <div className="flex items-center gap-3">
                   <Clock className="w-5 h-5 text-muted-foreground shrink-0" />
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm text-foreground truncate">{h.file_name}</p>
+                    <p className="text-sm text-foreground truncate">{h.file_name || "作业记录"}</p>
                     <p className="text-xs text-muted-foreground">
                       {formatRelative(h.created_at)} · {h.questions_count || "?"} 题
                     </p>
