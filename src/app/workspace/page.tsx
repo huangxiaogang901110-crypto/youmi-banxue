@@ -44,7 +44,17 @@ function WorkspaceContent() {
   const [apiRecent, setApiRecent] = useState<RecentJob[]>([]);
 
   // ── 已隐藏的 API 记录（左划删除后不再显示）──
-  const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set());
+  const [hiddenIds, setHiddenIds] = useState<Set<string>>(() => {
+    try {
+      const raw = localStorage.getItem("yomi_deleted_ids");
+      return raw ? new Set(JSON.parse(raw)) : new Set();
+    } catch { return new Set(); }
+  });
+
+  // 持久化 hiddenIds
+  const persistHidden = (ids: Set<string>) => {
+    try { localStorage.setItem("yomi_deleted_ids", JSON.stringify([...ids])); } catch {}
+  };
 
   // ── 恢复中（防止闪烁）──
   const [isRestoring, setIsRestoring] = useState(false);
@@ -72,13 +82,16 @@ function WorkspaceContent() {
     }).catch(() => {});
   }, []);
 
-  // 删除处理：localStorage 条目走 removeEntry，API 条目走 hiddenIds
+  // 删除处理：localStorage 条目走 removeEntry，API 条目走 hiddenIds（持久化）
   const handleDelete = (jobId: string) => {
     if (history.some(h => h.job_id === jobId)) {
       removeEntry(jobId);
-    } else {
-      setHiddenIds(prev => new Set(prev).add(jobId));
     }
+    setHiddenIds(prev => {
+      const next = new Set(prev).add(jobId);
+      persistHidden(next);
+      return next;
+    });
   };
 
 
