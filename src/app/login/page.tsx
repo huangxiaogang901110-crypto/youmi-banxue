@@ -99,12 +99,25 @@ export default function LoginPage() {
         style={{ boxShadow: "0 8px 32px rgba(0,0,0,0.06), 0 2px 8px rgba(0,0,0,0.04)" }}
       >
         {/* ═══ 左侧: 品牌 + 功能介绍 ═══ */}
-        <div className="flex-1 flex flex-col items-center justify-center px-8 py-10 lg:py-12"
-          style={{ background: "linear-gradient(180deg, #F0FDF9 0%, #FFFFFF 100%)" }}
+        <div className="flex-1 flex flex-col items-center justify-center px-8 py-10 lg:py-12 relative overflow-hidden"
+          style={{ background: "#FFFFFF" }}
         >
-          {/* 猫吉祥物 */}
-          <div className="w-[100px] h-[100px] rounded-full bg-[#E6F7F2] flex items-center justify-center mb-5">
-            <img src="/rabbit-hero.png" alt="悠米" className="w-[80px] h-[80px] object-contain" />
+          {/* 背景淡几何装饰 */}
+          <div className="absolute inset-0 pointer-events-none select-none">
+            <div className="absolute top-[8%] left-[12%] w-16 h-16 rounded-full bg-[#E0F2E9] opacity-60" />
+            <div className="absolute top-[6%] right-[20%] text-[#C8E8D8] text-lg opacity-70">✦</div>
+            <div className="absolute top-[45%] left-[8%]">
+              <svg width="40" height="24" viewBox="0 0 40 24" className="opacity-40">
+                <path d="M0 20 Q10 8 20 16 Q30 24 40 12" stroke="#D0E8DC" strokeWidth="3" fill="none" />
+              </svg>
+            </div>
+            <div className="absolute bottom-[15%] right-[10%] text-[#C8E8D8] text-sm opacity-50">✦</div>
+          </div>
+
+          {/* 吉祥物 — 基准: 88x88 圆角方形, 青绿渐变 #A0E2C8→#72D2B0 */}
+          <div className="w-[88px] h-[88px] rounded-2xl flex items-center justify-center mb-5 relative z-10"
+            style={{ background: "linear-gradient(135deg, #A0E2C8 0%, #72D2B0 100%)" }}>
+            <img src="/logo.png" alt="悠米" className="w-[72px] h-[72px] object-contain" />
           </div>
 
           {/* 品牌 */}
@@ -282,44 +295,61 @@ export default function LoginPage() {
         </div>
       </div>
 
-      {/* ═══════════ 底部母子学习插画 ═══════════ */}
-      <div className="relative z-10 w-full max-w-[960px] mt-6 flex justify-center">
+      {/* ═══════════ 底部母子学习插画（基准: 黄衣妈妈+绿衣男孩+黑平板+绿书+盆栽） ═══════════ */}
+      <div className="relative z-10 w-full max-w-[960px] mt-6 flex justify-center lg:justify-start lg:pl-8">
         <div className="pointer-events-none select-none">
-          <svg width="280" height="180" viewBox="0 0 240 160" fill="none" xmlns="http://www.w3.org/2000/svg" className="opacity-85">
+          <svg width="320" height="200" viewBox="0 0 320 200" fill="none" xmlns="http://www.w3.org/2000/svg" className="opacity-90">
+            {/* 数字化学习背景 */}
+            <rect x="90" y="10" width="50" height="30" rx="4" fill="#E8F4F8" stroke="#C8DCE8" strokeWidth="1"/>
+            <line x1="100" y1="20" x2="130" y2="20" stroke="#A0C8D8" strokeWidth="1.5"/>
+            <line x1="100" y1="25" x2="120" y2="25" stroke="#A0C8D8" strokeWidth="1"/>
+            <line x1="100" y1="30" x2="125" y2="30" stroke="#A0C8D8" strokeWidth="1"/>
+            <rect x="60" y="50" width="35" height="25" rx="3" fill="#E0F0F8" stroke="#C0D8E8" strokeWidth="1"/>
+            <rect x="65" y="55" width="10" height="8" rx="1" fill="#B0D0E0"/>
+            <rect x="78" y="55" width="10" height="8" rx="1" fill="#B0D0E0"/>
+            <rect x="65" y="65" width="10" height="6" rx="1" fill="#C0E0F0"/>
+            <rect x="78" y="65" width="10" height="6" rx="1" fill="#C0E0F0"/>
             {/* 桌面 */}
-            <rect x="20" y="100" width="200" height="8" rx="4" fill="#E8D5B0"/>
-            <rect x="30" y="108" width="8" height="30" rx="2" fill="#E8D5B0"/>
-            <rect x="200" y="108" width="8" height="30" rx="2" fill="#E8D5B0"/>
-            {/* 盆栽 */}
-            <rect x="28" y="88" width="14" height="12" rx="3" fill="#E8A87C"/>
-            <circle cx="35" cy="80" r="10" fill="#7EC8A0"/>
-            <circle cx="30" cy="76" r="7" fill="#6BB892"/>
-            <circle cx="40" cy="78" r="6" fill="#8DD4AA"/>
-            {/* 笔记本电脑 */}
-            <rect x="75" y="82" width="52" height="4" rx="2" fill="#C0C0C0"/>
-            <rect x="80" y="82" width="42" height="18" rx="3" fill="#E8E8E8"/>
-            <rect x="84" y="84" width="34" height="12" rx="1" fill="#D0E8F0"/>
-            {/* 书本叠 */}
-            <rect x="140" y="88" width="22" height="3" rx="1" fill="#F0C8A0"/>
-            <rect x="138" y="85" width="24" height="3" rx="1" fill="#A0C8F0"/>
-            <rect x="136" y="82" width="26" height="3" rx="1" fill="#F08080"/>
-            {/* 妈妈 - 左侧 */}
-            <circle cx="65" cy="62" r="14" fill="#F5D0B0"/>
-            <rect x="55" y="76" width="20" height="24" rx="8" fill="#5B9BD5"/>
-            <circle cx="60" cy="58" r="3" fill="#333"/>
-            <circle cx="70" cy="58" r="3" fill="#333"/>
-            <path d="M58 67 Q65 72 72 67" stroke="#333" strokeWidth="1.5" fill="none"/>
-            <ellipse cx="58" cy="54" rx="6" ry="4" fill="#E8C8A0" opacity="0.6"/>
-            {/* 孩子 - 右侧 */}
-            <circle cx="165" cy="70" r="10" fill="#F5D0B0"/>
-            <rect x="158" y="80" width="14" height="20" rx="7" fill="#F0A0A0"/>
-            <circle cx="161" cy="67" r="2.5" fill="#333"/>
-            <circle cx="169" cy="67" r="2.5" fill="#333"/>
-            <path d="M158 74 Q165 78 172 74" stroke="#333" strokeWidth="1.2" fill="none"/>
-            <rect x="159" y="60" width="12" height="4" rx="2" fill="#E8C8A0"/>
-            {/* 孩子手臂指向电脑 */}
-            <path d="M160 82 Q140 86 110 84" stroke="#F5D0B0" strokeWidth="4" strokeLinecap="round"/>
-            <circle cx="110" cy="84" r="2.5" fill="#F5D0B0"/>
+            <rect x="30" y="130" width="260" height="10" rx="5" fill="#E8D5B0"/>
+            <rect x="45" y="140" width="10" height="35" rx="3" fill="#D4C0A0"/>
+            <rect x="260" y="140" width="10" height="35" rx="3" fill="#D4C0A0"/>
+            {/* 三本绿书（左侧） */}
+            <rect x="38" y="114" width="24" height="5" rx="1.5" fill="#5BAF7C"/>
+            <rect x="40" y="108" width="24" height="6" rx="1.5" fill="#48A068"/>
+            <rect x="42" y="102" width="24" height="6" rx="1.5" fill="#3A9058"/>
+            {/* 黑平板（中间） */}
+            <rect x="108" y="102" width="60" height="28" rx="4" fill="#2A2A2A"/>
+            <rect x="113" y="106" width="50" height="18" rx="2" fill="#FFFFFF"/>
+            <circle cx="138" cy="115" r="4" fill="#F0C8A0"/>
+            <rect x="118" y="112" width="8" height="6" rx="1" fill="#A0C8E0"/>
+            <rect x="128" y="112" width="8" height="6" rx="1" fill="#E0A0A0"/>
+            <rect x="118" y="119" width="8" height="3" rx="1" fill="#D0D0D0"/>
+            <rect x="128" y="119" width="12" height="3" rx="1" fill="#D0D0D0"/>
+            {/* 妈妈（左侧，黄衣，棕色长发） */}
+            <ellipse cx="88" cy="88" rx="13" ry="14" fill="#F5D0B0"/>
+            <rect x="78" y="102" width="20" height="28" rx="8" fill="#E8B830"/>
+            <ellipse cx="78" cy="82" rx="8" ry="5" fill="#6B4226" opacity="0.8"/>
+            <circle cx="83" cy="85" r="2.5" fill="#333"/>
+            <circle cx="93" cy="85" r="2.5" fill="#333"/>
+            <path d="M81 92 Q88 96 95 92" stroke="#333" strokeWidth="1.3" fill="none"/>
+            {/* 妈妈手臂 → 平板 */}
+            <path d="M98 108 Q110 106 118 110" stroke="#F5D0B0" strokeWidth="4" strokeLinecap="round"/>
+            {/* 男孩（右侧，绿衣，棕色短发） */}
+            <circle cx="192" cy="92" r="11" fill="#F5D0B0"/>
+            <rect x="184" y="103" width="16" height="27" rx="8" fill="#5BAF7C"/>
+            <rect x="186" y="88" width="12" height="5" rx="2.5" fill="#6B4226"/>
+            <circle cx="187" cy="90" r="2" fill="#333"/>
+            <circle cx="197" cy="90" r="2" fill="#333"/>
+            <path d="M185 97 Q192 101 199 97" stroke="#333" strokeWidth="1.2" fill="none"/>
+            {/* 男孩手臂 → 平板 */}
+            <path d="M184 112 Q170 110 162 110" stroke="#F5D0B0" strokeWidth="3.5" strokeLinecap="round"/>
+            {/* 盆栽（右侧） */}
+            <rect x="245" y="114" width="16" height="16" rx="4" fill="#E8A87C"/>
+            <rect x="243" y="112" width="20" height="4" rx="2" fill="#D49060"/>
+            <circle cx="253" cy="104" r="10" fill="#5BAF7C"/>
+            <circle cx="248" cy="100" r="7" fill="#48A068"/>
+            <circle cx="258" cy="102" r="6" fill="#6BC088"/>
+            <ellipse cx="256" cy="98" rx="5" ry="3" fill="#7AC898"/>
           </svg>
         </div>
       </div>
