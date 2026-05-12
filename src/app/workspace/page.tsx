@@ -39,11 +39,18 @@ function WorkspaceContent() {
   // ── 7 天滚动历史缓存 ──
   const { history, upsert, removeEntry, clearAll } = useJobHistory();
 
-  // ── API 补充（localStorage 清除后的恢复）──
+  // ── API 补充（localStorage 清除/损坏后的恢复）──
   const [apiRecent, setApiRecent] = useState<RecentJob[]>([]);
 
   // ── 恢复中（防止闪烁）──
   const [isRestoring, setIsRestoring] = useState(false);
+
+  // 页面挂载时从后端拉取历史记录（补充 localStorage 可能丢失的数据）
+  useEffect(() => {
+    parseJobApi.getRecent().then((res) => {
+      if (res.ok && res.data) setApiRecent(res.data);
+    }).catch(() => {});
+  }, []);
 
 
 
@@ -156,10 +163,17 @@ function WorkspaceContent() {
     return `${Math.floor(hours / 24)} 天前`;
   };
 
-  // 合并展示：本地历史（全部）+ API 补充（去重）
+  // 合并展示：本地历史 + API 补充（去重）
   const localIds = new Set(history.map((h) => h.job_id));
   const apiOnly = apiRecent.filter((r) => !localIds.has(r.job_id));
   const completedHistory = history.filter((h) => h.status === "completed" || h.status === "uploaded");
+  const allHistory = [...completedHistory, ...apiOnly.map(r => ({
+    job_id: r.job_id,
+    file_name: r.file_name || "",
+    questions_count: r.questions_count || 0,
+    status: r.status || "completed",
+    created_at: r.created_at || "",
+  }))];
 
   // ── 恢复中 ──
   if (isRestoring && (status === "loading" || status === "polling")) {
@@ -269,18 +283,18 @@ function WorkspaceContent() {
 
         {/* 历史记录 */}
         <section>
-          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center justify-between mb-3">
             <h2 className="text-sm font-semibold text-foreground">历史记录（最近 7 天）</h2>
-            {completedHistory.length > 0 && (
+            {allHistory.length > 0 && (
               <span className="text-xs text-muted-foreground">← 左划可删除</span>
             )}
           </div>
 
-          {completedHistory.length === 0 ? (
+          {allHistory.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-4">暂无记录</p>
           ) : (
             <>
-              {completedHistory.map((h) => (
+              {allHistory.map((h) => (
                 <SwipeableCard
                   key={h.job_id}
                   onTap={() => router.push(`/workspace?job_id=${h.job_id}`)}
