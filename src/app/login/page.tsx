@@ -282,10 +282,45 @@ export default function LoginPage() {
         </div>
       </div>
 
-      {/* ═══════════ 底部插画装饰 ═══════════ */}
+      {/* ═══════════ 底部母子学习插画 ═══════════ */}
       <div className="relative z-10 w-full max-w-[960px] mt-6 hidden lg:block">
-        <div className="absolute left-0 bottom-0 opacity-30 pointer-events-none select-none">
-          <div className="text-6xl">👩‍👧📱📚</div>
+        <div className="absolute left-0 bottom-0 pointer-events-none select-none">
+          <svg width="240" height="160" viewBox="0 0 240 160" fill="none" xmlns="http://www.w3.org/2000/svg" className="opacity-85">
+            {/* 桌面 */}
+            <rect x="20" y="100" width="200" height="8" rx="4" fill="#E8D5B0"/>
+            <rect x="30" y="108" width="8" height="30" rx="2" fill="#E8D5B0"/>
+            <rect x="200" y="108" width="8" height="30" rx="2" fill="#E8D5B0"/>
+            {/* 盆栽 */}
+            <rect x="28" y="88" width="14" height="12" rx="3" fill="#E8A87C"/>
+            <circle cx="35" cy="80" r="10" fill="#7EC8A0"/>
+            <circle cx="30" cy="76" r="7" fill="#6BB892"/>
+            <circle cx="40" cy="78" r="6" fill="#8DD4AA"/>
+            {/* 笔记本电脑 */}
+            <rect x="75" y="82" width="52" height="4" rx="2" fill="#C0C0C0"/>
+            <rect x="80" y="82" width="42" height="18" rx="3" fill="#E8E8E8"/>
+            <rect x="84" y="84" width="34" height="12" rx="1" fill="#D0E8F0"/>
+            {/* 书本叠 */}
+            <rect x="140" y="88" width="22" height="3" rx="1" fill="#F0C8A0"/>
+            <rect x="138" y="85" width="24" height="3" rx="1" fill="#A0C8F0"/>
+            <rect x="136" y="82" width="26" height="3" rx="1" fill="#F08080"/>
+            {/* 妈妈 - 左侧 */}
+            <circle cx="65" cy="62" r="14" fill="#F5D0B0"/>
+            <rect x="55" y="76" width="20" height="24" rx="8" fill="#5B9BD5"/>
+            <circle cx="60" cy="58" r="3" fill="#333"/>
+            <circle cx="70" cy="58" r="3" fill="#333"/>
+            <path d="M58 67 Q65 72 72 67" stroke="#333" strokeWidth="1.5" fill="none"/>
+            <ellipse cx="58" cy="54" rx="6" ry="4" fill="#E8C8A0" opacity="0.6"/>
+            {/* 孩子 - 右侧 */}
+            <circle cx="165" cy="70" r="10" fill="#F5D0B0"/>
+            <rect x="158" y="80" width="14" height="20" rx="7" fill="#F0A0A0"/>
+            <circle cx="161" cy="67" r="2.5" fill="#333"/>
+            <circle cx="169" cy="67" r="2.5" fill="#333"/>
+            <path d="M158 74 Q165 78 172 74" stroke="#333" strokeWidth="1.2" fill="none"/>
+            <rect x="159" y="60" width="12" height="4" rx="2" fill="#E8C8A0"/>
+            {/* 孩子手臂指向电脑 */}
+            <path d="M160 82 Q140 86 110 84" stroke="#F5D0B0" strokeWidth="4" strokeLinecap="round"/>
+            <circle cx="110" cy="84" r="2.5" fill="#F5D0B0"/>
+          </svg>
         </div>
       </div>
     </main>
