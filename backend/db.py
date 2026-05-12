@@ -806,19 +806,26 @@ def create_question_item(qid: str, assignment_id: str, page_id: str, question_no
 def save_parse_job(job_id: str, child_id: str, parent_id: str, file_name: str, questions_count: int, status: str, created_at: str,
                     progress: str = "", error_code: str = "", retry_count: int = 0, completed_at: str = "",
                     parse_mode: str = "", parser_provider: str = "", parser_model: str = "",
-                    qwen_parse_call_id: str = "", total_parse_cost_cny: float = 0.0):
+                    qwen_parse_call_id: str = "", total_parse_cost_cny: float = 0.0, data_json: str = ""):
     """持久化解析任务元数据，供 getRecent 跨重启查询用。
     
-    ⚠️ 用 COALESCE 保留已有 data 列（save_job 写入的 JSON），不被 {} 覆盖。
-    否则 load_all() 恢复后 job 丢失 "job" 键 → get_status 返回 404。
+    data_json: 若不传，用 COALESCE 保留已有 data（向后兼容）。
+    但 save_result 已持有完整 data dict，应显式传入避免 INSERT OR REPLACE 丢失。
     """
     c = _conn()
-    c.execute(
-        "INSERT OR REPLACE INTO parse_jobs (job_id, child_id, parent_id, file_name, questions_count, status, created_at, progress, error_code, retry_count, completed_at, parse_mode, parser_provider, parser_model, qwen_parse_call_id, total_parse_cost_cny, data, updated_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
-        "COALESCE((SELECT data FROM parse_jobs WHERE job_id = ?), '{}'), ?)",
-        (job_id, child_id, parent_id, file_name, questions_count, status, created_at, progress, error_code, retry_count, completed_at, parse_mode, parser_provider, parser_model, qwen_parse_call_id, total_parse_cost_cny, job_id, created_at),
-    )
+    if data_json:
+        c.execute(
+            "INSERT OR REPLACE INTO parse_jobs (job_id, child_id, parent_id, file_name, questions_count, status, created_at, progress, error_code, retry_count, completed_at, parse_mode, parser_provider, parser_model, qwen_parse_call_id, total_parse_cost_cny, data, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (job_id, child_id, parent_id, file_name, questions_count, status, created_at, progress, error_code, retry_count, completed_at, parse_mode, parser_provider, parser_model, qwen_parse_call_id, total_parse_cost_cny, data_json, created_at),
+        )
+    else:
+        c.execute(
+            "INSERT OR REPLACE INTO parse_jobs (job_id, child_id, parent_id, file_name, questions_count, status, created_at, progress, error_code, retry_count, completed_at, parse_mode, parser_provider, parser_model, qwen_parse_call_id, total_parse_cost_cny, data, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
+            "COALESCE((SELECT data FROM parse_jobs WHERE job_id = ?), '{}'), ?)",
+            (job_id, child_id, parent_id, file_name, questions_count, status, created_at, progress, error_code, retry_count, completed_at, parse_mode, parser_provider, parser_model, qwen_parse_call_id, total_parse_cost_cny, job_id, created_at),
+        )
     c.commit()
     c.close()
 
@@ -833,6 +840,19 @@ def get_recent_parse_jobs(child_id: str, limit: int = 20):
     ).fetchall()
     c.close()
     return [dict(r) for r in rows]
+
+def get_job_data(job_id: str):
+    """读取 parse_jobs 的 data 列（JSON），用于跨重启恢复 questions 等。"""
+    import json as _json
+    c = _conn()
+    row = c.execute("SELECT data FROM parse_jobs WHERE job_id = ?", (job_id,)).fetchone()
+    c.close()
+    if row and row[0]:
+        try:
+            return _json.loads(row[0])
+        except Exception:
+            return None
+    return None
 
 def save_question_attempt(attempt_id: str, question_id: str, child_id: str, status: str, child_answer: str = ""):
     c = _conn()

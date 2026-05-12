@@ -272,7 +272,17 @@ def save_result(jid: str, questions: list, now: str, file, status: JobStatus):
     _db.save_parse_job(jid, child_id, parent_id, file_name, len(questions), status, now,
                         progress=progress, error_code=error_code, retry_count=retry_count, completed_at=completed_at,
                         parse_mode=parse_mode, parser_provider=parser_provider, parser_model=parser_model,
-                        qwen_parse_call_id=qwen_parse_call_id, total_parse_cost_cny=total_parse_cost_cny)
+                        qwen_parse_call_id=qwen_parse_call_id, total_parse_cost_cny=total_parse_cost_cny,
+                        data_json=json.dumps({
+                            "job_id": jid, "status": status.value, "questions_count": len(questions),
+                            "created_at": now, "updated_at": _ts(), "file_name": file.filename if file else "",
+                            "questions": [q.model_dump() for q in questions],
+                            "poll_count": _jobs[jid].get("poll_count", 0),
+                            "child_id": child_id, "parent_id": parent_id,
+                            "client_task_id": _jobs[jid].get("client_task_id", ""),
+                            "progress": progress, "error_code": error_code,
+                            "retry_count": retry_count, "completed_at": completed_at,
+                        }, default=str))
 
 
 # ─── 鉴权端点 ──────────────────────────────────────────────
@@ -834,11 +844,16 @@ async def get_parse_job_status(job_id: str, user: tuple = Depends(get_current_us
 async def get_parse_job_questions(job_id: str, user: tuple = Depends(get_current_user)):
     try:
         await asyncio.sleep(0.3)
-        if job_id not in _jobs:
-            raise HTTPException(status_code=404, detail={"ok": False, "code": "not_found", "message": "任务不存在", "request_id": uuid.uuid4().hex})
-        if "questions" not in _jobs[job_id]:
+        # 1) 内存优先（活跃任务）
+        if job_id in _jobs and "questions" in _jobs[job_id]:
+            return {"ok": True, "data": [q.model_dump() for q in _jobs[job_id]["questions"]], "request_id": uuid.uuid4().hex}
+        # 2) DB 回退（跨重启 / 历史记录）
+        db_data = _db.get_job_data(job_id)
+        if db_data and "questions" in db_data and db_data["questions"]:
+            return {"ok": True, "data": db_data["questions"], "request_id": uuid.uuid4().hex}
+        if db_data:
             return {"ok": True, "data": [], "request_id": uuid.uuid4().hex}
-        return {"ok": True, "data": [q.model_dump() for q in _jobs[job_id]["questions"]], "request_id": uuid.uuid4().hex}
+        raise HTTPException(status_code=404, detail={"ok": False, "code": "not_found", "message": "任务不存在", "request_id": uuid.uuid4().hex})
     except HTTPException:
         raise
     except Exception as e:

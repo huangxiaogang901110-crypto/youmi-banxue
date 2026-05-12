@@ -232,6 +232,11 @@ function WorkspaceContent() {
 
   // ── idle ──
   if (status === "idle") {
+    // 自动触发相机（从 completed 视图点「拍下一张作业」进入）
+    const actionParam = searchParams.get("action");
+    if (actionParam === "camera") {
+      setTimeout(() => cameraRef.current?.click(), 200);
+    }
     return (
       <div className="space-y-6 pb-4">
         <div className="flex items-center justify-between text-sm">
@@ -456,9 +461,9 @@ function WorkspaceContent() {
         })}
       </div>
 
-      {/* 拍下一张作业 — 回到工作台空闲页直接上传 */}
+      {/* 拍下一张作业 — 回到空闲页并自动触发相机 */}
       <button
-        onClick={() => router.push("/workspace")}
+        onClick={() => router.push("/workspace?action=camera")}
         className="w-full mt-4 rounded-xl bg-primary text-primary-foreground py-3.5 text-sm font-medium hover:opacity-90 transition shadow-sm flex items-center justify-center gap-2"
       >
         <Camera className="w-4 h-4" />
