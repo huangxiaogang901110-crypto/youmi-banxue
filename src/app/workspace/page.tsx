@@ -185,7 +185,12 @@ function WorkspaceContent() {
     questions_count: r.questions_count || 0,
     status: r.status || "completed",
     created_at: r.created_at || "",
-  }))].filter(h => !hiddenIds.has(h.job_id));
+  }))].filter(h =>
+    !hiddenIds.has(h.job_id) &&
+    h.questions_count > 0 &&
+    h.file_name &&
+    h.created_at
+  );
 
   // ── 恢复中 ──
   if (isRestoring && (status === "loading" || status === "polling")) {

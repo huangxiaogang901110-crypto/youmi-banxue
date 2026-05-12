@@ -796,7 +796,7 @@ async def get_recent_parse_jobs(user: tuple = Depends(get_current_user)):
 
 # ─── 3. GET /api/parse-jobs/{job_id} ───────────────────────
 @app.get("/api/parse-jobs/{job_id}")
-async def get_parse_job_status(job_id: str):
+async def get_parse_job_status(job_id: str, user: tuple = Depends(get_current_user)):
     try:
         await asyncio.sleep(0.3)
         if job_id not in _jobs:
@@ -831,7 +831,7 @@ async def get_parse_job_status(job_id: str):
 
 # ─── 4. GET /api/parse-jobs/{job_id}/questions ─────────────
 @app.get("/api/parse-jobs/{job_id}/questions")
-async def get_parse_job_questions(job_id: str):
+async def get_parse_job_questions(job_id: str, user: tuple = Depends(get_current_user)):
     try:
         await asyncio.sleep(0.3)
         if job_id not in _jobs:
@@ -1044,7 +1044,7 @@ async def tutor_question(question_id: str, body: TutorRequest, request: Request,
 # ─── 5. POST /api/questions/{question_id}/vision ───────────
 @app.post("/api/questions/{question_id}/vision")
 @limiter.limit("5/minute")
-async def vision_retry(question_id: str, request: Request = None):
+async def vision_retry(question_id: str, request: Request = None, user: tuple = Depends(get_current_user)):
     """视觉二次路由：对已有题目的裁切图做 Qwen-VL 重读"""
     try:
         # Find the question from all jobs
@@ -1198,8 +1198,9 @@ _activation_attempts: dict[str, dict] = {}
 
 @app.post("/api/activation/redeem")
 @limiter.limit("5/minute")
-async def redeem_activation(body: ActivationRequest, request: Request):
+async def redeem_activation(body: ActivationRequest, request: Request, user: tuple = Depends(get_current_user)):
     try:
+        parent_id, _ = user
         ip = request.client.host if request.client else "unknown"
         # 检查锁定
         now_ts = time.time()
@@ -1212,11 +1213,11 @@ async def redeem_activation(body: ActivationRequest, request: Request):
             )
         await asyncio.sleep(0.3)
         # 真实核销：查询数据库
-        result = _db.redeem_activation_code(body.code, "demo_parent_001")  # TODO: 从 JWT 取 parent_id
+        result = _db.redeem_activation_code(body.code, parent_id)
         if result:
             # 写学豆流水
             _db.add_credit_ledger_entry(
-                "demo_parent_001", "",
+                parent_id, "",
                 result["credit_amount"],
                 "activation_reward",
                 f"激活码核销: {body.code}",
