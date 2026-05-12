@@ -217,7 +217,7 @@ export default function LoginPage() {
             <label className="flex items-start gap-2 cursor-pointer select-none mt-5">
               <div className="relative mt-0.5 shrink-0">
                 <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} className="sr-only" />
-                <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center transition ${agreed ? "border-[#2EC899] bg-[#2EC899]" : "border-[#999]"}`}>
+                <div className={`w-4 h-4 rounded-sm border-2 flex items-center justify-center transition ${agreed ? "border-[#2EC899] bg-[#2EC899]" : "border-[#999]"}`}>
                   {agreed && <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3"><path d="M20 6 9 17l-5-5"/></svg>}
                 </div>
               </div>
@@ -228,10 +228,10 @@ export default function LoginPage() {
               </span>
             </label>
 
-            {/* 登录按钮 — 纯色 #2EC899 */}
-            <button type="submit" disabled={!canSubmit}
-              className="w-full h-12 rounded-lg text-white text-base font-semibold transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98] mt-5"
-              style={{ background: canSubmit ? "#2EC899" : "#CBD5E0" }}
+            {/* 登录按钮 — 纯色 #2EC899，始终可点（后端校验） */}
+            <button type="submit"
+              className="w-full h-12 rounded-lg text-white text-base font-semibold transition-all duration-200 active:scale-[0.98] mt-5"
+              style={{ background: "#2EC899" }}
             >
               {loading ? "登录中..." : "登录 / 进入工作台"}
             </button>
@@ -274,7 +274,10 @@ export default function LoginPage() {
 
           {/* 底部引导 */}
           <p className="text-center text-[14px] text-[#666] mt-8">
-            首次使用？<span className="text-[#2EC899] font-medium cursor-pointer">先体验 Demo</span>
+            没有账号？
+            <span className="text-[#2EC899] font-medium cursor-pointer"
+              onClick={() => router.push("/register")}
+            >去注册</span>
           </p>
         </div>
       </div>

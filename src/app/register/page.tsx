@@ -206,7 +206,7 @@ export default function RegisterPage() {
               <div className="relative mt-0.5 shrink-0">
                 <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)}
                   className="sr-only" />
-                <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center transition ${agreed ? "border-[#28C1A8] bg-[#28C1A8]" : "border-[#B0B0B0]"}`}>
+                <div className={`w-4 h-4 rounded-sm border-2 flex items-center justify-center transition ${agreed ? "border-[#28C1A8] bg-[#28C1A8]" : "border-[#B0B0B0]"}`}>
                   {agreed && <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3"><path d="M20 6 9 17l-5-5"/></svg>}
                 </div>
               </div>

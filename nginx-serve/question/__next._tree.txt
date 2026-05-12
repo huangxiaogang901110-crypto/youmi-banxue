@@ -1,0 +1,4 @@
+:HL["/_next/static/chunks/0gy-ukf7gbb7m.css","style"]
+:HC["/",""]
+:HL["/_next/static/chunks/145o.lsi86g0w.css","style"]
+0:{"tree":{"name":"","param":null,"prefetchHints":16,"slots":{"children":{"name":"question","param":null,"prefetchHints":0,"slots":{"children":{"name":"__PAGE__","param":null,"prefetchHints":0,"slots":null}}}}},"staleTime":300,"buildId":"3xqXg0ga3bS_LAhFtCpo8"}
