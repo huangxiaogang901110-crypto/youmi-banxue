@@ -283,9 +283,9 @@ export default function LoginPage() {
       </div>
 
       {/* ═══════════ 底部母子学习插画 ═══════════ */}
-      <div className="relative z-10 w-full max-w-[960px] mt-6 hidden lg:block">
-        <div className="absolute left-0 bottom-0 pointer-events-none select-none">
-          <svg width="240" height="160" viewBox="0 0 240 160" fill="none" xmlns="http://www.w3.org/2000/svg" className="opacity-85">
+      <div className="relative z-10 w-full max-w-[960px] mt-6 flex justify-center">
+        <div className="pointer-events-none select-none">
+          <svg width="280" height="180" viewBox="0 0 240 160" fill="none" xmlns="http://www.w3.org/2000/svg" className="opacity-85">
             {/* 桌面 */}
             <rect x="20" y="100" width="200" height="8" rx="4" fill="#E8D5B0"/>
             <rect x="30" y="108" width="8" height="30" rx="2" fill="#E8D5B0"/>
