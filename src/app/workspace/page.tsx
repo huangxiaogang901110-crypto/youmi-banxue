@@ -441,9 +441,9 @@ function WorkspaceContent() {
         })}
       </div>
 
-      {/* 拍下一张入口 */}
+      {/* 拍下一张作业 — 回到工作台空闲页直接上传 */}
       <button
-        onClick={() => { resetUpload(); router.push("/workspace"); }}
+        onClick={() => router.push("/workspace")}
         className="w-full mt-4 rounded-xl bg-primary text-primary-foreground py-3.5 text-sm font-medium hover:opacity-90 transition shadow-sm flex items-center justify-center gap-2"
       >
         <Camera className="w-4 h-4" />
