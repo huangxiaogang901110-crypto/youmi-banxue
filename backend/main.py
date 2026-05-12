@@ -356,7 +356,13 @@ async def list_children(user: tuple = Depends(get_current_user)):
 # ─── 健康检查 ──────────────────────────────────────────────
 @app.get("/health")
 def health_check():
-    return {"ok": True, "message": "悠米伴学 API 运行中"}
+    qwen_ok = False
+    try:
+        from vision_client import QwenVLClient
+        qwen_ok = QwenVLClient()._available()
+    except Exception:
+        pass
+    return {"ok": True, "message": "悠米伴学 API 运行中", "qwen_vl": qwen_ok}
 
 # ─── 1. POST /api/parse-jobs ───────────────────────────────
 @app.post("/api/parse-jobs")
@@ -741,6 +747,9 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
         _model_calls.append(_flog)
         _db.save_model_call(_flog)
         print(f"[BG] WORKER FAILED ({jid}): {e}", flush=True)
+        # 保存错误到 job entry，让 status API 返回可见
+        _jobs[jid]["error_code"] = str(e)[:200]
+        _jobs[jid]["progress"] = f"worker_crash: {str(e)[:100]}"
         # 防御：job entry 可能被破坏
         try:
             if "job" in _jobs[jid] and hasattr(_jobs[jid]["job"], "status"):
@@ -833,6 +842,9 @@ async def get_parse_job_status(job_id: str, user: tuple = Depends(get_current_us
             data = job_obj.model_dump()
         else:
             data = job_obj
+        # 附加调试信息：error_code / progress
+        data["error_code"] = j.get("error_code", "")
+        data["progress"] = j.get("progress", "")
         return {"ok": True, "data": data, "request_id": uuid.uuid4().hex}
     except HTTPException:
         raise
