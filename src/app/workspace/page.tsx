@@ -308,6 +308,7 @@ function WorkspaceContent() {
                 key={h.job_id}
                 onTap={() => router.push(`/workspace?job_id=${h.job_id}`)}
                 actions={[
+                  { label: "取消", color: "blue", onClick: () => {} },
                   { label: "删除", color: "red", onClick: () => handleDelete(h.job_id) },
                 ]}
               >
