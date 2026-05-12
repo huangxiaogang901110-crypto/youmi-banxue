@@ -13,7 +13,8 @@ import ErrorDisplay from "@/components/common/ErrorDisplay";
 import SwipeableCard from "@/components/common/SwipeableCard";
 import { compressImage } from "@/lib/imageCompress";
 import { uuidv4 } from "@/lib/uuid";
-import { parseJobApi } from "@/lib/api";
+import { authApi, parseJobApi } from "@/lib/api";
+import { getToken } from "@/lib/api";
 import type { Bbox } from "@/components/question-list/BboxOverlay";
 import type { RecentJob } from "@/lib/types";
 
@@ -48,10 +49,26 @@ function WorkspaceContent() {
   // ── 恢复中（防止闪烁）──
   const [isRestoring, setIsRestoring] = useState(false);
 
+  // ── 当前孩子名 ──
+  const [childName, setChildName] = useState("");
+
   // 页面挂载时从后端拉取历史记录（补充 localStorage 可能丢失的数据）
   useEffect(() => {
     parseJobApi.getRecent().then((res) => {
       if (res.ok && res.data) setApiRecent(res.data);
+    }).catch(() => {});
+    // 获取当前孩子名
+    authApi.children().then(res => {
+      if (res.ok && res.data) {
+        const token = getToken();
+        if (token) {
+          try {
+            const payload = JSON.parse(atob(token.split(".")[1]));
+            const active = res.data.find((c: {id:string;name:string}) => c.id === payload.child_id);
+            if (active) setChildName(active.name);
+          } catch {}
+        }
+      }
     }).catch(() => {});
   }, []);
 
@@ -211,7 +228,7 @@ function WorkspaceContent() {
     return (
       <div className="space-y-6 pb-4">
         <div className="flex items-center justify-between text-sm">
-          <span className="text-muted-foreground">内测体验中</span>
+          <span className="text-muted-foreground">{childName || "内测体验中"}</span>
           <span className="text-primary font-medium">剩余 50 学豆</span>
         </div>
 
