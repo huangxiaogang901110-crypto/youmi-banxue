@@ -293,13 +293,12 @@ function WorkspaceContent() {
           </>
         )}
 
-        {/* 历史记录 */}
+        {/* 历史记录 — 空历史不展示 */}
+        {allHistory.length > 0 && (
         <section>
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-sm font-semibold text-foreground">历史记录（最近 7 天）</h2>
-            {allHistory.length > 0 && (
-              <span className="text-xs text-muted-foreground">← 左划可删除</span>
-            )}
+            <span className="text-xs text-muted-foreground">← 左划可删除</span>
           </div>
 
           <div className="space-y-2">
@@ -326,6 +325,7 @@ function WorkspaceContent() {
             ))}
           </div>
         </section>
+        )}
       </div>
     );
   }
