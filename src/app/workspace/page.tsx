@@ -3,14 +3,13 @@
 import { Suspense, useState, useRef, useCallback, useEffect } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Upload, ArrowRight, Clock, Loader2, X, Image, Camera, FileText, Trash2 } from "lucide-react";
+import { Upload, ArrowRight, Clock, Loader2, X, Image, Camera, FileText } from "lucide-react";
 import ProcessingStatus from "@/components/processing/ProcessingStatus";
 import BboxOverlay from "@/components/question-list/BboxOverlay";
 import QuestionGroup, { calcGroupSize, groupQuestions } from "@/components/question-list/QuestionGroup";
 import { useParseJobPolling } from "@/hooks/useParseJobPolling";
 import { useJobHistory } from "@/hooks/useJobHistory";
 import ErrorDisplay from "@/components/common/ErrorDisplay";
-import SwipeableCard from "@/components/common/SwipeableCard";
 import { compressImage } from "@/lib/imageCompress";
 import { uuidv4 } from "@/lib/uuid";
 import { parseJobApi } from "@/lib/api";
@@ -37,7 +36,7 @@ function WorkspaceContent() {
   const cameraRef = useRef<HTMLInputElement>(null);
 
   // ── 7 天滚动历史缓存 ──
-  const { history, upsert, removeEntry, clearAll } = useJobHistory();
+  const { history, upsert, clearAll } = useJobHistory();
 
   // ── API 补充（localStorage 清除/损坏后的恢复）──
   const [apiRecent, setApiRecent] = useState<RecentJob[]>([]);
@@ -283,41 +282,30 @@ function WorkspaceContent() {
 
         {/* 历史记录 */}
         <section>
-            <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center justify-between mb-3">
             <h2 className="text-sm font-semibold text-foreground">历史记录（最近 7 天）</h2>
-            {allHistory.length > 0 && (
-              <span className="text-xs text-muted-foreground">← 左划可删除</span>
-            )}
           </div>
 
-          {allHistory.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-4">暂无记录</p>
-          ) : (
-            <>
-              {allHistory.map((h) => (
-                <SwipeableCard
-                  key={h.job_id}
-                  onTap={() => router.push(`/workspace?job_id=${h.job_id}`)}
-                  actions={[
-                    { label: "取消", color: "blue", onClick: () => {} },
-                    { label: "删除", color: "red", onClick: () => removeEntry(h.job_id) },
-                  ]}
-                >
-                  <div className="flex items-center gap-3">
-                    <Clock className="w-5 h-5 text-muted-foreground shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm text-foreground truncate">{h.file_name}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {formatRelative(h.created_at)} · {h.questions_count || "?"} 题
-                      </p>
-                    </div>
-                    <ArrowRight className="w-4 h-4 text-muted-foreground shrink-0" />
+          <div className="space-y-2">
+            {allHistory.map((h) => (
+              <div
+                key={h.job_id}
+                onClick={() => router.push(`/workspace?job_id=${h.job_id}`)}
+                className="bg-card rounded-xl p-4 shadow-sm border border-border active:scale-[0.98] transition cursor-pointer"
+              >
+                <div className="flex items-center gap-3">
+                  <Clock className="w-5 h-5 text-muted-foreground shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-foreground truncate">{h.file_name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {formatRelative(h.created_at)} · {h.questions_count || "?"} 题
+                    </p>
                   </div>
-                </SwipeableCard>
-              ))}
-
-            </>
-          )}
+                  <ArrowRight className="w-4 h-4 text-muted-foreground shrink-0" />
+                </div>
+              </div>
+            ))}
+          </div>
         </section>
       </div>
     );
