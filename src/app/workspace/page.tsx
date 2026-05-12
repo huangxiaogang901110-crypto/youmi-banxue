@@ -37,9 +37,6 @@ function WorkspaceContent() {
   const galleryRef = useRef<HTMLInputElement>(null);
   const cameraRef = useRef<HTMLInputElement>(null);
 
-  // ── 调试：追踪 questionsQuery 状态 ──
-  const [debugQuestionsState, setDebugQuestionsState] = useState("");
-
   // ── 7 天滚动历史缓存 ──
   const { history, upsert, removeEntry, clearAll } = useJobHistory();
 
@@ -121,13 +118,6 @@ function WorkspaceContent() {
       });
     }
   }, [status, questions]);
-
-  // ── DEBUG: 监控 questions 数据 ──
-  useEffect(() => {
-    if (status === "completed") {
-      setDebugQuestionsState(`qs=${questions ? questions.length : "null"} job_qc=${job?.questions_count || 0}`);
-    }
-  }, [status, questions, job]);
 
   const handleFile = useCallback((f: File | undefined) => {
     if (!f) return;
@@ -256,15 +246,6 @@ function WorkspaceContent() {
         <div className="flex items-center justify-between text-sm">
           <span className="text-muted-foreground">{childName || "内测体验中"}</span>
           <span className="text-primary font-medium">剩余 50 学豆</span>
-        </div>
-
-        {/* DEBUG: 数据诊断 — 确认后删除 */}
-        <div className="bg-yellow-50 border border-yellow-300 rounded-lg p-2 text-xs text-yellow-800 space-y-1">
-          <p>📊 history(localStorage): {history.length} 条 · completedHistory: {completedHistory.length} 条 · apiRecent: {apiRecent.length} 条 · apiOnly: {apiOnly.length} 条</p>
-          <p>📋 allHistory(展示): {allHistory.length} 条 · hiddenIds: {hiddenIds.size} 个</p>
-          {history.length > 0 && <p>📝 localStorage[0]: {history[0].status} q={history[0].questions_count} fn=&ldquo;{history[0].file_name}&rdquo;</p>}
-          {apiRecent.length > 0 && <p>🌐 apiRecent[0]: {apiRecent[0].status} q={apiRecent[0].questions_count} fn=&ldquo;{apiRecent[0].file_name}&rdquo;</p>}
-          {debugQuestionsState && <p>🔍 questions debug: {debugQuestionsState}</p>}
         </div>
 
         {phase === "compressing" || phase === "uploading" ? (
@@ -461,14 +442,6 @@ function WorkspaceContent() {
             点击题目组展开查看
           </span>
         </div>
-      </div>
-
-      {/* 🔍 completed view debug */}
-      <div className="bg-green-50 border border-green-300 rounded-lg p-2 text-xs text-green-800">
-        questions: {questions ? `${questions.length} items` : "null"} · qs.length: {qs.length} · groups: {groups.length} · job.qc: {job?.questions_count}
-        {questions && questions.length > 0 && (
-          <span> · q[0]: id={questions[0].question_id} text={questions[0].question_text ? "YES" : "MISSING"}</span>
-        )}
       </div>
 
       <BboxOverlay bboxes={qs.filter((q) => q.bbox && q.bbox.length === 4).map((q) => ({
