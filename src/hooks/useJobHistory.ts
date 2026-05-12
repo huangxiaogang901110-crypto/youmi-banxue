@@ -8,6 +8,7 @@ export interface JobHistoryEntry {
   questions_count: number;
   status: string;
   created_at: string; // ISO
+  image_hash?: string; // SHA-256 hex，用于去重检测
 }
 
 const LS_KEY = "yomi_job_history";

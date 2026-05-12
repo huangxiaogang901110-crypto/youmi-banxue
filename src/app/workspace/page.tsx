@@ -156,6 +156,33 @@ function WorkspaceContent() {
       return;
     }
     try {
+      // ── 去重检测：计算图片 SHA-256，对比历史 ──
+      let imageHash = "";
+      if (file.type.startsWith("image/")) {
+        try {
+          const buf = await file.arrayBuffer();
+          const hashBuf = await crypto.subtle.digest("SHA-256", buf);
+          imageHash = Array.from(new Uint8Array(hashBuf))
+            .map(b => b.toString(16).padStart(2, "0"))
+            .join("");
+          const dup = history.find(
+            h => h.image_hash === imageHash && h.questions_count > 0
+          );
+          if (dup) {
+            const ts = new Date(dup.created_at);
+            const ago = Math.floor((Date.now() - ts.getTime()) / 3600000);
+            const agoStr = ago < 1 ? "不到1小时前" : ago < 24 ? `${ago}小时前` : `${Math.floor(ago/24)}天前`;
+            const ok = window.confirm(
+              `⚠️ 检测到相同作业\n\n这张作业曾在 ${agoStr} 上传过（${dup.questions_count}题），是否重新识别？\n\n"取消"则不重复上传。`
+            );
+            if (!ok) {
+              setPhase("idle");
+              return;
+            }
+          }
+        } catch { /* hash 计算失败不阻塞 */ }
+      }
+
       setPhase("compressing");
       let uploadFile: File;
       if (file.type.startsWith("image/")) {
@@ -179,6 +206,7 @@ function WorkspaceContent() {
         questions_count: 0,
         status: "uploaded",
         created_at: new Date().toISOString(),
+        image_hash: imageHash || undefined,
       });
       router.push(`/workspace?job_id=${resp.data.job_id}`);
     } catch (err: unknown) {
@@ -186,7 +214,7 @@ function WorkspaceContent() {
       setUploadError(msg);
       setPhase("error");
     }
-  }, [file, router, upsert]);
+  }, [file, router, upsert, history]);
 
   const resetUpload = () => {
     setFile(null);
