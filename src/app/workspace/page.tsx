@@ -37,6 +37,9 @@ function WorkspaceContent() {
   const galleryRef = useRef<HTMLInputElement>(null);
   const cameraRef = useRef<HTMLInputElement>(null);
 
+  // ── 调试：追踪 questionsQuery 状态 ──
+  const [debugQuestionsState, setDebugQuestionsState] = useState("");
+
   // ── 7 天滚动历史缓存 ──
   const { history, upsert, removeEntry, clearAll } = useJobHistory();
 
@@ -119,6 +122,13 @@ function WorkspaceContent() {
     }
   }, [status, questions]);
 
+  // ── DEBUG: 监控 questions 数据 ──
+  useEffect(() => {
+    if (status === "completed") {
+      setDebugQuestionsState(`qs=${questions ? questions.length : "null"} job_qc=${job?.questions_count || 0}`);
+    }
+  }, [status, questions, job]);
+
   const handleFile = useCallback((f: File | undefined) => {
     if (!f) return;
     setUploadError("");
@@ -129,7 +139,11 @@ function WorkspaceContent() {
     }
     setFile(f);
     setPhase("selected");
-  }, []);
+    // 如果在 completed 视图触发 → 导航到 idle 显示上传 UI
+    if (status === "completed") {
+      router.push("/workspace");
+    }
+  }, [status, router]);
 
   const startUpload = useCallback(async () => {
     if (!file) return;
@@ -250,6 +264,7 @@ function WorkspaceContent() {
           <p>📋 allHistory(展示): {allHistory.length} 条 · hiddenIds: {hiddenIds.size} 个</p>
           {history.length > 0 && <p>📝 localStorage[0]: {history[0].status} q={history[0].questions_count} fn=&ldquo;{history[0].file_name}&rdquo;</p>}
           {apiRecent.length > 0 && <p>🌐 apiRecent[0]: {apiRecent[0].status} q={apiRecent[0].questions_count} fn=&ldquo;{apiRecent[0].file_name}&rdquo;</p>}
+          {debugQuestionsState && <p>🔍 questions debug: {debugQuestionsState}</p>}
         </div>
 
         {phase === "compressing" || phase === "uploading" ? (
@@ -419,6 +434,16 @@ function WorkspaceContent() {
   const groupSize = calcGroupSize(qs.length);
   const groups = groupQuestions(qs, groupSize);
 
+  const handleCameraFromCompleted = () => {
+    // 方案 1：直接触发相机（如果 input 在 DOM 中）
+    if (cameraRef.current) {
+      cameraRef.current.click();
+      return;
+    }
+    // 方案 2：回退到导航方式
+    router.push("/workspace?action=camera");
+  };
+
   return (
     <div className="space-y-4 pb-4">
       <div className="flex items-center justify-between">
@@ -436,6 +461,14 @@ function WorkspaceContent() {
             点击题目组展开查看
           </span>
         </div>
+      </div>
+
+      {/* 🔍 completed view debug */}
+      <div className="bg-green-50 border border-green-300 rounded-lg p-2 text-xs text-green-800">
+        questions: {questions ? `${questions.length} items` : "null"} · qs.length: {qs.length} · groups: {groups.length} · job.qc: {job?.questions_count}
+        {questions && questions.length > 0 && (
+          <span> · q[0]: id={questions[0].question_id} text={questions[0].question_text ? "YES" : "MISSING"}</span>
+        )}
       </div>
 
       <BboxOverlay bboxes={qs.filter((q) => q.bbox && q.bbox.length === 4).map((q) => ({
@@ -461,14 +494,18 @@ function WorkspaceContent() {
         })}
       </div>
 
-      {/* 拍下一张作业 — 回到空闲页并自动触发相机 */}
+      {/* 拍下一张作业 — 直接触发相机 */}
       <button
-        onClick={() => router.push("/workspace?action=camera")}
+        onClick={handleCameraFromCompleted}
         className="w-full mt-4 rounded-xl bg-primary text-primary-foreground py-3.5 text-sm font-medium hover:opacity-90 transition shadow-sm flex items-center justify-center gap-2"
       >
         <Camera className="w-4 h-4" />
         拍下一张作业
       </button>
+
+      {/* 隐藏的文件输入 — 始终渲染在 completed 视图 */}
+      <input ref={cameraRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => handleFile(e.target.files?.[0])} />
+      <input ref={galleryRef} type="file" accept="image/*,.pdf" className="hidden" onChange={(e) => handleFile(e.target.files?.[0])} />
     </div>
   );
 }

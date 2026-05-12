@@ -54,7 +54,7 @@ export default function QuestionGroup({
                   #{q.question_number}
                 </span>
                 <p className="text-sm text-foreground leading-relaxed flex-1">
-                  {q.question_text}
+                  {q.question_text || `(题目 #${q.question_number} — 识别中)`}
                 </p>
               </div>
 
