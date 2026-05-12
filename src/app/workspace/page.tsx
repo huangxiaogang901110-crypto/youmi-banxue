@@ -117,7 +117,7 @@ function WorkspaceContent() {
         created_at: job.created_at || new Date().toISOString(),
       });
     }
-  }, [status]);
+  }, [status, questions]);
 
   const handleFile = useCallback((f: File | undefined) => {
     if (!f) return;
@@ -192,11 +192,20 @@ function WorkspaceContent() {
     return `${Math.floor(hours / 24)} 天前`;
   };
 
-  // 合并展示：本地历史 + API 补充（去重）
+  // 合并展示：本地历史 + API 补充（去重，API 补 q=0）
   const localIds = new Set(history.map((h) => h.job_id));
   const apiOnly = apiRecent.filter((r) => !localIds.has(r.job_id));
   const completedHistory = history.filter((h) => h.status === "completed" || h.status === "uploaded");
-  const allHistory = [...completedHistory, ...apiOnly.map(r => ({
+  const allHistory = [...completedHistory.map(h => {
+    // 如果 localStorage 里 q=0，从 API 补（异步时序导致 effect 漏写）
+    if (h.questions_count === 0) {
+      const apiMatch = apiRecent.find(r => r.job_id === h.job_id);
+      if (apiMatch && apiMatch.questions_count > 0) {
+        return { ...h, questions_count: apiMatch.questions_count };
+      }
+    }
+    return h;
+  }), ...apiOnly.map(r => ({
     job_id: r.job_id,
     file_name: r.file_name || "",
     questions_count: r.questions_count || 0,
@@ -228,6 +237,14 @@ function WorkspaceContent() {
         <div className="flex items-center justify-between text-sm">
           <span className="text-muted-foreground">{childName || "内测体验中"}</span>
           <span className="text-primary font-medium">剩余 50 学豆</span>
+        </div>
+
+        {/* DEBUG: 数据诊断 — 确认后删除 */}
+        <div className="bg-yellow-50 border border-yellow-300 rounded-lg p-2 text-xs text-yellow-800 space-y-1">
+          <p>📊 history(localStorage): {history.length} 条 · completedHistory: {completedHistory.length} 条 · apiRecent: {apiRecent.length} 条 · apiOnly: {apiOnly.length} 条</p>
+          <p>📋 allHistory(展示): {allHistory.length} 条 · hiddenIds: {hiddenIds.size} 个</p>
+          {history.length > 0 && <p>📝 localStorage[0]: {history[0].status} q={history[0].questions_count} fn=&ldquo;{history[0].file_name}&rdquo;</p>}
+          {apiRecent.length > 0 && <p>🌐 apiRecent[0]: {apiRecent[0].status} q={apiRecent[0].questions_count} fn=&ldquo;{apiRecent[0].file_name}&rdquo;</p>}
         </div>
 
         {phase === "compressing" || phase === "uploading" ? (
