@@ -54,7 +54,10 @@ class QwenVLClient:
                     "Content-Type": "application/json",
                 },
             )
-            resp = request.urlopen(req, timeout=60)
+            # 绕过全局 SOCKS5 代理（DashScope 国内直连）
+            proxy_handler = request.ProxyHandler({})
+            opener = request.build_opener(proxy_handler)
+            resp = opener.open(req, timeout=60)
             data = json.loads(resp.read().decode())
             latency_ms = int((time.time() - t_start) * 1000)
             content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
