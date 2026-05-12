@@ -844,12 +844,15 @@ async def get_parse_job_status(job_id: str, user: tuple = Depends(get_current_us
 async def get_parse_job_questions(job_id: str, user: tuple = Depends(get_current_user)):
     try:
         await asyncio.sleep(0.3)
-        # 1) 内存优先（活跃任务）
-        if job_id in _jobs and "questions" in _jobs[job_id]:
-            return {"ok": True, "data": [q.model_dump() for q in _jobs[job_id]["questions"]], "request_id": uuid.uuid4().hex}
-        # 2) DB 回退（跨重启 / 历史记录）
+        # 1) 内存优先（活跃任务，且 questions 非空）
+        if job_id in _jobs and _jobs[job_id].get("questions"):
+            qs = _jobs[job_id]["questions"]
+            # 兼容 load_all 恢复的 dict 和运行时 Pydantic 对象
+            data = [q.model_dump() if hasattr(q, "model_dump") else q for q in qs]
+            return {"ok": True, "data": data, "request_id": uuid.uuid4().hex}
+        # 2) DB 回退（跨重启 / 历史记录）— data 列存的是 JSON dict，直接返回
         db_data = _db.get_job_data(job_id)
-        if db_data and "questions" in db_data and db_data["questions"]:
+        if db_data and db_data.get("questions"):
             return {"ok": True, "data": db_data["questions"], "request_id": uuid.uuid4().hex}
         if db_data:
             return {"ok": True, "data": [], "request_id": uuid.uuid4().hex}
