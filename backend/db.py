@@ -807,12 +807,17 @@ def save_parse_job(job_id: str, child_id: str, parent_id: str, file_name: str, q
                     progress: str = "", error_code: str = "", retry_count: int = 0, completed_at: str = "",
                     parse_mode: str = "", parser_provider: str = "", parser_model: str = "",
                     qwen_parse_call_id: str = "", total_parse_cost_cny: float = 0.0):
-    """持久化解析任务元数据，供 getRecent 跨重启查询。"""
+    """持久化解析任务元数据，供 getRecent 跨重启查询用。
+    
+    ⚠️ 用 COALESCE 保留已有 data 列（save_job 写入的 JSON），不被 {} 覆盖。
+    否则 load_all() 恢复后 job 丢失 "job" 键 → get_status 返回 404。
+    """
     c = _conn()
     c.execute(
         "INSERT OR REPLACE INTO parse_jobs (job_id, child_id, parent_id, file_name, questions_count, status, created_at, progress, error_code, retry_count, completed_at, parse_mode, parser_provider, parser_model, qwen_parse_call_id, total_parse_cost_cny, data, updated_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '{}', ?)",
-        (job_id, child_id, parent_id, file_name, questions_count, status, created_at, progress, error_code, retry_count, completed_at, parse_mode, parser_provider, parser_model, qwen_parse_call_id, total_parse_cost_cny, created_at),
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
+        "COALESCE((SELECT data FROM parse_jobs WHERE job_id = ?), '{}'), ?)",
+        (job_id, child_id, parent_id, file_name, questions_count, status, created_at, progress, error_code, retry_count, completed_at, parse_mode, parser_provider, parser_model, qwen_parse_call_id, total_parse_cost_cny, job_id, created_at),
     )
     c.commit()
     c.close()

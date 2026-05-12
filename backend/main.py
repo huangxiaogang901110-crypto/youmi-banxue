@@ -802,12 +802,28 @@ async def get_parse_job_status(job_id: str):
         if job_id not in _jobs:
             raise HTTPException(status_code=404, detail={"ok": False, "code": "not_found", "message": "任务不存在", "request_id": uuid.uuid4().hex})
         j = _jobs[job_id]
-        # 防御：job entry 被异常路径破坏时返回 404（与 get_recent 行为一致）
-        if "job" not in j or not hasattr(j.get("job"), "status"):
+        job_obj = j.get("job")
+        # 防御：job entry 被异常路径破坏时返回 404（兼容 load_all 恢复的 dict）
+        if not job_obj:
+            raise HTTPException(status_code=404, detail={"ok": False, "code": "not_found", "message": "任务已过期或数据异常", "request_id": uuid.uuid4().hex})
+        # 兼容两种格式：Pydantic ParseJob 对象 或 load_all 恢复的 dict
+        if hasattr(job_obj, "status"):
+            job_status = job_obj.status
+        elif isinstance(job_obj, dict):
+            job_status = job_obj.get("status", "")
+            if not job_status:
+                raise HTTPException(status_code=404, detail={"ok": False, "code": "not_found", "message": "任务已过期或数据异常", "request_id": uuid.uuid4().hex})
+        else:
             raise HTTPException(status_code=404, detail={"ok": False, "code": "not_found", "message": "任务已过期或数据异常", "request_id": uuid.uuid4().hex})
         j["poll_count"] = j.get("poll_count", 0) + 1
-        j["job"].updated_at = _ts()
-        return {"ok": True, "data": j["job"].model_dump(), "request_id": uuid.uuid4().hex}
+        if hasattr(job_obj, "updated_at"):
+            job_obj.updated_at = _ts()
+        # 返回数据：Pydantic → model_dump()，dict → 直接返回
+        if hasattr(job_obj, "model_dump"):
+            data = job_obj.model_dump()
+        else:
+            data = job_obj
+        return {"ok": True, "data": data, "request_id": uuid.uuid4().hex}
     except HTTPException:
         raise
     except Exception as e:
