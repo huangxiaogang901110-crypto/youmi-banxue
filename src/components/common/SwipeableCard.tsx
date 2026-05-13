@@ -19,19 +19,36 @@ export default function SwipeableCard({ actions, children, onTap, className = ""
     const el = cardRef.current;
     if (!el) return;
 
+    let startY = 0;
+
     const onTouchStart = (e: TouchEvent) => {
       startX.current = e.touches[0].clientX;
+      startY = e.touches[0].clientY;
     };
 
     const onTouchEnd = (e: TouchEvent) => {
-      const delta = startX.current - e.changedTouches[0].clientX;
-      if (delta > 40) {
+      const deltaX = startX.current - e.changedTouches[0].clientX;
+      const deltaY = startY - e.changedTouches[0].clientY;
+      const absX = Math.abs(deltaX);
+      const absY = Math.abs(deltaY);
+
+      // 垂直滚动：Y 主导且 Y > 12 → 不触发任何手势
+      if (absY > 12 && absY > absX) return;
+
+      // 左划展开：明显左移
+      if (deltaX > 40) {
         setOpen(true);
-      } else if (delta < -10) {
+      }
+      // 右划关闭
+      else if (deltaX < -10) {
         setOpen(false);
-      } else if (open) {
+      }
+      // 已展开时轻触关闭
+      else if (open) {
         setOpen(false);
-      } else if (onTap && Math.abs(delta) < 10) {
+      }
+      // tap：极小移动
+      else if (onTap && absX < 8 && absY < 8) {
         onTap();
       }
     };

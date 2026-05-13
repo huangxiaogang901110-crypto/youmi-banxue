@@ -408,6 +408,10 @@ def init():
         "ALTER TABLE question_item ADD COLUMN parse_source TEXT DEFAULT ''",
         "ALTER TABLE question_item ADD COLUMN confidence REAL DEFAULT 0.0",
         "ALTER TABLE question_item ADD COLUMN parse_cost_allocated_cny REAL DEFAULT 0.0",
+        # parse_jobs 软删除（左划删除服务端持久化）
+        "ALTER TABLE parse_jobs ADD COLUMN deleted_at TEXT",
+        # parse_jobs 上传追踪 ID（超时恢复）
+        "ALTER TABLE parse_jobs ADD COLUMN client_upload_id TEXT DEFAULT ''",
     ]
     for sql in migrations:
         try:
@@ -473,9 +477,9 @@ def save_job(job_id: str, data: dict):
     completed_at = data.get("completed_at", "")
     c.execute(
         "INSERT OR REPLACE INTO parse_jobs "
-        "(job_id, child_id, parent_id, client_task_id, progress, error_code, retry_count, completed_at, data, updated_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))",
-        (job_id, child_id, parent_id, client_task_id, progress, error_code, retry_count, completed_at, json.dumps(data, default=str)),
+        "(job_id, child_id, parent_id, client_task_id, client_upload_id, progress, error_code, retry_count, completed_at, data, updated_at) "
+        "VALUES (?, ?, ?, ?, COALESCE((SELECT client_upload_id FROM parse_jobs WHERE job_id = ?), ?), ?, ?, ?, ?, ?, datetime('now'))",
+        (job_id, child_id, parent_id, client_task_id, job_id, client_task_id, progress, error_code, retry_count, completed_at, json.dumps(data, default=str)),
     )
     c.commit()
     c.close()
@@ -560,10 +564,10 @@ def save_credit_balance(parent_user_id: str, balance: int):
 
 
 def load_all():
-    """启动时从 SQLite 恢复到内存"""
+    """启动时从 SQLite 恢复到内存 — 排除已删除的任务"""
     c = _conn()
 
-    rows = c.execute("SELECT job_id, data FROM parse_jobs").fetchall()
+    rows = c.execute("SELECT job_id, data FROM parse_jobs WHERE deleted_at IS NULL").fetchall()
     jobs = {row["job_id"]: json.loads(row["data"]) for row in rows}
 
     rows = c.execute("SELECT data FROM model_calls ORDER BY created_at").fetchall()
@@ -806,40 +810,99 @@ def create_question_item(qid: str, assignment_id: str, page_id: str, question_no
 def save_parse_job(job_id: str, child_id: str, parent_id: str, file_name: str, questions_count: int, status: str, created_at: str,
                     progress: str = "", error_code: str = "", retry_count: int = 0, completed_at: str = "",
                     parse_mode: str = "", parser_provider: str = "", parser_model: str = "",
-                    qwen_parse_call_id: str = "", total_parse_cost_cny: float = 0.0, data_json: str = ""):
+                    qwen_parse_call_id: str = "", total_parse_cost_cny: float = 0.0, data_json: str = "",
+                    client_upload_id: str = ""):
     """持久化解析任务元数据，供 getRecent 跨重启查询用。
-    
     data_json: 若不传，用 COALESCE 保留已有 data（向后兼容）。
     但 save_result 已持有完整 data dict，应显式传入避免 INSERT OR REPLACE 丢失。
+    ⛔ 幂等保护：如果 job 已存在且为 completed，拒绝覆盖（防止 worker 完成态被初始 uploaded 覆盖）。
     """
     c = _conn()
+    # 幂等保护：completed 不可被覆盖
+    existing = c.execute(
+        "SELECT status FROM parse_jobs WHERE job_id = ?", (job_id,)
+    ).fetchone()
+    if existing and existing["status"] == "completed":
+        c.close()
+        return  # 已完成任务，拒接覆盖
     if data_json:
         c.execute(
-            "INSERT OR REPLACE INTO parse_jobs (job_id, child_id, parent_id, file_name, questions_count, status, created_at, progress, error_code, retry_count, completed_at, parse_mode, parser_provider, parser_model, qwen_parse_call_id, total_parse_cost_cny, data, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (job_id, child_id, parent_id, file_name, questions_count, status, created_at, progress, error_code, retry_count, completed_at, parse_mode, parser_provider, parser_model, qwen_parse_call_id, total_parse_cost_cny, data_json, created_at),
+            "INSERT OR REPLACE INTO parse_jobs (job_id, child_id, parent_id, file_name, questions_count, status, created_at, progress, error_code, retry_count, completed_at, parse_mode, parser_provider, parser_model, qwen_parse_call_id, total_parse_cost_cny, data, updated_at, client_upload_id) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
+            "COALESCE((SELECT client_upload_id FROM parse_jobs WHERE job_id = ?), ?))",
+            (job_id, child_id, parent_id, file_name, questions_count, status, created_at, progress, error_code, retry_count, completed_at, parse_mode, parser_provider, parser_model, qwen_parse_call_id, total_parse_cost_cny, data_json, created_at, job_id, client_upload_id),
         )
     else:
         c.execute(
-            "INSERT OR REPLACE INTO parse_jobs (job_id, child_id, parent_id, file_name, questions_count, status, created_at, progress, error_code, retry_count, completed_at, parse_mode, parser_provider, parser_model, qwen_parse_call_id, total_parse_cost_cny, data, updated_at) "
+            "INSERT OR REPLACE INTO parse_jobs (job_id, child_id, parent_id, file_name, questions_count, status, created_at, progress, error_code, retry_count, completed_at, parse_mode, parser_provider, parser_model, qwen_parse_call_id, total_parse_cost_cny, data, updated_at, client_upload_id) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
-            "COALESCE((SELECT data FROM parse_jobs WHERE job_id = ?), '{}'), ?)",
-            (job_id, child_id, parent_id, file_name, questions_count, status, created_at, progress, error_code, retry_count, completed_at, parse_mode, parser_provider, parser_model, qwen_parse_call_id, total_parse_cost_cny, job_id, created_at),
+            "COALESCE((SELECT data FROM parse_jobs WHERE job_id = ?), '{}'), ?, "
+            "COALESCE((SELECT client_upload_id FROM parse_jobs WHERE job_id = ?), ?))",
+            (job_id, child_id, parent_id, file_name, questions_count, status, created_at, progress, error_code, retry_count, completed_at, parse_mode, parser_provider, parser_model, qwen_parse_call_id, total_parse_cost_cny, job_id, created_at, job_id, client_upload_id),
         )
     c.commit()
     c.close()
 
 def get_recent_parse_jobs(child_id: str, limit: int = 20):
-    """从 DB 查询指定 child 的最近 N 条解析任务。"""
+    """从 DB 查询指定 child 的最近 N 条可展示的解析任务。
+    排除：已删除 (deleted_at IS NOT NULL)、失败 (status='failed')。
+    """
     c = _conn()
     rows = c.execute(
         "SELECT job_id, file_name, questions_count, status, created_at, progress, error_code, retry_count, completed_at "
         "FROM parse_jobs WHERE child_id = ? "
+        "AND deleted_at IS NULL "
+        "AND status != 'failed' "
         "ORDER BY created_at DESC LIMIT ?",
         (child_id, limit),
     ).fetchall()
     c.close()
     return [dict(r) for r in rows]
+
+
+def soft_delete_parse_job(job_id: str, child_id: str) -> bool:
+    """软删除：deleted_at 写入当前时间。返回 True 表示删除成功（有行受影响）。"""
+    from datetime import datetime
+    c = _conn()
+    cur = c.execute(
+        "UPDATE parse_jobs SET deleted_at = ? WHERE job_id = ? AND child_id = ? AND deleted_at IS NULL",
+        (datetime.now().isoformat(), job_id, child_id),
+    )
+    affected = cur.rowcount
+    c.commit()
+    c.close()
+    return affected > 0
+
+
+def get_existing_job_by_client_upload(child_id: str, client_upload_id: str):
+    """去重查询：按 child_id + client_upload_id 查找已有任务（不含 failed/deleted）。
+    返回 (job_id, status, questions_count, file_name) 或 None。用于 POST handler 幂等保护。"""
+    if not client_upload_id:
+        return None
+    c = _conn()
+    row = c.execute(
+        "SELECT job_id, status, questions_count, file_name FROM parse_jobs "
+        "WHERE child_id = ? AND client_upload_id = ? AND deleted_at IS NULL AND status != 'failed' "
+        "ORDER BY created_at DESC LIMIT 1",
+        (child_id, client_upload_id),
+    ).fetchone()
+    c.close()
+    return (row["job_id"], row["status"], row["questions_count"], row["file_name"]) if row else None
+
+
+def get_job_by_client_upload_id(child_id: str, client_upload_id: str):
+    """按 client_upload_id 查找未被删除的解析任务。返回 dict 或 None。"""
+    if not client_upload_id:
+        return None
+    c = _conn()
+    row = c.execute(
+        "SELECT job_id, status, questions_count, file_name, created_at FROM parse_jobs "
+        "WHERE child_id = ? AND client_upload_id = ? AND deleted_at IS NULL AND status != 'failed' "
+        "ORDER BY created_at DESC LIMIT 1",
+        (child_id, client_upload_id),
+    ).fetchone()
+    c.close()
+    return dict(row) if row else None
 
 def get_job_data(job_id: str):
     """读取 parse_jobs 的 data 列（JSON），用于跨重启恢复 questions 等。"""

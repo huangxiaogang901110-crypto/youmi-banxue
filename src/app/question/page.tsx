@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Send, Lightbulb, List, Eye, CheckCircle, Bookmark, Loader2, Scan } from "lucide-react";
+import { ArrowLeft, Send, Lightbulb, Eye, CheckCircle, Bookmark, Loader2, Scan } from "lucide-react";
 import { useTypewriter } from "@/hooks/useTypewriter";
 import { tutorApi, visionApi, questionApi } from "@/lib/api";
 import { questionStatusApi } from "@/lib/api";
@@ -78,13 +78,12 @@ function QuestionPageInner() {
     if (!restored || triggeredRef.current || messages.length > 0) return;
     const actionMap: Record<string, string> = {
       hint: "请给我一点提示",
-      step: "请分步讲解",
       solve: "请给出完整解析",
     };
     const msg = actionMap[action];
     if (msg) {
       triggeredRef.current = true;
-      doTutor("initial", msg);
+      doTutor("initial", msg, action as "hint" | "step" | "solve");
     }
   }, [restored, action, messages.length]);
 
@@ -92,12 +91,12 @@ function QuestionPageInner() {
   const deductLocal = useEntitlementStore((s) => s.deductLocal);
   const setCreditBalance = useEntitlementStore((s) => s.setCreditBalance);
 
-  const doTutor = async (mode: "initial" | "followup", message: string) => {
+  const doTutor = async (mode: "initial" | "followup", message: string, tutorAction?: "hint" | "step" | "solve") => {
     if (creditBalance <= 0) { setError("额度不足，请兑换激活码"); return; }
     setLoading(true);
     setError("");
     try {
-      const resp = await tutorApi.send(id, { mode, message });
+      const resp = await tutorApi.send(id, { mode, message, action: tutorAction });
       if (!resp.ok || !resp.data) throw new Error("辅导请求失败");
       const text = resp.data.reply_text;
       setCurrentReply(text);
@@ -183,18 +182,25 @@ function QuestionPageInner() {
         </div>
       )}
 
-      {/* Crop image placeholder */}
-      <div className="bg-muted rounded-xl h-36 flex items-center justify-center mb-3 border border-border relative overflow-hidden">
+      {/* Crop image / 题目文本 */}
+      <div className="bg-muted rounded-xl min-h-[80px] flex items-center justify-center mb-3 border border-border relative overflow-hidden">
         {visionLoading ? (
           <div className="absolute inset-0 flex items-center justify-center">
             <div className="w-32 h-32 border-2 border-primary/30 rounded-full animate-ping absolute" />
             <Scan className="w-10 h-10 text-primary animate-pulse relative z-10" />
             <span className="absolute bottom-3 text-xs text-primary z-10">AI 正在仔细观察原图...</span>
           </div>
+        ) : questionText ? (
+          <div className="px-4 py-3 w-full">
+            <span className="absolute top-2 left-3 text-xs text-muted-foreground">题目区域</span>
+            <p className="text-sm text-foreground leading-relaxed mt-4">{questionText}</p>
+          </div>
         ) : (
           <Eye className="w-8 h-8 text-muted-foreground" />
         )}
-        <span className="absolute top-2 left-3 text-xs text-muted-foreground">题目区域</span>
+        {!questionText && (
+          <span className="absolute top-2 left-3 text-xs text-muted-foreground">题目区域</span>
+        )}
       </div>
 
       {/* Messages */}
@@ -237,23 +243,19 @@ function QuestionPageInner() {
       {/* Action buttons */}
       {messages.length === 0 && !currentReply && (
         <div className="flex gap-2 mb-3 flex-wrap">
-          <button onClick={() => doTutor("initial", "请给我一点提示")} disabled={loading}
+          <button onClick={() => doTutor("initial", "请给我一点提示", "hint")} disabled={loading}
             className="flex items-center gap-1.5 rounded-full border border-border px-3 py-2 text-xs text-foreground hover:bg-muted transition disabled:opacity-50">
             <Lightbulb className="w-3.5 h-3.5 text-amber-500" /> 给我一点提示
           </button>
-          <button onClick={() => doTutor("initial", "请分步讲解")} disabled={loading}
-            className="flex items-center gap-1.5 rounded-full border border-border px-3 py-2 text-xs text-foreground hover:bg-muted transition disabled:opacity-50">
-            <List className="w-3.5 h-3.5 text-primary" /> 分步讲给我听
-          </button>
-          <button onClick={() => doTutor("initial", "请给出完整解析")} disabled={loading}
+          <button onClick={() => doTutor("initial", "请给出完整解析", "solve")} disabled={loading}
             className="flex items-center gap-1.5 rounded-full bg-primary text-primary-foreground px-3 py-2 text-xs hover:opacity-90 transition disabled:opacity-50">
             <Eye className="w-3.5 h-3.5" /> 查看完整解析
           </button>
         </div>
       )}
 
-      {/* Follow-up input */}
-      {messages.length > 0 && (
+      {/* Follow-up input — 显示条件：有消息或有正在流式输出的回复 */}
+      {(messages.length > 0 || !!currentReply) && (
         <div className="flex gap-2 mb-3">
           <input type="text" value={input} onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleSend()}

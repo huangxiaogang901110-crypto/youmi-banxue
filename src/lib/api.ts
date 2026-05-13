@@ -33,13 +33,19 @@ export function clearToken() {
 
 /**
  * 统一的 JSON 请求封装，注入 Authorization 头部与超时处理。
+ * timeoutMs 默认 30_000，登录/上传等慢接口应传更大值。
  */
 async function typedFetch<T>(
   url: string,
-  options: RequestInit = {}
+  options: RequestInit = {},
+  timeoutMs: number = 30_000,
 ): Promise<ApiResponse<T>> {
+  const t0 = performance.now();
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 30_000);
+  const timeoutId = setTimeout(() => {
+    console.warn(`[typedFetch] timeout url=${url} timeoutMs=${timeoutMs} elapsed=${Math.round(performance.now() - t0)}ms`);
+    controller.abort();
+  }, timeoutMs);
 
   const headers = new Headers(options.headers);
   if (!headers.has('Content-Type') && !(options.body instanceof FormData)) {
@@ -59,8 +65,10 @@ async function typedFetch<T>(
     }
     return body;
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'Network error';
-    return { ok: false, code: 'network_error', message, request_id: '' };
+    const isAbort = error instanceof DOMException && error.name === 'AbortError';
+    const message = isAbort ? '请求超时，请稍后重试' :
+      error instanceof Error ? error.message : '网络错误';
+    return { ok: false, code: isAbort ? 'timeout' : 'network_error', message, request_id: '' };
   } finally {
     clearTimeout(timeoutId);
   }
@@ -126,11 +134,20 @@ const MOCK_ENTITLEMENT: Entitlement = {
 // ─── Auth API ───────────────────────────────────────────────
 
 export const authApi = {
-  login: (phone: string, password: string): Promise<ApiResponse<AuthLoginResponse>> =>
-    typedFetch<AuthLoginResponse>(`${API_BASE_URL}/api/auth/login`, {
+  /** 登录：90s 超时，timeout/network error 自动重试 1 次 */
+  login: async (phone: string, password: string): Promise<ApiResponse<AuthLoginResponse>> => {
+    const tryLogin = () => typedFetch<AuthLoginResponse>(`${API_BASE_URL}/api/auth/login`, {
       method: 'POST',
       body: JSON.stringify({ phone, password }),
-    }),
+    }, 90_000);
+    let res = await tryLogin();
+    if (!res.ok && (res.code === 'timeout' || res.code === 'network_error')) {
+      console.warn('[auth] login retry after first failure', res.code);
+      await new Promise(r => setTimeout(r, 1000));
+      res = await tryLogin();
+    }
+    return res;
+  },
 
   register: (phone: string, password: string, name: string): Promise<ApiResponse<AuthRegisterResponse>> =>
     typedFetch<AuthRegisterResponse>(`${API_BASE_URL}/api/auth/register`, {
@@ -163,7 +180,7 @@ export const parseJobApi = {
     return typedFetch<ParseJob>(`${API_BASE_URL}/api/parse-jobs`, {
       method: 'POST',
       body: formData,
-    });
+    }, 180_000);  // 上传大图片 + 慢网络，180s 超时
   },
 
   /** 获取解析任务状态 */
@@ -182,9 +199,46 @@ export const parseJobApi = {
       ? mockDelay().then(() => ({ ok: true as const, data: MOCK_QUESTIONS, request_id: 'mock-req' }))
       : typedFetch<Question[]>(`${API_BASE_URL}/api/parse-jobs/${encodeURIComponent(jobId)}/questions`),
 
-  /** 获取当前 child 最近 10 条解析任务 */
+  /** 获取当前 child 最近 10 条可展示的解析任务 */
   getRecent: () =>
     typedFetch<RecentJob[]>(`${API_BASE_URL}/api/parse-jobs/recent`),
+
+  /** 软删除解析任务 */
+  deleteJob: (jobId: string) =>
+    typedFetch<{ job_id: string; deleted: boolean }>(`${API_BASE_URL}/api/parse-jobs/${encodeURIComponent(jobId)}`, {
+      method: 'DELETE',
+    }),
+
+  /** 按 job_id 精确恢复任务状态（poll 失败后使用） */
+  recoverByJobId: (jobId: string) =>
+    typedFetch<{ job_id: string; status: string; questions_count: number; file_name: string }>(
+      `${API_BASE_URL}/api/parse-jobs/${encodeURIComponent(jobId)}/recover`
+    ),
+
+  /** 按 client_upload_id 恢复超时上传的任务 */
+  recoverByUploadId: (clientUploadId: string) =>
+    typedFetch<{ job_id: string; status: string; questions_count: number; file_name: string }>(
+      `${API_BASE_URL}/api/parse-jobs/recover?client_upload_id=${encodeURIComponent(clientUploadId)}`
+    ),
+
+  /** 两段式上传第一步：创建任务，立即返回 job_id */
+  initJob: (params: { client_upload_id: string; file_name: string; file_size: number; mime_type: string }) =>
+    typedFetch<{ job_id: string; status: string; file_name: string }>(`${API_BASE_URL}/api/parse-jobs/init`, {
+      method: 'POST',
+      body: JSON.stringify(params),
+    }, 15_000),  // init 很快，15s 足够
+
+  /** 两段式上传第二步：上传图片到已有任务 */
+  uploadFileToJob: (jobId: string, file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return typedFetch<{ job_id: string; status: string; file_name: string }>(
+      `${API_BASE_URL}/api/parse-jobs/${encodeURIComponent(jobId)}/upload`, {
+        method: 'POST',
+        body: formData,
+      }, 300_000  // 上传大图最多等 5 分钟
+    );
+  },
 };
 
 /**

@@ -106,6 +106,7 @@ class EntitlementStatus(str, Enum):
     activation_mock_only = "activation_mock_only"
 
 class JobStatus(str, Enum):
+    created = "created"          # 任务已创建，等待上传图片
     uploaded = "uploaded"
     enhancing = "enhancing"
     ocr_running = "ocr_running"
@@ -151,12 +152,16 @@ class Question(BaseModel):
     student_answer: Optional[str] = None
     is_correct: Optional[bool] = None
     grading_explanation: Optional[str] = None
+    section_title: Optional[str] = None
+    section_index: Optional[int] = None
+    sub_index: Optional[int] = None
 
 class TutorRequest(BaseModel):
     mode: str  # initial | followup
     message: str
     client_message_id: Optional[str] = None
     use_vision: Optional[bool] = False
+    action: Optional[str] = None  # hint | step | solve
 
 class TutorResponse(BaseModel):
     reply_text: str
@@ -233,13 +238,14 @@ def enqueue_parse_job(jid: str, job_entry: dict):
 
 
 def save_result(jid: str, questions: list, now: str, file, status: JobStatus):
-    """保存任务最终结果 — SQLite 持久化"""
+    """保存任务最终结果 — SQLite 持久化。先写 questions 再标 completed，防 poll 读到 qcount=0。"""
+    # ⚠️ 顺序：先写 questions 再设 status，防止 completed 和 questions 之间的竞态窗口
+    _jobs[jid]["questions"] = questions
     _jobs[jid]["job"] = ParseJob(
         job_id=jid, status=status,
         questions_count=len(questions),
         created_at=now, updated_at=_ts(), file_name=file.filename if file else "",
     )
-    _jobs[jid]["questions"] = questions
     # 确保 poll_count 存在（旧 save_result 调用后可能丢失）
     if "poll_count" not in _jobs[jid]:
         _jobs[jid]["poll_count"] = 0
@@ -287,7 +293,8 @@ def save_result(jid: str, questions: list, now: str, file, status: JobStatus):
                             "client_task_id": _jobs[jid].get("client_task_id", ""),
                             "progress": progress, "error_code": error_code,
                             "retry_count": retry_count, "completed_at": completed_at,
-                        }, default=str))
+                        }, default=str),
+                        client_upload_id=_jobs[jid].get("client_upload_id", _jobs[jid].get("client_task_id", "")))
 
 
 async def grade_answers(jid: str, questions: list, trace_id: str, parent_id: str, child_id: str) -> float:
@@ -482,6 +489,108 @@ def health_check():
         pass
     return {"ok": True, "message": "悠米伴学 API 运行中", "qwen_vl": qwen_ok}
 
+# ─── 0. POST /api/parse-jobs/init ──────────────────────────
+class InitJobRequest(BaseModel):
+    client_upload_id: str
+    file_name: str
+    file_size: int
+    mime_type: str
+
+@app.post("/api/parse-jobs/init")
+@limiter.limit("10/minute")
+async def init_parse_job(body: InitJobRequest, request: Request, user: tuple = Depends(get_current_user)):
+    """两段式上传第一步：创建任务，立即返回 job_id。不做任何图片处理。"""
+    t0 = time.time()
+    parent_id, child_id = user
+    cid = body.client_upload_id
+
+    # 幂等：child_id + client_upload_id 已存在 → 直接返回
+    existing = _db.get_existing_job_by_client_upload(child_id, cid)
+    if existing:
+        ejid, estatus, _, _ = existing
+        _log_info(f"api_init_dedup jid={ejid} status={estatus} client_upload_id={cid}")
+        return {"ok": True, "data": {"job_id": ejid, "status": estatus, "file_name": body.file_name}, "request_id": uuid.uuid4().hex}
+
+    # 内存去重兜底
+    for jid_existing, j_existing in _jobs.items():
+        cu_id = j_existing.get("client_upload_id") or j_existing.get("client_task_id", "")
+        if cu_id == cid:
+            estatus = str(j_existing["job"].status) if "job" in j_existing and hasattr(j_existing.get("job"), "status") else j_existing.get("status", "created")
+            _log_info(f"api_init_dedup_memory jid={jid_existing} status={estatus}")
+            return {"ok": True, "data": {"job_id": jid_existing, "status": estatus, "file_name": body.file_name}, "request_id": uuid.uuid4().hex}
+
+    jid = uuid.uuid4().hex[:12]
+    now = _ts()
+
+    # 立即落库，status=created
+    _db.save_parse_job(jid, child_id, parent_id, body.file_name, 0, "created", now,
+                       client_upload_id=cid)
+    enqueue_parse_job(jid, {
+        "job": ParseJob(job_id=jid, status=JobStatus.created, questions_count=0,
+                        created_at=now, file_name=body.file_name),
+        "questions": [], "poll_count": 0,
+        "child_id": child_id, "parent_id": parent_id,
+        "client_task_id": cid, "client_upload_id": cid,
+    })
+
+    t1 = time.time()
+    _log_info(f"api_init_created jid={jid} elapsed_ms={int((t1-t0)*1000)} client_upload_id={cid}")
+    return {"ok": True, "data": {"job_id": jid, "status": "created", "file_name": body.file_name}, "request_id": uuid.uuid4().hex}
+
+# ─── 0.5. POST /api/parse-jobs/{job_id}/upload ──────────────
+@app.post("/api/parse-jobs/{job_id}/upload")
+@limiter.limit("5/minute")
+async def upload_to_job(
+    job_id: str,
+    file: UploadFile = File(...),
+    request: Request = None,
+    user: tuple = Depends(get_current_user),
+):
+    """两段式上传第二步：上传图片到已创建的任务，启动后台 worker。"""
+    t0 = time.time()
+    parent_id, child_id = user
+
+    # 校验 job 存在 + child_id 匹配
+    job_entry = _jobs.get(job_id)
+    if not job_entry or job_entry.get("child_id") != child_id:
+        # 查 DB
+        row = _db.get_job_by_client_upload_id(child_id, job_entry.get("client_upload_id", "") if job_entry else "")
+        if not row:
+            return {"ok": False, "code": "not_found", "message": "任务不存在", "request_id": uuid.uuid4().hex}
+
+    # 校验未被删除
+    try:
+        c = _db._conn()
+        del_row = c.execute("SELECT deleted_at FROM parse_jobs WHERE job_id = ?", (job_id,)).fetchone()
+        c.close()
+        if del_row and del_row["deleted_at"]:
+            return {"ok": False, "code": "deleted", "message": "任务已删除", "request_id": uuid.uuid4().hex}
+    except Exception:
+        pass
+
+    # 读取图片
+    try:
+        contents = await file.read()
+    except Exception as fe:
+        _log_info(f"api_upload_file_read_failed jid={job_id} error={fe}")
+        return {"ok": False, "code": "file_read_failed", "message": "文件读取失败", "request_id": uuid.uuid4().hex}
+
+    now = _ts()
+    t1 = time.time()
+    _log_info(f"api_upload_received jid={job_id} bytes={len(contents)} elapsed_ms={int((t1-t0)*1000)}")
+
+    # 更新状态 + 启动 worker
+    if job_entry and "job" in job_entry:
+        job_entry["job"].status = JobStatus.uploaded
+    _db.save_parse_job(job_id, child_id, parent_id, file.filename, 0, "uploaded", now,
+                       client_upload_id=job_entry.get("client_upload_id", "") if job_entry else "")
+
+    asyncio.create_task(worker_process_job(job_id, contents, file, now, parent_id, child_id))
+    t2 = time.time()
+    _log_info(f"api_upload_done jid={job_id} elapsed_ms={int((t2-t0)*1000)}")
+
+    return {"ok": True, "data": {"job_id": job_id, "status": "uploaded", "file_name": file.filename}, "request_id": uuid.uuid4().hex}
+
 # ─── 1. POST /api/parse-jobs ───────────────────────────────
 @app.post("/api/parse-jobs")
 @limiter.limit("5/minute")
@@ -494,22 +603,59 @@ async def create_parse_job(
     background_tasks: BackgroundTasks = None,
     user: tuple = Depends(get_current_user),
 ):
+    t0 = time.time()
+    _log_info(f"api_handler_enter client_task_id={client_task_id} t0={t0:.3f}")
     try:
         parent_id, child_id = user
 
-        # ─── #8: client_task_id 幂等 ───
+        # ─── 幂等去重：内存 + DB ───
         if client_task_id:
+            # 1. 内存去重（兼容 enqueue_parse_job 和 load_all 两种结构）
             for jid_existing, j_existing in _jobs.items():
-                if j_existing.get("client_task_id") == client_task_id:
-                    return {"ok": True, "data": {"job_id": jid_existing, "status": j_existing["job"].status, "file_name": file.filename}, "request_id": uuid.uuid4().hex}
+                cu_id = j_existing.get("client_upload_id") or j_existing.get("client_task_id", "")
+                if cu_id == client_task_id:
+                    # 兼容两种数据格式：有 'job' 子对象的和扁平 dict 的
+                    if "job" in j_existing and hasattr(j_existing["job"], "status"):
+                        estatus = str(j_existing["job"].status)
+                    else:
+                        estatus = j_existing.get("status", "uploaded")
+                    _log_info(f"api_dedup_memory jid={jid_existing} status={estatus}")
+                    return {"ok": True, "data": {"job_id": jid_existing, "status": estatus, "file_name": file.filename}, "request_id": uuid.uuid4().hex}
+            # 2. DB 去重
+            existing = _db.get_existing_job_by_client_upload(child_id, client_task_id)
+            if existing:
+                ejid, estatus, eqcount, efname = existing
+                _log_info(f"api_dedup_db jid={ejid} status={estatus}")
+                return {"ok": True, "data": {"job_id": ejid, "status": estatus, "file_name": efname or file.filename}, "request_id": uuid.uuid4().hex}
 
         jid = uuid.uuid4().hex[:12]
         now = _ts()
+        t1 = time.time()
+        _log_info(f"api_before_file_read jid={jid} elapsed_ms={int((t1-t0)*1000)}")
 
-        # Read file contents NOW (before BackgroundTasks runs, or handle closes)
-        contents = await file.read()
+        # ── file.read() — 包裹 try，失败时标记 job failed ──
+        try:
+            contents = await file.read()
+        except Exception as fe:
+            tfe = time.time()
+            _log_info(f"api_file_read_failed jid={jid} elapsed_ms={int((tfe-t0)*1000)} error={fe}")
+            # 创建 failed 任务记录，避免脏状态
+            enqueue_parse_job(jid, {
+                "job": ParseJob(job_id=jid, status=JobStatus.failed,
+                                questions_count=0, created_at=now, file_name=file.filename),
+                "questions": [], "poll_count": 0,
+                "child_id": child_id, "parent_id": parent_id,
+                "client_task_id": client_task_id,
+                "client_upload_id": client_task_id or "",
+            })
+            _db.save_parse_job(jid, child_id, parent_id, file.filename, 0, "failed", now,
+                               client_upload_id=client_task_id or "", error_code="file_read_failed")
+            return {"ok": False, "code": "file_read_failed", "message": "文件读取失败，请重试", "request_id": uuid.uuid4().hex}
 
-        # 注册任务到内存队列
+        t2 = time.time()
+        _log_info(f"api_after_file_read jid={jid} bytes={len(contents)} elapsed_ms={int((t2-t0)*1000)}")
+
+        # ── 注册任务到内存 + DB（file.read 成功后立即落库）──
         enqueue_parse_job(jid, {
             "job": ParseJob(job_id=jid, status=JobStatus.uploaded,
                             questions_count=0, created_at=now, file_name=file.filename),
@@ -517,13 +663,25 @@ async def create_parse_job(
             "child_id": child_id,
             "parent_id": parent_id,
             "client_task_id": client_task_id,
+            "client_upload_id": client_task_id or "",
         })
-        # 持久化到 DB（跨重启存活）
-        _db.save_parse_job(jid, child_id, parent_id, file.filename, 0, JobStatus.uploaded, now)
-        # 启动后台 worker
+        _db.save_parse_job(jid, child_id, parent_id, file.filename, 0, JobStatus.uploaded, now,
+                           client_upload_id=client_task_id or "")
+        t3 = time.time()
+        _log_info(f"api_job_saved jid={jid} elapsed_ms={int((t3-t0)*1000)}")
+
+        # ── 启动后台 worker ──
         asyncio.create_task(worker_process_job(jid, contents, file, now, parent_id, child_id))
+        t4 = time.time()
+        _log_info(f"api_worker_started jid={jid} elapsed_ms={int((t4-t0)*1000)}")
+
+        # ── 返回 ──
+        t5 = time.time()
+        _log_info(f"api_response_returned jid={jid} elapsed_ms={int((t5-t0)*1000)}")
         return {"ok": True, "data": {"job_id": jid, "status": "uploaded", "file_name": file.filename}, "request_id": uuid.uuid4().hex}
     except Exception as e:
+        te = time.time()
+        _log_info(f"api_handler_exception client_task_id={client_task_id} elapsed_ms={int((te-t0)*1000)} error={e}")
         return {"ok": False, "code": "parse_failed", "message": str(e), "request_id": uuid.uuid4().hex}
 
 # ─── 后台任务 worker（模块级，基准 Table 22 R1）────────────
@@ -640,6 +798,20 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
                     student_ans = rq.get("student_answer")
                     if student_ans is None or (isinstance(student_ans, str) and not student_ans.strip()):
                         student_ans = None
+                    # 安全提取分组字段
+                    section_title = rq.get("section_title")
+                    if section_title and isinstance(section_title, str) and not section_title.strip():
+                        section_title = None
+                    section_index = rq.get("section_index")
+                    try:
+                        section_index = int(section_index) if section_index is not None else None
+                    except (ValueError, TypeError):
+                        section_index = None
+                    sub_index = rq.get("sub_index")
+                    try:
+                        sub_index = int(sub_index) if sub_index is not None else None
+                    except (ValueError, TypeError):
+                        sub_index = None
                     # 安全解析题号：Qwen-VL 可能返回非数字（如 "VOCABULARY 1"）
                     raw_no = rq.get("number", i+1)
                     try:
@@ -654,6 +826,9 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
                         visual_description=shared_vd,
                         status=QuestionStatus.completed,
                         student_answer=student_ans,
+                        section_title=section_title,
+                        section_index=section_index,
+                        sub_index=sub_index,
                     ))
                     _db.create_question_item(qid, aid, page_id, q_no, q_text, [0, 0, 0, 0], shared_vd[:200],
                                               source_call_id=qwen_parse_call_id, parse_cost_allocated_cny=parse_cost_per_q)
@@ -859,6 +1034,7 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
             print(f"[BG] Grading stage failed (non-blocking): {_ge}", flush=True)
         total_parse_cost += grading_cost
         save_result(jid, questions, now, file, final_status)
+        print(f"[diag] worker_completed jid={jid} status={final_status.value} qcount={len(questions)} cost_cny={total_parse_cost:.4f}", flush=True)
 
     except Exception as e:
         latency_ms = int((time.time() - t_start) * 1000)
@@ -917,11 +1093,13 @@ async def get_recent_parse_jobs(user: tuple = Depends(get_current_user)):
             }
 
         recent = []
-        # 优先内存（更新鲜）
+        # 优先内存（更新鲜），排除 failed 状态
         for jid, j in _jobs.items():
             if j.get("child_id") == child_id:
                 job = j.get("job")
                 if not job or not hasattr(job, "status"):
+                    continue
+                if hasattr(job, "status") and str(job.status) == "failed":
                     continue
                 entry = add_job(jid, job.status, job.questions_count or len(j.get("questions", [])),
                                 job.file_name, job.created_at)
@@ -941,6 +1119,85 @@ async def get_recent_parse_jobs(user: tuple = Depends(get_current_user)):
         raise
     except Exception as e:
         return {"ok": False, "code": "recent_error", "message": str(e), "request_id": uuid.uuid4().hex}
+
+
+# ─── 2.3.5. GET /api/parse-jobs/{job_id}/recover ────────────
+@app.get("/api/parse-jobs/{job_id}/recover")
+async def recover_by_job_id(job_id: str, user: tuple = Depends(get_current_user)):
+    """按 job_id 精确恢复任务状态（poll 失败后前端使用）。查内存+DB。"""
+    try:
+        _, child_id = user
+        print(f"[diag] recover_by_jid jid={job_id} start", flush=True)
+        # 1. 内存
+        j = _jobs.get(job_id)
+        if j:
+            job = j.get("job")
+            if job:
+                st = str(job.status) if hasattr(job, "status") else job.get("status", "?")
+                qcount = job.questions_count if hasattr(job, "questions_count") else len(j.get("questions", []))
+                print(f"[diag] recover_by_jid jid={job_id} result=memory status={st} qcount={qcount}", flush=True)
+                return {"ok": True, "data": {"job_id": job_id, "status": st, "questions_count": qcount, "file_name": getattr(job, "file_name", "") or job.get("file_name", "")}, "request_id": uuid.uuid4().hex}
+        # 2. DB
+        import sqlite3, json
+        c = _db._conn()
+        row = c.execute("SELECT status, questions_count, file_name FROM parse_jobs WHERE job_id=? AND deleted_at IS NULL", (job_id,)).fetchone()
+        c.close()
+        if row:
+            print(f"[diag] recover_by_jid jid={job_id} result=db status={row['status']} qcount={row['questions_count']}", flush=True)
+            return {"ok": True, "data": {"job_id": job_id, "status": row["status"], "questions_count": row["questions_count"], "file_name": row["file_name"] or ""}, "request_id": uuid.uuid4().hex}
+        print(f"[diag] recover_by_jid jid={job_id} result=not_found", flush=True)
+        return {"ok": False, "code": "not_found", "message": "任务不存在", "request_id": uuid.uuid4().hex}
+    except Exception as e:
+        return {"ok": False, "code": "recover_error", "message": str(e), "request_id": uuid.uuid4().hex}
+
+
+# ─── 2.4. GET /api/parse-jobs/recover?client_upload_id=xxx ──
+@app.get("/api/parse-jobs/recover")
+async def recover_parse_job(client_upload_id: str, user: tuple = Depends(get_current_user)):
+    """上传超时后按 client_upload_id 恢复 job。返回 uploaded/processing/completed 状态。"""
+    try:
+        parent_id, child_id = user
+        if not client_upload_id:
+            print(f"[diag] recover_get cu=(empty) result=missing_param", flush=True)
+            return {"ok": False, "code": "missing_param", "message": "缺少 client_upload_id", "request_id": uuid.uuid4().hex}
+        # 先查内存（更新鲜）
+        for jid, j in _jobs.items():
+            if j.get("child_id") == child_id and j.get("client_upload_id") == client_upload_id:
+                job = j.get("job")
+                if job and hasattr(job, "status") and str(job.status) != "failed":
+                    st = str(job.status)
+                    print(f"[diag] recover_get cu={client_upload_id[:16]} result=found_memory jid={jid} status={st}", flush=True)
+                    return {"ok": True, "data": {"job_id": jid, "status": st, "questions_count": job.questions_count or len(j.get("questions", [])), "file_name": job.file_name}, "request_id": uuid.uuid4().hex}
+        # 再查 DB（跨重启）
+        row = _db.get_job_by_client_upload_id(child_id, client_upload_id)
+        if row:
+            print(f"[diag] recover_get cu={client_upload_id[:16]} result=found_db jid={row.get('job_id','?')} status={row.get('status','?')}", flush=True)
+            return {"ok": True, "data": row, "request_id": uuid.uuid4().hex}
+        print(f"[diag] recover_get cu={client_upload_id[:16]} result=not_found", flush=True)
+        return {"ok": False, "code": "not_found", "message": "未找到对应任务", "request_id": uuid.uuid4().hex}
+    except Exception as e:
+        return {"ok": False, "code": "recover_error", "message": str(e), "request_id": uuid.uuid4().hex}
+
+
+# ─── 2.5. DELETE /api/parse-jobs/{job_id} (before GET {job_id} to avoid conflict) ──
+@app.delete("/api/parse-jobs/{job_id}")
+async def delete_parse_job(job_id: str, user: tuple = Depends(get_current_user)):
+    """软删除解析任务，deleted_at 写入当前时间。"""
+    try:
+        _, child_id = user
+        ok = _db.soft_delete_parse_job(job_id, child_id)
+        if not ok:
+            raise HTTPException(
+                status_code=404,
+                detail={"ok": False, "code": "not_found", "message": "任务不存在或已删除", "request_id": uuid.uuid4().hex},
+            )
+        # 同时从内存移除（下次 restart 也不会被 recent 返回）
+        _jobs.pop(job_id, None)
+        return {"ok": True, "data": {"job_id": job_id, "deleted": True}, "request_id": uuid.uuid4().hex}
+    except HTTPException:
+        raise
+    except Exception as e:
+        return {"ok": False, "code": "delete_error", "message": str(e), "request_id": uuid.uuid4().hex}
 
 
 # ─── 3. GET /api/parse-jobs/{job_id} ───────────────────────
@@ -975,6 +1232,10 @@ async def get_parse_job_status(job_id: str, user: tuple = Depends(get_current_us
         # 附加调试信息：error_code / progress
         data["error_code"] = j.get("error_code", "")
         data["progress"] = j.get("progress", "")
+        # 诊断日志（每 10 次 poll 记一次，避免刷屏）
+        pc = j.get("poll_count", 0)
+        if pc % 10 == 1:
+            print(f"[diag] poll_get_job jid={job_id} status={job_status} qcount={job_obj.questions_count} poll=#{pc}", flush=True)
         return {"ok": True, "data": data, "request_id": uuid.uuid4().hex}
     except HTTPException:
         raise
@@ -1121,6 +1382,7 @@ async def tutor_question(question_id: str, body: TutorRequest, request: Request,
             visual_description=_vd or "",
             chat_history=history if body.mode == "followup" else None,
             user_message=body.message,
+            action=body.action,
         )
         result = ds.tutor(messages)
         latency_ms = int((time.time() - t_start) * 1000)

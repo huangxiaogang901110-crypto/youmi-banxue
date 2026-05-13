@@ -246,7 +246,7 @@ export default function LoginPage() {
               className="w-full h-12 rounded-lg text-white text-base font-semibold transition-all duration-200 active:scale-[0.98] mt-5"
               style={{ background: "#2EC899" }}
             >
-              {loading ? "登录中..." : "登录 / 进入工作台"}
+              {loading ? "正在连接服务器，请稍候" : "登录 / 进入工作台"}
             </button>
           </form>
 

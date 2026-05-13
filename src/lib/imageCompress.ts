@@ -1,16 +1,23 @@
 /**
  * 图片客户端压缩工具
- * 基准：前端基准 §8.3 — 长边 ≤2200px, JPEG quality 0.85, ≤3MB
+ * 基准：长边 ≤1600px, JPEG quality 0.8, ≤2MB
+ * 拍照和本地上传均走此函数。压缩失败时 fallback 原图。
  */
 
 export interface CompressResult {
   file: File;
   originalSize: number;
   compressedSize: number;
+  originalWidth?: number;
+  originalHeight?: number;
+  compressedWidth?: number;
+  compressedHeight?: number;
 }
 
-const MAX_LONG_SIDE = 2200;
-const SIZE_3MB = 3 * 1024 * 1024;
+const MAX_LONG_SIDE = 1600;
+const MAX_SIZE = 2 * 1024 * 1024;  // 2MB
+const QUALITY = 0.8;
+const QUALITY_FALLBACK = 0.6;
 
 export async function compressImage(file: File): Promise<CompressResult> {
   const originalSize = file.size;
@@ -27,11 +34,14 @@ export async function compressImage(file: File): Promise<CompressResult> {
 
   // 浏览器不支持 Canvas 时直接返回原文件
   if (typeof HTMLCanvasElement === "undefined") {
+    console.warn("[compress] Canvas 不可用，跳过压缩");
     return { file, originalSize, compressedSize: originalSize };
   }
 
   const img = await loadImage(file);
-  const { width, height } = calcSize(img.naturalWidth, img.naturalHeight, MAX_LONG_SIDE);
+  const origW = img.naturalWidth;
+  const origH = img.naturalHeight;
+  const { width, height } = calcSize(origW, origH, MAX_LONG_SIDE);
 
   const compress = (quality: number): Promise<Blob | null> => {
     const canvas = document.createElement("canvas");
@@ -44,21 +54,29 @@ export async function compressImage(file: File): Promise<CompressResult> {
   };
 
   try {
-    let blob = await compress(0.85);
-    if (!blob) throw new Error("压缩失败");
+    let blob = await compress(QUALITY);
+    if (!blob) throw new Error("canvas.toBlob 返回 null");
 
-    if (blob.size > SIZE_3MB) {
-      blob = await compress(0.6);
+    if (blob.size > MAX_SIZE) {
+      blob = await compress(QUALITY_FALLBACK);
       if (!blob) throw new Error("二次压缩失败");
     }
 
     const compressedFile = new File([blob], file.name, { type: "image/jpeg" });
+    console.warn(
+      `[compress] ${(originalSize / 1024).toFixed(0)}KB(${origW}x${origH}) → ${(compressedFile.size / 1024).toFixed(0)}KB(${width}x${height})`
+    );
     return {
       file: compressedFile,
       originalSize,
       compressedSize: compressedFile.size,
+      originalWidth: origW,
+      originalHeight: origH,
+      compressedWidth: width,
+      compressedHeight: height,
     };
   } catch {
+    console.warn(`[compress] 压缩失败，使用原图 (${(originalSize / 1024).toFixed(0)}KB)`);
     return { file, originalSize, compressedSize: originalSize };
   }
 }

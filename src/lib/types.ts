@@ -91,6 +91,12 @@ export interface Question {
   is_correct?: boolean | null;
   /** DeepSeek 判题简短解释 */
   grading_explanation?: string | null;
+  /** 大题/题组标题 */
+  section_title?: string | null;
+  /** 大题序号（从1开始） */
+  section_index?: number | null;
+  /** 大题内小题序号（从1开始） */
+  sub_index?: number | null;
 }
 
 /**
@@ -101,6 +107,8 @@ export interface TutorRequest {
   mode: 'initial' | 'followup';
   /** 用户发送的消息 */
   message: string;
+  /** 辅导行为模式：hint/step/solve */
+  action?: 'hint' | 'step' | 'solve';
   /** 客户端消息幂等ID，用于去重 */
   client_message_id?: string;
   /** 是否启用视觉理解能力 */

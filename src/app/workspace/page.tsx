@@ -17,10 +17,40 @@ import { authApi, parseJobApi } from "@/lib/api";
 import { getToken } from "@/lib/api";
 import type { Bbox } from "@/components/question-list/BboxOverlay";
 import type { RecentJob } from "@/lib/types";
+import type { Question } from "@/lib/types";
 
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp", "application/pdf"];
 
-type UploadPhase = "idle" | "selected" | "compressing" | "uploading" | "error";
+type UploadPhase = "idle" | "selected" | "compressing" | "initializing" | "uploading" | "recovering" | "error";
+
+type DiagEvent = { ts: number; type: string; data: Record<string, unknown> };
+
+function DiagPanel({ events, expanded, onToggle }: { events: DiagEvent[]; expanded: boolean; onToggle: () => void }) {
+  const lines = events.map(e => {
+    const elapsed = events.length > 1 ? `+${((e.ts - events[0].ts) / 1000).toFixed(1)}s` : "0s";
+    const payload = Object.entries(e.data).map(([k,v]) => `${k}=${v}`).join(" ");
+    return `${elapsed} ${e.type} ${payload}`;
+  });
+  const text = lines.join("\n");
+  const copy = () => { navigator.clipboard.writeText(text).catch(() => {}); };
+
+  return (
+    <div className="text-[10px] font-mono bg-slate-900 text-green-400 rounded-lg overflow-hidden">
+      <div className="flex items-center justify-between px-3 py-1.5 bg-slate-800 cursor-pointer" onClick={onToggle}>
+        <span>🔍 诊断日志 ({events.length}) {!expanded && events.length > 0 ? events[events.length-1].type : ''}</span>
+        <div className="flex gap-2">
+          <button onClick={(e) => { e.stopPropagation(); copy(); }} className="text-[10px] bg-slate-700 px-2 py-0.5 rounded hover:bg-slate-600">复制</button>
+          <span className="text-slate-500">{expanded ? '▲' : '▼'}</span>
+        </div>
+      </div>
+      {expanded && (
+        <div className="px-3 py-1.5 max-h-48 overflow-y-auto whitespace-pre-wrap leading-relaxed">
+          {text || "等待事件…"}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function WorkspaceContent() {
   const { job, questions, status, error } = useParseJobPolling();
@@ -33,6 +63,7 @@ function WorkspaceContent() {
   const [preview, setPreview] = useState<string | null>(null);
   const [phase, setPhase] = useState<UploadPhase>("idle");
   const [uploadError, setUploadError] = useState("");
+  const [uploadJobId, setUploadJobId] = useState<string | null>(null);  // 当前上传的 job_id，用于重试
   const [compressInfo, setCompressInfo] = useState("");
   const galleryRef = useRef<HTMLInputElement>(null);
   const cameraRef = useRef<HTMLInputElement>(null);
@@ -40,27 +71,68 @@ function WorkspaceContent() {
   // ── 7 天滚动历史缓存 ──
   const { history, upsert, removeEntry, clearAll } = useJobHistory();
 
-  // ── API 补充（localStorage 清除/损坏后的恢复）──
-  const [apiRecent, setApiRecent] = useState<RecentJob[]>([]);
-
-  // ── 已隐藏的 API 记录（左划删除后不再显示）──
-  const [hiddenIds, setHiddenIds] = useState<Set<string>>(() => {
+  // ── 删除墓碑：本地持久化已删 job_id，防刷新/切模块后恢复 ──
+  const DELETED_IDS_KEY = "youmi_deleted_parse_job_ids";
+  const getDeletedJobIds = (): Set<string> => {
     try {
-      const raw = localStorage.getItem("yomi_deleted_ids");
+      const raw = localStorage.getItem(DELETED_IDS_KEY);
       return raw ? new Set(JSON.parse(raw)) : new Set();
     } catch { return new Set(); }
-  });
-
-  // 持久化 hiddenIds
-  const persistHidden = (ids: Set<string>) => {
-    try { localStorage.setItem("yomi_deleted_ids", JSON.stringify([...ids])); } catch {}
   };
+  const markDeletedJobId = (jobId: string) => {
+    try {
+      const ids = getDeletedJobIds();
+      ids.add(jobId);
+      localStorage.setItem(DELETED_IDS_KEY, JSON.stringify([...ids]));
+    } catch { /* quota exceeded */ }
+  };
+
+  // ── 上传待恢复：本地持久化 pending upload，防页面离开后丢失 ──
+  const PENDING_KEY = "youmi_pending_upload";
+  const getPendingUpload = (): { client_upload_id: string; created_at: string; file_name: string } | null => {
+    try {
+      const raw = localStorage.getItem(PENDING_KEY);
+      if (!raw) return null;
+      const p = JSON.parse(raw);
+      if (!p.client_upload_id || !p.created_at) return null;
+      // 超过 10 分钟过期
+      if (Date.now() - new Date(p.created_at).getTime() > 10 * 60 * 1000) {
+        localStorage.removeItem(PENDING_KEY);
+        return null;
+      }
+      return p;
+    } catch { return null; }
+  };
+  const setPendingUpload = (clientUploadId: string, fileName: string) => {
+    try {
+      localStorage.setItem(PENDING_KEY, JSON.stringify({
+        client_upload_id: clientUploadId,
+        created_at: new Date().toISOString(),
+        file_name: fileName,
+      }));
+    } catch { /* quota */ }
+  };
+  const clearPendingUpload = () => {
+    try { localStorage.removeItem(PENDING_KEY); } catch { /* ignore */ }
+  };
+
+  // ── API 补充（localStorage 清除/损坏后的恢复）──
+  const [apiRecent, setApiRecent] = useState<RecentJob[]>([]);
 
   // ── 恢复中（防止闪烁）──
   const [isRestoring, setIsRestoring] = useState(false);
 
   // ── 当前孩子名 ──
   const [childName, setChildName] = useState("");
+
+  // ── 诊断事件日志 ──
+  const [diagEvents, setDiagEvents] = useState<DiagEvent[]>([]);
+  const [diagExpanded, setDiagExpanded] = useState(false);
+  const addDiagEvent = useCallback((type: string, data: Record<string, unknown> = {}) => {
+    const event = { ts: Date.now(), type, data };
+    setDiagEvents(prev => [...prev.slice(-19), event]);
+    console.log(`[diag] ${type}`, data);
+  }, []);
 
   // 页面挂载时从后端拉取历史记录（补充 localStorage 可能丢失的数据）
   useEffect(() => {
@@ -82,33 +154,120 @@ function WorkspaceContent() {
     }).catch(() => {});
   }, []);
 
-  // 删除处理：localStorage 条目走 removeEntry，API 条目走 hiddenIds（持久化）
-  const handleDelete = (jobId: string) => {
+  // 删除处理：tombstone 先写 → 清前端 → 后端 soft delete（双保险）
+  const handleDelete = async (jobId: string) => {
+    if (!jobId) return;
+    // 1. 立即写 tombstone（即使后端失败，刷新也不恢复）
+    markDeletedJobId(jobId);
+    // 2. 立即清前端所有状态
     if (history.some(h => h.job_id === jobId)) {
       removeEntry(jobId);
     }
-    setHiddenIds(prev => {
-      const next = new Set(prev).add(jobId);
-      persistHidden(next);
-      return next;
-    });
+    setApiRecent(prev => prev.filter(r => r.job_id !== jobId));
+    // 3. 调后端删除（成功验证，失败 console.error，tombstone 不回滚）
+    try {
+      const res = await parseJobApi.deleteJob(jobId);
+      if (!res.ok) {
+        console.error('后端删除失败', res.code, res.message);
+      }
+    } catch {
+      console.error('后端删除请求失败（网络错误）');
+    }
   };
 
 
 
+
+  // ── pending upload 自动恢复（挂载时 / recovering 状态 / 页面回到前台）──
+  useEffect(() => {
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const tryRecover = async (clientUploadId: string, attempt: number) => {
+      if (cancelled || attempt > 60) return;
+      if (attempt === 0) addDiagEvent("recover_start", { cu: clientUploadId.slice(0, 12) });
+      try {
+        const res = await parseJobApi.recoverByUploadId(clientUploadId);
+        if (cancelled) return;
+        if (res.ok && res.data) {
+          const j = res.data;
+          addDiagEvent("recover_success", { jid: j.job_id, status: String(j.status), attempts: attempt + 1 });
+          clearPendingUpload();
+          setPhase("idle");
+          setUploadError("");
+          upsert({
+            job_id: j.job_id,
+            file_name: j.file_name || file?.name || "",
+            questions_count: j.questions_count || 0,
+            status: j.status === "failed" ? "failed" : "uploaded",
+            created_at: new Date().toISOString(),
+          });
+          router.push(`/workspace?job_id=${j.job_id}`);
+          return;
+        }
+      } catch { /* continue */ }
+      if (!cancelled && attempt < 60) {
+        timer = setTimeout(() => tryRecover(clientUploadId, attempt + 1), 2000);
+      } else if (!cancelled) {
+        clearPendingUpload();
+        setUploadError("暂未找到解析任务，请稍后重试");
+        setPhase("error");
+      }
+    };
+
+    const startRecovery = () => {
+      const pending = getPendingUpload();
+      if (pending) {
+        if (phase !== "error") {
+          setPhase("recovering");
+          setUploadError("");
+        }
+        tryRecover(pending.client_upload_id, 0);
+      }
+    };
+
+    startRecovery();
+
+    const onVisible = () => {
+      if (document.visibilityState === "visible") startRecovery();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [phase, file, router, upsert]);
   useEffect(() => {
     if (status === "polling" || status === "failed" || status === "completed") {
       setIsRestoring(false);
     }
   }, [status]);
 
-  // 页面 idle：尝试恢复上次任务
+  // ── 诊断：phase 变化日志 ──
+  useEffect(() => {
+    addDiagEvent("phase_change", { phase, status, ujid: uploadJobId?.slice(0, 8) || "-" });
+  }, [phase, status, uploadJobId]);
+
+  // ── 诊断：poll 状态变化日志 ──
+  const prevStatusRef = useRef(status);
+  useEffect(() => {
+    if (prevStatusRef.current !== status) {
+      const prev = prevStatusRef.current;
+      prevStatusRef.current = status;
+      addDiagEvent(status === "polling" && prev === "loading" ? "poll_start" : "poll_status", { from: prev, to: status, jid: job?.job_id?.slice(0, 8) || "-", qcount: questions?.length ?? 0 });
+    }
+  }, [status, job, questions, error]);
+
+  // 页面 idle：尝试恢复上次任务（uploaded 超过 5 分钟视为过期，不恢复）
   useEffect(() => {
     if (status !== "idle") return;
     if (history.length > 0) {
       const last = history[0];
       if (last.status !== "completed" && last.status !== "failed") {
         const age = Date.now() - new Date(last.created_at).getTime();
+        if (last.status === "uploaded" && age > 5 * 60 * 1000) return; // >5min stale
         if (age < 24 * 60 * 60 * 1000) {
           setIsRestoring(true);
           router.replace(`/workspace?job_id=${last.job_id}`);
@@ -116,7 +275,6 @@ function WorkspaceContent() {
         }
       }
     }
-
   }, [status, router, history]);
 
   // 任务完成 → 更新历史
@@ -148,6 +306,7 @@ function WorkspaceContent() {
     }
   }, [status, router]);
 
+  // ── 两段式上传：init → navigate → upload → poll ──
   const startUpload = useCallback(async () => {
     if (!file) return;
     if (!ALLOWED_TYPES.includes(file.type)) {
@@ -156,7 +315,7 @@ function WorkspaceContent() {
       return;
     }
     try {
-      // ── 去重检测：计算图片 SHA-256，对比历史 ──
+      // ── 去重检测 ──
       let imageHash = "";
       if (file.type.startsWith("image/")) {
         try {
@@ -175,14 +334,12 @@ function WorkspaceContent() {
             const ok = window.confirm(
               `⚠️ 检测到相同作业\n\n这张作业曾在 ${agoStr} 上传过（${dup.questions_count}题），是否重新识别？\n\n"取消"则不重复上传。`
             );
-            if (!ok) {
-              setPhase("idle");
-              return;
-            }
+            if (!ok) { setPhase("idle"); return; }
           }
         } catch { /* hash 计算失败不阻塞 */ }
       }
 
+      // ── 压缩 ──
       setPhase("compressing");
       let uploadFile: File;
       if (file.type.startsWith("image/")) {
@@ -194,27 +351,105 @@ function WorkspaceContent() {
       } else {
         uploadFile = file;
       }
-      setPhase("uploading");
-      const clientTaskId = uuidv4();
-      const resp = await parseJobApi.create(uploadFile, clientTaskId);
-      if (!resp.ok || !resp.data?.job_id) {
-        throw new Error(resp.message || "服务器未返回任务 ID");
-      }
-      upsert({
-        job_id: resp.data.job_id,
+
+      // ── 第一步：init 创建任务 ──
+      setPhase("initializing");
+      const clientUploadId = uuidv4();
+      addDiagEvent("init_start", { cu: clientUploadId.slice(0, 12), fsize: uploadFile.size });
+      const tInit = Date.now();
+      const initResp = await parseJobApi.initJob({
+        client_upload_id: clientUploadId,
         file_name: file.name,
-        questions_count: 0,
-        status: "uploaded",
-        created_at: new Date().toISOString(),
+        file_size: uploadFile.size,
+        mime_type: uploadFile.type,
+      });
+      if (!initResp.ok || !initResp.data?.job_id) {
+        addDiagEvent("init_fail", { code: initResp.code, msg: initResp.message?.slice(0, 40), ms: Date.now() - tInit });
+        throw new Error(initResp.message || "创建任务失败");
+      }
+      const jid = initResp.data.job_id;
+      addDiagEvent("init_success", { jid: jid.slice(0, 8), status: initResp.data.status, ms: Date.now() - tInit });
+      setUploadJobId(jid);
+      upsert({
+        job_id: jid, file_name: file.name, questions_count: 0,
+        status: "uploaded", created_at: new Date().toISOString(),
         image_hash: imageHash || undefined,
       });
-      router.push(`/workspace?job_id=${resp.data.job_id}`);
+
+      // ── 导航到任务页，开始轮询 ──
+      const targetUrl = `/workspace?job_id=${jid}`;
+      addDiagEvent("router_replace", { from: window.location.search || "/", to: targetUrl });
+      router.replace(targetUrl);
+
+      // ── 第二步：异步上传图片 ──
+      setPhase("uploading");
+      addDiagEvent("upload_start", { jid: jid.slice(0, 8), fsize: uploadFile.size });
+      const tUpload = Date.now();
+      const uploadResp = await parseJobApi.uploadFileToJob(jid, uploadFile);
+      const uploadElapsed = Date.now() - tUpload;
+      if (!uploadResp.ok) {
+        addDiagEvent(uploadResp.code === "timeout" ? "upload_timeout" : "upload_fail", { jid: jid.slice(0,8), code: uploadResp.code, msg: uploadResp.message?.slice(0,40), ms: uploadElapsed });
+        // 保留 job_id 不丢，写入 pending 触发 recover
+        setPendingUpload(clientUploadId, file.name);
+        setUploadError(uploadResp.message || "上传超时，后台仍在处理…");
+        setPhase("recovering");  // 触发 recover useEffect
+        return;
+      }
+      // 上传成功，轮询接管
+      addDiagEvent("upload_success", { jid: jid.slice(0, 8), status: uploadResp.data?.status, ms: uploadElapsed });
+      setPhase("idle");
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "上传失败，请重试";
       setUploadError(msg);
       setPhase("error");
     }
   }, [file, router, upsert, history]);
+
+  // ── 重试：优先恢复已有 job，再尝试重传 ──
+  const handleRetry = useCallback(async () => {
+    setUploadError("");
+    // 1. 有 job_id 先尝试恢复（可能后端已完成）
+    if (uploadJobId) {
+      setPhase("recovering");
+      try {
+        const res = await parseJobApi.recoverByJobId(uploadJobId);
+        if (res.ok && res.data) {
+          const d = res.data;
+          addDiagEvent("retry_recover_ok", { jid: d.job_id?.slice(0, 8) || "", status: d.status, qcount: d.questions_count });
+          if (d.status === "completed" && d.questions_count > 0) {
+            router.replace(`/workspace?job_id=${d.job_id}`);
+            setPhase("idle");
+            return;
+          }
+          // 后端已有记录但未完成 → 继续轮询
+          if (d.status !== "failed") {
+            router.replace(`/workspace?job_id=${d.job_id}`);
+            setPhase("idle");
+            return;
+          }
+        }
+      } catch { /* recover fails → fall through to re-upload */ }
+    }
+    // 2. 没有 job_id 或恢复失败 → 重新上传
+    if (!file || !uploadJobId) {
+      startUpload();
+      return;
+    }
+    try {
+      setPhase("uploading");
+      const resp = await parseJobApi.uploadFileToJob(uploadJobId, file);
+      if (!resp.ok) {
+        setUploadError(resp.message || "重试上传失败");
+        setPhase("recovering");
+        return;
+      }
+      setPhase("idle");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "重试上传失败";
+      setUploadError(msg);
+      setPhase("recovering");
+    }
+  }, [file, uploadJobId, startUpload, router]);
 
   const resetUpload = () => {
     setFile(null);
@@ -237,10 +472,11 @@ function WorkspaceContent() {
     return `${Math.floor(hours / 24)} 天前`;
   };
 
-  // 合并展示：本地历史 + API 补充（去重，API 补 q=0）
+  // 合并展示：本地历史 + API 补充（去重，API 补 q=0）→ tombstone 统一过滤
+  const deletedIds = getDeletedJobIds();
   const localIds = new Set(history.map((h) => h.job_id));
-  const apiOnly = apiRecent.filter((r) => !localIds.has(r.job_id));
-  const completedHistory = history.filter((h) => h.status === "completed" || h.status === "uploaded");
+  const apiOnly = apiRecent.filter((r) => !localIds.has(r.job_id) && !deletedIds.has(r.job_id));
+  const completedHistory = history.filter((h) => (h.status === "completed" || h.status === "uploaded") && !deletedIds.has(h.job_id));
   const allHistory = [...completedHistory.map(h => {
     // 如果 localStorage 里 q=0，从 API 补（异步时序导致 effect 漏写）
     if (h.questions_count === 0) {
@@ -257,20 +493,27 @@ function WorkspaceContent() {
     status: r.status || "completed",
     created_at: r.created_at || "",
   }))].filter(h =>
-    !hiddenIds.has(h.job_id) &&
     h.questions_count > 0
   ).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
   // ── 恢复中 ──
   if (isRestoring && (status === "loading" || status === "polling")) {
-    return <ProcessingStatus status={job?.status || "uploaded"} />;
+    return (
+      <div className="space-y-4 pb-4">
+        <DiagPanel events={diagEvents} expanded={diagExpanded} onToggle={() => setDiagExpanded(!diagExpanded)} />
+        <ProcessingStatus status={job?.status || "uploaded"} />
+      </div>
+    );
   }
 
   // ── loading ──
   if (status === "loading") {
     return (
-      <div className="flex items-center justify-center py-20">
-        <Loader2 className="w-8 h-8 text-primary animate-spin" />
+      <div className="space-y-4 pb-4">
+        <DiagPanel events={diagEvents} expanded={diagExpanded} onToggle={() => setDiagExpanded(!diagExpanded)} />
+        <div className="flex items-center justify-center py-20">
+          <Loader2 className="w-8 h-8 text-primary animate-spin" />
+        </div>
       </div>
     );
   }
@@ -289,20 +532,30 @@ function WorkspaceContent() {
           <span className="text-primary font-medium">剩余 50 学豆</span>
         </div>
 
-        {phase === "compressing" || phase === "uploading" ? (
+        <DiagPanel events={diagEvents} expanded={diagExpanded} onToggle={() => setDiagExpanded(!diagExpanded)} />
+
+        {phase === "compressing" || phase === "initializing" || phase === "uploading" ? (
           <div className="bg-card rounded-2xl p-10 shadow-sm border border-border text-center space-y-4">
             <Loader2 className="w-12 h-12 text-primary mx-auto animate-spin" strokeWidth={1.5} />
             <div>
               <p className="text-foreground font-medium">
-                {phase === "compressing" ? "正在压缩图片…" : "正在上传…"}
+                {phase === "compressing" ? "正在压缩图片…" : phase === "initializing" ? "任务已创建，正在上传图片…" : "正在上传…"}
               </p>
               {compressInfo && (
                 <p className="text-muted-foreground text-sm mt-1">{compressInfo}</p>
               )}
             </div>
           </div>
+        ) : phase === "recovering" ? (
+          <div className="bg-card rounded-2xl p-10 shadow-sm border border-border text-center space-y-4">
+            <Loader2 className="w-12 h-12 text-primary mx-auto animate-spin" strokeWidth={1.5} />
+            <div>
+              <p className="text-foreground font-medium">上传已进入后台解析，正在自动找回结果…</p>
+              <p className="text-muted-foreground text-sm mt-1">请勿关闭页面，预计 1-2 分钟</p>
+            </div>
+          </div>
         ) : phase === "error" ? (
-          <ErrorDisplay message={uploadError} action="请检查文件后重试" onRetry={startUpload} />
+          <ErrorDisplay message={uploadError} action="请检查文件后重试" onRetry={handleRetry} />
         ) : file ? (
           <div className="space-y-4">
             <div className="bg-card rounded-2xl p-4 shadow-sm border border-border space-y-3">
@@ -411,25 +664,23 @@ function WorkspaceContent() {
 
   // ── failed ──
   if (status === "failed") {
+    // 清理导致失败的 stale job_id，防止重试后再次跳回失败态
+    const jid = searchParams.get("job_id");
     return (
-      <ErrorDisplay
-        message={error}
-        action="请重新上传作业"
-        onRetry={() => {
-          const jid = searchParams.get("job_id");
-          if (jid) {
-            upsert({
-              job_id: jid,
-              file_name: job?.file_name || "",
-              questions_count: 0,
-              status: "failed",
-              created_at: job?.created_at || new Date().toISOString(),
-            });
-          }
-          router.push("/workspace");
-          resetUpload();
-        }}
-      />
+      <div className="space-y-4 pb-4">
+        <DiagPanel events={diagEvents} expanded={diagExpanded} onToggle={() => setDiagExpanded(!diagExpanded)} />
+        <ErrorDisplay
+          message={error || "该任务已失效"}
+          action="返回工作台重新上传"
+          onRetry={() => {
+            if (jid && history.some(h => h.job_id === jid)) {
+              removeEntry(jid);
+            }
+            router.push("/workspace");
+            resetUpload();
+          }}
+        />
+      </div>
     );
   }
 
@@ -437,6 +688,7 @@ function WorkspaceContent() {
   if (status === "polling") {
     return (
       <div className="space-y-4">
+        <DiagPanel events={diagEvents} expanded={diagExpanded} onToggle={() => setDiagExpanded(!diagExpanded)} />
         <div className="flex items-center justify-between">
           <span className="text-sm text-muted-foreground">正在处理中…</span>
           <button
@@ -454,7 +706,37 @@ function WorkspaceContent() {
   // ── completed ──
   const qs = questions || [];
   const groupSize = calcGroupSize(qs.length);
-  const groups = groupQuestions(qs, groupSize);
+
+  // 按 section_title 预分组（如果有分组信息）
+  const hasSections = qs.some(q => q.section_title);
+  let sectionedGroups: { title: string; questions: Question[]; startNumber: number }[] = [];
+  if (hasSections) {
+    const sections = new Map<string, Question[]>();
+    for (const q of qs) {
+      const key = q.section_title || 'default';
+      if (!sections.has(key)) sections.set(key, []);
+      sections.get(key)!.push(q);
+    }
+    let num = 1;
+    for (const [title, sqs] of sections) {
+      sectionedGroups.push({ title: title === 'default' ? '' : title, questions: sqs, startNumber: num });
+      num += sqs.length;
+    }
+  }
+
+  const groups = hasSections
+    ? []  // 按 section 内部再分组
+    : groupQuestions(qs, groupSize);
+
+  if (hasSections) {
+    for (const sec of sectionedGroups) {
+      const secQs = sec.questions;
+      const secGs = groupQuestions(secQs, calcGroupSize(secQs.length));
+      for (let gi = 0; gi < secGs.length; gi++) {
+        groups.push(secGs[gi]);
+      }
+    }
+  }
 
   const handleCameraFromCompleted = () => {
     // 方案 1：直接触发相机（如果 input 在 DOM 中）
@@ -468,6 +750,7 @@ function WorkspaceContent() {
 
   return (
     <div className="space-y-4 pb-4">
+      <DiagPanel events={diagEvents} expanded={diagExpanded} onToggle={() => setDiagExpanded(!diagExpanded)} />
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-semibold text-foreground">
           共 {job?.questions_count || qs.length} 题
@@ -493,17 +776,29 @@ function WorkspaceContent() {
 
       <div className="space-y-3">
         {groups.map((g, gi) => {
-          const start = gi * groupSize + 1;
-          const end = start + g.length - 1;
+          let sectionLabel = "";
+          if (hasSections && g.length > 0) {
+            const firstQ = g[0];
+            if (firstQ.section_title) {
+              const prevFirstQ = gi > 0 ? groups[gi - 1]?.[0] : null;
+              if (!prevFirstQ || prevFirstQ.section_title !== firstQ.section_title) {
+                sectionLabel = firstQ.section_title;
+              }
+            }
+          }
           return (
-            <QuestionGroup
-              key={gi}
-              groupIndex={gi}
-              startNumber={start}
-              endNumber={end}
-              questions={g}
-              defaultOpen={gi === 0}
-            />
+            <div key={gi}>
+              {sectionLabel && (
+                <h3 className="text-sm font-semibold text-foreground mb-2 mt-4 first:mt-0">{sectionLabel}</h3>
+              )}
+              <QuestionGroup
+                groupIndex={gi}
+                startNumber={gi * groupSize + 1}
+                endNumber={gi * groupSize + g.length}
+                questions={g}
+                defaultOpen={gi === 0}
+              />
+            </div>
           );
         })}
       </div>

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronDown, ChevronUp, Lightbulb, ListOrdered, BookOpen } from "lucide-react";
+import { ChevronDown, ChevronUp, Lightbulb, BookOpen } from "lucide-react";
 import type { Question } from "@/lib/types";
 
 interface QuestionGroupProps {
@@ -80,12 +80,6 @@ export default function QuestionGroup({
                   className="flex-1 flex items-center justify-center gap-1.5 rounded-lg border border-border py-2 text-xs text-foreground hover:bg-muted transition">
                   <Lightbulb className="w-3.5 h-3.5 text-amber-500" />
                   给我一点提示
-                </button>
-                <button
-                  onClick={() => router.push(`/question?qid=${q.question_id}&action=step`)}
-                  className="flex-1 flex items-center justify-center gap-1.5 rounded-lg border border-border py-2 text-xs text-foreground hover:bg-muted transition">
-                  <ListOrdered className="w-3.5 h-3.5 text-blue-500" />
-                  分步讲给我听
                 </button>
                 <button
                   onClick={() => router.push(`/question?qid=${q.question_id}&action=solve`)}
