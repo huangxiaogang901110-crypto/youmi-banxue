@@ -125,7 +125,8 @@ function WorkspaceContent() {
   // ── 当前孩子名 ──
   const [childName, setChildName] = useState("");
 
-  // ── 诊断事件日志 ──
+  // ── 诊断事件日志（仅 ?debug=1 时启用 UI 面板）──
+  const showDebug = searchParams.get("debug") === "1";
   const [diagEvents, setDiagEvents] = useState<DiagEvent[]>([]);
   const [diagExpanded, setDiagExpanded] = useState(false);
   const addDiagEvent = useCallback((type: string, data: Record<string, unknown> = {}) => {
@@ -509,7 +510,7 @@ function WorkspaceContent() {
   if (isRestoring && (status === "loading" || status === "polling")) {
     return (
       <div className="space-y-4 pb-4">
-        <DiagPanel events={diagEvents} expanded={diagExpanded} onToggle={() => setDiagExpanded(!diagExpanded)} />
+        {showDebug && <DiagPanel events={diagEvents} expanded={diagExpanded} onToggle={() => setDiagExpanded(!diagExpanded)} />}
         <ProcessingStatus status={job?.status || "uploaded"} />
       </div>
     );
@@ -519,7 +520,7 @@ function WorkspaceContent() {
   if (status === "loading") {
     return (
       <div className="space-y-4 pb-4">
-        <DiagPanel events={diagEvents} expanded={diagExpanded} onToggle={() => setDiagExpanded(!diagExpanded)} />
+        {showDebug && <DiagPanel events={diagEvents} expanded={diagExpanded} onToggle={() => setDiagExpanded(!diagExpanded)} />}
         <div className="flex items-center justify-center py-20">
           <Loader2 className="w-8 h-8 text-primary animate-spin" />
         </div>
@@ -541,7 +542,7 @@ function WorkspaceContent() {
           <span className="text-primary font-medium">剩余 50 学豆</span>
         </div>
 
-        <DiagPanel events={diagEvents} expanded={diagExpanded} onToggle={() => setDiagExpanded(!diagExpanded)} />
+        {showDebug && <DiagPanel events={diagEvents} expanded={diagExpanded} onToggle={() => setDiagExpanded(!diagExpanded)} />}
 
         {phase === "compressing" || phase === "initializing" || phase === "uploading" ? (
           <div className="bg-card rounded-2xl p-10 shadow-sm border border-border text-center space-y-4">
@@ -677,7 +678,7 @@ function WorkspaceContent() {
     const jid = searchParams.get("job_id");
     return (
       <div className="space-y-4 pb-4">
-        <DiagPanel events={diagEvents} expanded={diagExpanded} onToggle={() => setDiagExpanded(!diagExpanded)} />
+        {showDebug && <DiagPanel events={diagEvents} expanded={diagExpanded} onToggle={() => setDiagExpanded(!diagExpanded)} />}
         <ErrorDisplay
           message={error || "该任务已失效"}
           action="返回工作台重新上传"
@@ -697,7 +698,7 @@ function WorkspaceContent() {
   if (status === "polling") {
     return (
       <div className="space-y-4">
-        <DiagPanel events={diagEvents} expanded={diagExpanded} onToggle={() => setDiagExpanded(!diagExpanded)} />
+        {showDebug && <DiagPanel events={diagEvents} expanded={diagExpanded} onToggle={() => setDiagExpanded(!diagExpanded)} />}
         <div className="flex items-center justify-between">
           <span className="text-sm text-muted-foreground">正在处理中…</span>
           <button
@@ -763,7 +764,7 @@ function WorkspaceContent() {
 
   return (
     <div className="space-y-4 pb-4">
-      <DiagPanel events={diagEvents} expanded={diagExpanded} onToggle={() => setDiagExpanded(!diagExpanded)} />
+      {showDebug && <DiagPanel events={diagEvents} expanded={diagExpanded} onToggle={() => setDiagExpanded(!diagExpanded)} />}
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-semibold text-foreground">
           共 {job?.questions_count || qs.length} 题

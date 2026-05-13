@@ -63,9 +63,7 @@ export default function BboxOverlay({ bboxes, activeIndex, imageUrl }: Props) {
       {imageUrl ? (
         <img ref={imgRef} src={imageUrl} alt="作业" className="w-full rounded-xl" />
       ) : (
-        <div className="aspect-[4/3] bg-muted rounded-xl flex items-center justify-center">
-          <span className="text-muted-foreground text-sm">题目区域</span>
-        </div>
+        <div className="text-xs text-muted-foreground text-center py-1">（题目区域 — 上传原图后可查看定位）</div>
       )}
 
       {/* Focus mask: dim non-active areas */}
