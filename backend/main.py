@@ -402,6 +402,11 @@ async def grade_answers(jid: str, questions: list, trace_id: str, parent_id: str
                 q["grading_explanation"] = _expl
 
         print(f"[BG] Grading OK for {jid}: {len(grades)}/{len(gradable)} graded", flush=True)
+        # 诊断：判对错统计
+        _correct = sum(1 for g in grade_map.values() if g.get("is_correct") is True)
+        _wrong = sum(1 for g in grade_map.values() if g.get("is_correct") is False)
+        _sa_count = len(gradable)
+        print(f"[diag] grading_completed jid={jid} total={len(questions)} graded={len(grades)} correct={_correct} wrong={_wrong} has_child_answer={_sa_count}", flush=True)
     except Exception as e:
         print(f"[BG] Grading exception for {jid}: {e}", flush=True)
         _log_error(f"grading_failed jid={jid}: {e}", trace_id=trace_id)
@@ -1034,6 +1039,10 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
             print(f"[BG] Grading stage failed (non-blocking): {_ge}", flush=True)
         total_parse_cost += grading_cost
         save_result(jid, questions, now, file, final_status)
+        # 诊断：判对错保存统计
+        _with_g = sum(1 for q in questions if (getattr(q, "is_correct", None) is not None) or (isinstance(q, dict) and q.get("is_correct") is not None))
+        _with_sa = sum(1 for q in questions if (getattr(q, "student_answer", None)) or (isinstance(q, dict) and q.get("student_answer")))
+        print(f"[diag] grading_saved jid={jid} questions={len(questions)} with_grading={_with_g} with_child_answer={_with_sa}", flush=True)
         print(f"[diag] worker_completed jid={jid} status={final_status.value} qcount={len(questions)} cost_cny={total_parse_cost:.4f}", flush=True)
 
     except Exception as e:
@@ -1136,6 +1145,10 @@ async def recover_by_job_id(job_id: str, user: tuple = Depends(get_current_user)
                 st = str(job.status) if hasattr(job, "status") else job.get("status", "?")
                 qcount = job.questions_count if hasattr(job, "questions_count") else len(j.get("questions", []))
                 print(f"[diag] recover_by_jid jid={job_id} result=memory status={st} qcount={qcount}", flush=True)
+                # 诊断 grading 字段
+                qs = j.get("questions", [])
+                _wg = sum(1 for q in qs if (getattr(q, "is_correct", None) is not None) or (isinstance(q, dict) and q.get("is_correct") is not None))
+                print(f"[diag] recover_return jid={job_id} qcount={qcount} with_grading={_wg}", flush=True)
                 return {"ok": True, "data": {"job_id": job_id, "status": st, "questions_count": qcount, "file_name": getattr(job, "file_name", "") or job.get("file_name", "")}, "request_id": uuid.uuid4().hex}
         # 2. DB
         import sqlite3, json
@@ -1252,6 +1265,10 @@ async def get_parse_job_questions(job_id: str, user: tuple = Depends(get_current
             qs = _jobs[job_id]["questions"]
             # 兼容 load_all 恢复的 dict 和运行时 Pydantic 对象
             data = [q.model_dump() if hasattr(q, "model_dump") else q for q in qs]
+            # 诊断
+            _with_g = sum(1 for d in data if d.get("is_correct") is not None)
+            _with_sa = sum(1 for d in data if d.get("student_answer"))
+            print(f"[diag] questions_return jid={job_id} source=memory qcount={len(data)} with_grading={_with_g} with_child_answer={_with_sa}", flush=True)
             return {"ok": True, "data": data, "request_id": uuid.uuid4().hex}
         # 2) DB 回退（跨重启 / 历史记录）— data 列存的是 JSON dict，直接返回
         db_data = _db.get_job_data(job_id)

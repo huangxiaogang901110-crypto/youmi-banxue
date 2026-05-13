@@ -192,6 +192,9 @@ function WorkspaceContent() {
         if (res.ok && res.data) {
           const j = res.data;
           addDiagEvent("recover_success", { jid: j.job_id, status: String(j.status), attempts: attempt + 1 });
+          if (j.questions_count > 0) {
+            addDiagEvent("questions_received", { source: "recover", jid: j.job_id.slice(0,8), qcount: j.questions_count });
+          }
           clearPendingUpload();
           setPhase("idle");
           setUploadError("");
@@ -277,9 +280,12 @@ function WorkspaceContent() {
     }
   }, [status, router, history]);
 
-  // 任务完成 → 更新历史
+  // 任务完成 → 更新历史 + 诊断 grading 字段
   useEffect(() => {
     if (status === "completed" && job?.job_id && questions) {
+      const _wg = questions.filter(q => q.is_correct !== null && q.is_correct !== undefined).length;
+      const _wsa = questions.filter(q => q.student_answer).length;
+      addDiagEvent("questions_received", { source: "poll", jid: job.job_id.slice(0, 8), qcount: questions.length, with_grading: _wg, with_child_answer: _wsa });
       upsert({
         job_id: job.job_id,
         file_name: job.file_name || "",
@@ -416,6 +422,9 @@ function WorkspaceContent() {
         if (res.ok && res.data) {
           const d = res.data;
           addDiagEvent("retry_recover_ok", { jid: d.job_id?.slice(0, 8) || "", status: d.status, qcount: d.questions_count });
+          if (d.questions_count > 0) {
+            addDiagEvent("questions_received", { source: "retry_recover", jid: d.job_id?.slice(0,8) || "", qcount: d.questions_count });
+          }
           if (d.status === "completed" && d.questions_count > 0) {
             router.replace(`/workspace?job_id=${d.job_id}`);
             setPhase("idle");
@@ -707,6 +716,10 @@ function WorkspaceContent() {
   const qs = questions || [];
   const groupSize = calcGroupSize(qs.length);
 
+  // 诊断：渲染前检查 grading 字段
+  const _render_wg = qs.filter(q => q.is_correct !== null && q.is_correct !== undefined).length;
+  const _render_wsa = qs.filter(q => q.student_answer).length;
+
   // 按 section_title 预分组（如果有分组信息）
   const hasSections = qs.some(q => q.section_title);
   let sectionedGroups: { title: string; questions: Question[]; startNumber: number }[] = [];
@@ -754,6 +767,9 @@ function WorkspaceContent() {
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-semibold text-foreground">
           共 {job?.questions_count || qs.length} 题
+          <span className="text-xs text-muted-foreground ml-2 font-normal">
+            (判对错:{_render_wg}/{qs.length} 答案:{_render_wsa}/{qs.length})
+          </span>
         </h2>
         <div className="flex items-center gap-2">
           <button
