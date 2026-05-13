@@ -93,11 +93,14 @@ class QwenVLClient:
         """
         prompt = (
             "请识别这张作业图片中的所有题目。对每道题，输出：题号、题目类型（选择题/填空题/计算题/应用题等）、"
-            "题目文字内容。请用 JSON 数组格式输出，格式为 "
-            '[{"number":题号,"type":"类型","content":"题目文字"}]。'
+            "题目文字内容、孩子手写/填写的答案。"
+            "请用 JSON 数组格式输出，格式为 "
+            '[{"number":题号,"type":"类型","content":"题目文字","student_answer":"孩子答案"}]。'
+            "如果孩子没有写、看不清、被遮挡，student_answer 填 null。"
+            "不要把题目自带的例题答案、解析文字当成孩子答案。"
             "只输出 JSON 数组，不要有其他文字。"
         )
-        r = self._call(image_bytes, prompt, max_tokens=2000)
+        r = self._call(image_bytes, prompt, max_tokens=3000)
         if not r["success"]:
             return {"questions": [], "success": False, "latency_ms": r["latency_ms"], "error": r.get("error", "unknown")}
 

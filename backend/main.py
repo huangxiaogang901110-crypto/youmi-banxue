@@ -148,6 +148,9 @@ class Question(BaseModel):
     crop_url: Optional[str] = None
     visual_description: Optional[str] = None
     status: QuestionStatus = QuestionStatus.pending
+    student_answer: Optional[str] = None
+    is_correct: Optional[bool] = None
+    grading_explanation: Optional[str] = None
 
 class TutorRequest(BaseModel):
     mode: str  # initial | followup
@@ -285,6 +288,117 @@ def save_result(jid: str, questions: list, now: str, file, status: JobStatus):
                             "progress": progress, "error_code": error_code,
                             "retry_count": retry_count, "completed_at": completed_at,
                         }, default=str))
+
+
+async def grade_answers(jid: str, questions: list, trace_id: str, parent_id: str, child_id: str) -> float:
+    """DeepSeek 批量判对错。返回 grading 总成本 CNY。
+    失败时所有题 is_correct=null, grading_explanation='暂未判定'。
+    """
+    # 只对有 student_answer 的题判题
+    gradable = [(i, q) for i, q in enumerate(questions)
+                 if hasattr(q, "student_answer") and q.student_answer or
+                 isinstance(q, dict) and q.get("student_answer")]
+    if not gradable:
+        return 0.0
+
+    # 构建批量判题 prompt
+    items = []
+    for idx, q in gradable:
+        _qt = q.question_text if hasattr(q, "question_text") else q.get("question_text", "")
+        _sa = q.student_answer if hasattr(q, "student_answer") else q.get("student_answer", "")
+        _typ = q.get("type", "") if isinstance(q, dict) else getattr(q, "_type", "")
+        items.append({
+            "index": idx,
+            "number": q.question_number if hasattr(q, "question_number") else q.get("question_number", 0),
+            "type": _typ,
+            "content": _qt[:200],
+            "student_answer": str(_sa)[:200],
+        })
+
+    prompt = (
+        "你是小学/初中作业批改老师。下面是一个作业的题目和孩子写的答案，请逐题判对错。\n"
+        "输出 JSON 数组格式：[{\"index\":序号,\"number\":题号,\"is_correct\":true|false|null,\"grading_explanation\":\"简短解释\"}]\n"
+        "如果无法确定对错（答案模糊/不完整），is_correct 填 null。解释要短，面向家长和孩子。\n"
+        f"题目列表：\n{json.dumps(items, ensure_ascii=False, default=str)}\n"
+        "只输出 JSON 数组，不要其他文字。"
+    )
+
+    ds = DeepSeekClient()
+    grading_cost = 0.0
+    try:
+        _log_info(f"grading_start jid={jid} count={len(gradable)}", trace_id=trace_id, parent_id=parent_id, child_id=child_id)
+        t_start = time.time()
+        result = ds.tutor([
+            {"role": "system", "content": "你是作业批改老师，输出纯 JSON 数组。"},
+            {"role": "user", "content": prompt},
+        ], max_tokens=1024)
+        latency_ms = int((time.time() - t_start) * 1000)
+
+        # 记录模型调用
+        pricing = get_active_pricing("deepseek", "deepseek-chat")
+        usage = result.get("usage", {}) or {}
+        glog = make_log_entry(
+            task_id=jid, provider_name="deepseek", model_name="deepseek-chat",
+            feature_code="deepseek_grade_answers", trace_id=trace_id,
+            sub_stage="grading", latency_ms=latency_ms,
+            success=result["success"],
+            input_tokens=usage.get("input_tokens", 0),
+            output_tokens=usage.get("output_tokens", 0),
+            parent_user_id=parent_id, child_id=child_id,
+            error_code=result.get("error"),
+            billing_status="free_tier" if result["success"] else "failed",
+            pricing=pricing, question_count=len(gradable),
+        )
+        grading_cost = glog.get("cost_cny", 0.0)
+        _model_calls.append(glog)
+        _db.save_model_call(glog)
+
+        if not result["success"]:
+            print(f"[BG] Grading failed for {jid}: {result.get('error', 'unknown')}", flush=True)
+            return grading_cost
+
+        # 解析 DeepSeek 返回的 JSON
+        content = result["reply_text"]
+        import re as _re
+        json_match = _re.search(r'\[.*\]', content, _re.DOTALL)
+        grades = json.loads(json_match.group()) if json_match else []
+        if not isinstance(grades, list):
+            grades = []
+
+        # 回填 by index
+        grade_map = {}
+        for g in grades:
+            if isinstance(g, dict) and "index" in g:
+                grade_map[g["index"]] = g
+
+        for idx, q in enumerate(questions):
+            g = grade_map.get(idx)
+            if g:
+                _is_correct = g.get("is_correct")
+                if _is_correct not in (True, False):
+                    _is_correct = None
+                _expl = g.get("grading_explanation", "暂未判定") if g.get("grading_explanation") else "暂未判定"
+            else:
+                # 无 student_answer 或 grading 未覆盖
+                _sa2 = q.student_answer if hasattr(q, "student_answer") else q.get("student_answer") if isinstance(q, dict) else None
+                if _sa2:
+                    _is_correct = None
+                    _expl = "暂未判定"
+                else:
+                    _is_correct = None
+                    _expl = ""
+            if hasattr(q, "is_correct"):
+                q.is_correct = _is_correct
+                q.grading_explanation = _expl
+            else:
+                q["is_correct"] = _is_correct
+                q["grading_explanation"] = _expl
+
+        print(f"[BG] Grading OK for {jid}: {len(grades)}/{len(gradable)} graded", flush=True)
+    except Exception as e:
+        print(f"[BG] Grading exception for {jid}: {e}", flush=True)
+        _log_error(f"grading_failed jid={jid}: {e}", trace_id=trace_id)
+    return grading_cost
 
 
 # ─── 鉴权端点 ──────────────────────────────────────────────
@@ -522,6 +636,10 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
                 for i, rq in enumerate(raw_questions):
                     qid = f"{jid}-{rq.get('number', i+1)}-{i}"
                     q_text = rq.get("content", f"第{rq.get('number', i+1)}题")
+                    # 安全提取 student_answer：null/None/空字符串视为无答案
+                    student_ans = rq.get("student_answer")
+                    if student_ans is None or (isinstance(student_ans, str) and not student_ans.strip()):
+                        student_ans = None
                     # 安全解析题号：Qwen-VL 可能返回非数字（如 "VOCABULARY 1"）
                     raw_no = rq.get("number", i+1)
                     try:
@@ -535,6 +653,7 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
                         bbox=[0, 0, 0, 0],  # 全图识题无精确 bbox
                         visual_description=shared_vd,
                         status=QuestionStatus.completed,
+                        student_answer=student_ans,
                     ))
                     _db.create_question_item(qid, aid, page_id, q_no, q_text, [0, 0, 0, 0], shared_vd[:200],
                                               source_call_id=qwen_parse_call_id, parse_cost_allocated_cny=parse_cost_per_q)
@@ -732,6 +851,13 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
         _jobs[jid]["parser_model"] = "qwen-vl-max"
         _jobs[jid]["qwen_parse_call_id"] = qwen_parse_call_id
         _jobs[jid]["total_parse_cost_cny"] = total_parse_cost
+        # ── Stage: grading ── DeepSeek 批量判对错 ──
+        grading_cost = 0.0
+        try:
+            grading_cost = await grade_answers(jid, questions, trace_id, parent_id, child_id)
+        except Exception as _ge:
+            print(f"[BG] Grading stage failed (non-blocking): {_ge}", flush=True)
+        total_parse_cost += grading_cost
         save_result(jid, questions, now, file, final_status)
 
     except Exception as e:
@@ -885,8 +1011,11 @@ async def get_question_detail(question_id: str):
     try:
         for jid, j in _jobs.items():
             for q in j.get("questions", []):
-                if q.question_id == question_id:
-                    return {"ok": True, "data": q.model_dump(), "request_id": uuid.uuid4().hex}
+                _qid = getattr(q, "question_id", None) or q.get("question_id", "")
+                if _qid == question_id:
+                    # 兼容 dict 和 Question 对象
+                    _qd = q.model_dump() if hasattr(q, "model_dump") else q
+                    return {"ok": True, "data": _qd, "request_id": uuid.uuid4().hex}
         raise HTTPException(status_code=404, detail={"ok": False, "code": "not_found", "message": "题目不存在", "request_id": uuid.uuid4().hex})
     except HTTPException:
         raise
@@ -923,11 +1052,12 @@ async def update_question_status(question_id: str, body: QuestionStatusRequest, 
 async def tutor_question(question_id: str, body: TutorRequest, request: Request, user: tuple = Depends(get_current_user)):
     """DeepSeek 单题辅导 — 基准 Table 11 R4, 不接收图片 Base64"""
     try:
-        # Find question from all jobs
+        # Find question from all jobs (兼容 dict 和 Question 对象)
         q_found = None
         for j in _jobs.values():
             for q in j.get("questions", []):
-                if q.question_id == question_id:
+                _qid = getattr(q, "question_id", None) or q.get("question_id", "")
+                if _qid == question_id:
                     q_found = q
                     break
 
@@ -982,10 +1112,13 @@ async def tutor_question(question_id: str, body: TutorRequest, request: Request,
         t_start = time.time()
         ds = DeepSeekClient()
         feat_code = "deepseek_tutor_initial" if body.mode == "initial" else "deepseek_tutor_followup"
+        # 兼容 dict 和 Question 对象
+        _qt = q_found.question_text if hasattr(q_found, "question_text") else q_found.get("question_text", "")
+        _vd = q_found.visual_description if hasattr(q_found, "visual_description") else q_found.get("visual_description", "")
         messages = build_tutor_messages(
             mode=body.mode,
-            question_text=q_found.question_text,
-            visual_description=q_found.visual_description or "",
+            question_text=_qt,
+            visual_description=_vd or "",
             chat_history=history if body.mode == "followup" else None,
             user_message=body.message,
         )
@@ -993,7 +1126,7 @@ async def tutor_question(question_id: str, body: TutorRequest, request: Request,
         latency_ms = int((time.time() - t_start) * 1000)
 
         # Save to chat history + deduct credit — SQLite 持久化
-        history.append({"role": "user", "content": body.message or q_found.question_text})
+        history.append({"role": "user", "content": body.message or _qt})
         history.append({"role": "assistant", "content": result["reply_text"]})
         _tutor_chats[question_id] = history
         _credit_balances[parent_id] = credits - 1
@@ -1003,7 +1136,7 @@ async def tutor_question(question_id: str, body: TutorRequest, request: Request,
         # 写入结构化 ai_tutoring_chat（基准 Table 12，按 sequence_number）
         seq = len(history)
         call_id = uuid.uuid4().hex[:12]
-        _db.save_tutor_message(uuid.uuid4().hex[:12], question_id, child_id_for_credit, seq - 1, "user", body.message or q_found.question_text)
+        _db.save_tutor_message(uuid.uuid4().hex[:12], question_id, child_id_for_credit, seq - 1, "user", body.message or _qt)
         _db.save_tutor_message(call_id, question_id, child_id_for_credit, seq, "assistant", result["reply_text"], call_id)
 
         # ── 成本账本：ai_tutoring_messages + sessions（Hermes 规划 §5.4）──
@@ -1087,10 +1220,11 @@ async def vision_retry(question_id: str, request: Request = None, user: tuple = 
         q_text = ""
         for jid, j in _jobs.items():
             for q in j.get("questions", []):
-                if q.question_id == question_id:
+                _qid = getattr(q, "question_id", None) or q.get("question_id", "")
+                if _qid == question_id:
                     q_found = q
-                    q_bbox = q.bbox
-                    q_text = q.question_text
+                    q_bbox = q.bbox if hasattr(q, "bbox") else q.get("bbox")
+                    q_text = q.question_text if hasattr(q, "question_text") else q.get("question_text", "")
                     break
 
         if not q_found:

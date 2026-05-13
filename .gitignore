@@ -25,3 +25,4 @@ out/
 .DS_Store
 login-baseline*
 *.db.bak*
+backend/logs/

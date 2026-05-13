@@ -21,6 +21,7 @@ interface Message { role: "ai" | "user"; text: string }
 function QuestionPageInner() {
   const searchParams = useSearchParams();
   const id = searchParams.get("qid") || "";
+  const action = searchParams.get("action") || "";
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -30,6 +31,9 @@ function QuestionPageInner() {
   const [restored, setRestored] = useState(false);
   const [currentReply, setCurrentReply] = useState("");
   const [marked, setMarked] = useState<"none" | "mastered" | "mistake">("none");
+  const [studentAnswer, setStudentAnswer] = useState<string | null>(null);
+  const [isCorrect, setIsCorrect] = useState<boolean | null>(null);
+  const [gradingExplanation, setGradingExplanation] = useState<string | null>(null);
   const msgEndRef = useRef<HTMLDivElement>(null);
 
   const { displayed, isComplete, skip } = useTypewriter({
@@ -54,7 +58,12 @@ function QuestionPageInner() {
           setMessages((prev) => [...prev, { role: "ai", text: `🔍 视觉重读：${v.reply_text}` }]);
         }
         const qResp = await questionApi.getDetail(id);
-        if (qResp.ok && qResp.data) setQuestionText(qResp.data.question_text);
+        if (qResp.ok && qResp.data) {
+          setQuestionText(qResp.data.question_text);
+          setStudentAnswer(qResp.data.student_answer || null);
+          setIsCorrect(qResp.data.is_correct ?? null);
+          setGradingExplanation(qResp.data.grading_explanation || null);
+        }
         setRestored(true);
       } catch { setRestored(true); }
     })();
@@ -62,6 +71,22 @@ function QuestionPageInner() {
 
   // ── Auto-scroll ──
   useEffect(() => { msgEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, displayed]);
+
+  // ── Auto-trigger tutoring from workspace action ──
+  const triggeredRef = useRef(false);
+  useEffect(() => {
+    if (!restored || triggeredRef.current || messages.length > 0) return;
+    const actionMap: Record<string, string> = {
+      hint: "请给我一点提示",
+      step: "请分步讲解",
+      solve: "请给出完整解析",
+    };
+    const msg = actionMap[action];
+    if (msg) {
+      triggeredRef.current = true;
+      doTutor("initial", msg);
+    }
+  }, [restored, action, messages.length]);
 
   const creditBalance = useEntitlementStore((s) => s.creditBalance);
   const deductLocal = useEntitlementStore((s) => s.deductLocal);
@@ -138,6 +163,25 @@ function QuestionPageInner() {
           {questionText ? questionText.slice(0, 30) + "…" : "加载中…"}
         </span>
       </div>
+
+      {/* 判题结果 */}
+      {studentAnswer && (
+        <div className="rounded-xl border border-border p-3 mb-3 space-y-1.5 text-sm">
+          <div className="flex items-center gap-2">
+            <span className="text-muted-foreground">孩子答案：</span>
+            <span className="font-medium">{studentAnswer}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-muted-foreground">判题结果：</span>
+            {isCorrect === true && <span className="text-green-600 font-medium">✓ 正确</span>}
+            {isCorrect === false && <span className="text-red-500 font-medium">✗ 错误</span>}
+            {isCorrect === null && <span className="text-muted-foreground">未判定</span>}
+          </div>
+          {gradingExplanation && (
+            <p className="text-xs text-muted-foreground">{gradingExplanation}</p>
+          )}
+        </div>
+      )}
 
       {/* Crop image placeholder */}
       <div className="bg-muted rounded-xl h-36 flex items-center justify-center mb-3 border border-border relative overflow-hidden">

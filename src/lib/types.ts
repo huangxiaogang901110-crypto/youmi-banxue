@@ -85,6 +85,12 @@ export interface Question {
   visual_description?: string;
   /** 题目处理状态 */
   status: QuestionStatus;
+  /** 孩子手写/填写的答案（Qwen-VL 识别） */
+  student_answer?: string | null;
+  /** DeepSeek 判对错结果 */
+  is_correct?: boolean | null;
+  /** DeepSeek 判题简短解释 */
+  grading_explanation?: string | null;
 }
 
 /**

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { ChevronDown, ChevronUp, Lightbulb, ListOrdered, BookOpen } from "lucide-react";
 import type { Question } from "@/lib/types";
 
@@ -20,6 +21,7 @@ export default function QuestionGroup({
   defaultOpen = false,
 }: QuestionGroupProps) {
   const [open, setOpen] = useState(defaultOpen);
+  const router = useRouter();
 
   return (
     <div className="bg-card rounded-2xl shadow-sm border border-border overflow-hidden">
@@ -56,19 +58,38 @@ export default function QuestionGroup({
                 <p className="text-sm text-foreground leading-relaxed flex-1">
                   {q.question_text || `(题目 #${q.question_number} — 识别中)`}
                 </p>
+                {/* 判题结果 */}
+                {q.student_answer != null && q.is_correct === true && (
+                  <span className="text-xs text-green-600 font-medium shrink-0 mt-0.5">✓ 正确</span>
+                )}
+                {q.student_answer != null && q.is_correct === false && (
+                  <span className="text-xs text-red-500 font-medium shrink-0 mt-0.5">✗ 错误</span>
+                )}
+                {q.student_answer != null && q.is_correct == null && (
+                  <span className="text-xs text-muted-foreground shrink-0 mt-0.5">未判定</span>
+                )}
+                {q.student_answer == null && (
+                  <span className="text-xs text-muted-foreground shrink-0 mt-0.5">未作答</span>
+                )}
               </div>
 
               {/* 操作按钮 */}
               <div className="flex gap-2 pl-8">
-                <button className="flex-1 flex items-center justify-center gap-1.5 rounded-lg border border-border py-2 text-xs text-foreground hover:bg-muted transition">
+                <button
+                  onClick={() => router.push(`/question?qid=${q.question_id}&action=hint`)}
+                  className="flex-1 flex items-center justify-center gap-1.5 rounded-lg border border-border py-2 text-xs text-foreground hover:bg-muted transition">
                   <Lightbulb className="w-3.5 h-3.5 text-amber-500" />
                   给我一点提示
                 </button>
-                <button className="flex-1 flex items-center justify-center gap-1.5 rounded-lg border border-border py-2 text-xs text-foreground hover:bg-muted transition">
+                <button
+                  onClick={() => router.push(`/question?qid=${q.question_id}&action=step`)}
+                  className="flex-1 flex items-center justify-center gap-1.5 rounded-lg border border-border py-2 text-xs text-foreground hover:bg-muted transition">
                   <ListOrdered className="w-3.5 h-3.5 text-blue-500" />
                   分步讲给我听
                 </button>
-                <button className="flex-1 flex items-center justify-center gap-1.5 rounded-lg bg-primary text-primary-foreground py-2 text-xs font-medium hover:opacity-90 transition">
+                <button
+                  onClick={() => router.push(`/question?qid=${q.question_id}&action=solve`)}
+                  className="flex-1 flex items-center justify-center gap-1.5 rounded-lg bg-primary text-primary-foreground py-2 text-xs font-medium hover:opacity-90 transition">
                   <BookOpen className="w-3.5 h-3.5" />
                   查看完整解析
                 </button>

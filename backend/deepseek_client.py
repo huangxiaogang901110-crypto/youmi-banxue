@@ -70,7 +70,10 @@ class DeepSeekClient:
                     "Content-Type": "application/json",
                 },
             )
-            resp = request.urlopen(req, timeout=60)
+            # 绕过全局 SOCKS5 代理（DeepSeek 国内直连）
+            proxy_handler = request.ProxyHandler({})
+            opener = request.build_opener(proxy_handler)
+            resp = opener.open(req, timeout=60)
             data = json.loads(resp.read().decode())
             latency_ms = int((time.time() - t_start) * 1000)
 
@@ -92,7 +95,7 @@ class DeepSeekClient:
             latency_ms = int((time.time() - t_start) * 1000)
             err_body = e.read().decode()[:200]
             return {
-                "reply_text": f"[DeepSeek HTTP {e.code}]",
+                "reply_text": f"[DeepSeek 异常: HTTP {e.code}]",
                 "latency_ms": latency_ms,
                 "success": False,
                 "error": f"HTTP {e.code}: {err_body}",
@@ -147,7 +150,10 @@ class DeepSeekClient:
                     "Content-Type": "application/json",
                 },
             )
-            resp = request.urlopen(req, timeout=30)
+            # 绕过全局 SOCKS5 代理（DeepSeek 国内直连）
+            proxy_handler = request.ProxyHandler({})
+            opener = request.build_opener(proxy_handler)
+            resp = opener.open(req, timeout=30)
             data = json.loads(resp.read().decode())
             latency_ms = int((time.time() - t_start) * 1000)
 
