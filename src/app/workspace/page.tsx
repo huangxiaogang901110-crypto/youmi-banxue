@@ -15,6 +15,7 @@ import { compressImage } from "@/lib/imageCompress";
 import { uuidv4 } from "@/lib/uuid";
 import { authApi, parseJobApi } from "@/lib/api";
 import { getToken } from "@/lib/api";
+import type { QuestionSnapshot } from "@/lib/localCache";
 import type { Bbox } from "@/components/question-list/BboxOverlay";
 import type { RecentJob } from "@/lib/types";
 import type { Question } from "@/lib/types";
@@ -293,6 +294,13 @@ function WorkspaceContent() {
         questions_count: questions.length,
         status: "completed",
         created_at: job.created_at || new Date().toISOString(),
+        questions_snapshot: questions.map(q => ({
+          question_id: q.question_id,
+          question_number: q.question_number,
+          question_text: (q.question_text || "").slice(0, 60),
+          is_correct: q.is_correct ?? null,
+          student_answer: q.student_answer ?? null,
+        })) as QuestionSnapshot[],
       });
     }
   }, [status, questions]);

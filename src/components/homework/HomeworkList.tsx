@@ -50,7 +50,7 @@ export default function HomeworkList({
       {/* 按科目分组 */}
       {subjects.map((subject, si) => {
         const subjDone = subject.tasks.filter(
-          (t, ti) => doneMap[`${si}-${ti}`]
+          (t, ti) => doneMap[`${subject.name}||${t.trim()}`]
         ).length;
         return (
           <div
@@ -82,7 +82,7 @@ export default function HomeworkList({
             </div>
             <ul className="divide-y divide-border">
               {subject.tasks.map((task, ti) => {
-                const key = `${si}-${ti}`;
+                const key = `${subject.name}||${task.trim()}`;
                 const done = !!doneMap[key];
                 return (
                   <li key={ti} className="flex items-center">
@@ -94,7 +94,7 @@ export default function HomeworkList({
                       <span
                         className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors ${
                           done
-                            ? "bg-primary border-primary"
+                            ? "bg-green-400 border-green-400"
                             : "border-muted-foreground/30"
                         }`}
                       >
