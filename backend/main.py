@@ -18,6 +18,7 @@ from ocr_client import AliyunOCRClient
 from question_cutter import cut_to_questions
 from model_logger import make_log_entry
 from db import get_active_pricing
+from logger import info, warning, error, debug
 from vision_client import QwenVLClient
 from deepseek_client import DeepSeekClient
 from tutor_prompt import build_tutor_messages
@@ -363,7 +364,7 @@ async def grade_answers(jid: str, questions: list, trace_id: str, parent_id: str
         _db.save_model_call(glog)
 
         if not result["success"]:
-            print(f"[BG] Grading failed for {jid}: {result.get('error', 'unknown')}", flush=True)
+            error("[BG] Grading failed for {jid}: {result.get('error', 'unknown')}")
             return grading_cost
 
         # 解析 DeepSeek 返回的 JSON
@@ -403,14 +404,14 @@ async def grade_answers(jid: str, questions: list, trace_id: str, parent_id: str
                 q["is_correct"] = _is_correct
                 q["grading_explanation"] = _expl
 
-        print(f"[BG] Grading OK for {jid}: {len(grades)}/{len(gradable)} graded", flush=True)
+        info("[BG] Grading OK for {jid}: {len(grades)}/{len(gradable)} graded")
         # 诊断：判对错统计
         _correct = sum(1 for g in grade_map.values() if g.get("is_correct") is True)
         _wrong = sum(1 for g in grade_map.values() if g.get("is_correct") is False)
         _sa_count = len(gradable)
-        print(f"[diag] grading_completed jid={jid} total={len(questions)} graded={len(grades)} correct={_correct} wrong={_wrong} has_child_answer={_sa_count}", flush=True)
+        debug("[diag] grading_completed jid={jid} total={len(questions)} graded={len(grades)} correct={_correct} wrong={_wrong} has_child_answer={_sa_count}")
     except Exception as e:
-        print(f"[BG] Grading exception for {jid}: {e}", flush=True)
+        error("[BG] Grading exception for {jid}: {e}")
         _log_error(f"grading_failed jid={jid}: {e}", trace_id=trace_id)
     return grading_cost
 
@@ -710,20 +711,20 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
         # 上传到 OSS（异步，不阻塞主流程）
         oss_key = _oss.upload_image(contents, jid)
     except Exception as _e:
-        print(f"[BG] OSS upload error: {_e}", flush=True)
+        error("[BG] OSS upload error: {_e}")
         oss_key = None
 
     # register_image 可能因 DB schema 问题失败，不阻塞主流程
     try:
         _db.register_image(jid, f"/tmp/yomi/{jid}.jpg", now, oss_key or "")
     except Exception as _e:
-        print(f"[BG] register_image failed (non-blocking): {_e}", flush=True)
+        error("[BG] register_image failed (non-blocking): {_e}")
 
     if oss_key:
         _jobs[jid]["oss_key"] = oss_key
-        print(f"[BG] OSS upload OK: {oss_key}", flush=True)
+        info("[BG] OSS upload OK: {oss_key}")
     else:
-        print(f"[BG] OSS unavailable, using local only", flush=True)
+        info("[BG] OSS unavailable, using local only")
 
     # ── 创建 assignment + page（基准 Table 12）──
     import uuid as _uuid
@@ -731,12 +732,12 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
     try:
         _db.create_assignment(aid, parent_id, child_id, "web_upload", file.filename)
     except Exception as _e:
-        print(f"[BG] create_assignment failed: {_e}", flush=True)
+        error("[BG] create_assignment failed: {_e}")
     page_id = _uuid.uuid4().hex[:12]
     try:
         _db.create_assignment_page(page_id, aid, 1, oss_key or f"/tmp/yomi/{jid}.jpg")
     except Exception as _e:
-        print(f"[BG] create_assignment_page failed: {_e}", flush=True)
+        error("[BG] create_assignment_page failed: {_e}")
     _jobs[jid]["assignment_id"] = aid
     _jobs[jid]["page_id"] = page_id
 
@@ -753,7 +754,7 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
 
         if qwen_vl._available():
             _jobs[jid]["job"].status = JobStatus.ocr_running  # 复用状态表示"识别中"
-            print(f"[BG] Qwen-VL extracting questions for {jid}...", flush=True)
+            info("[BG] Qwen-VL extracting questions for {jid}...")
             qwen_result = qwen_vl.extract_questions(contents)
             qwen_latency = int((time.time() - t_start) * 1000)
             usage = qwen_result.get("usage", {}) if qwen_result.get("success") else {}
@@ -791,7 +792,7 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
                 use_qwen_vl = True
                 raw_questions = qwen_result["questions"]
                 question_count = len(raw_questions)
-                print(f"[BG] Qwen-VL extracted {question_count} questions in {qwen_latency}ms", flush=True)
+                info("[BG] Qwen-VL extracted {question_count} questions in {qwen_latency}ms")
 
                 # 分组展示用：用 raw_content 作为视觉描述
                 shared_vd = qwen_result.get("raw_content", f"Qwen-VL 全图识别，共 {question_count} 题")
@@ -841,7 +842,7 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
                     _db.create_question_item(qid, aid, page_id, q_no, q_text, [0, 0, 0, 0], shared_vd[:200],
                                               source_call_id=qwen_parse_call_id, parse_cost_allocated_cny=parse_cost_per_q)
             else:
-                print(f"[BG] Qwen-VL failed: {qwen_result.get('error', 'no questions')}, falling back to OCR", flush=True)
+                error("[BG] Qwen-VL failed: {qwen_result.get('error', 'no questions')}, falling back to OCR")
 
         # ── OCR 回落（Qwen-VL 失败或不可用时）──
         if not use_qwen_vl:
@@ -883,7 +884,7 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
                     status=QuestionStatus.completed,
                 ))
                 _db.create_question_item(qid, aid, page_id, cq["question_number"], cq["question_text"], cq["bbox"])
-            print(f"[BG] OCR+Cut: {len(extracted['blocks'])} blocks → {len(questions)} questions", flush=True)
+            info("[BG] OCR+Cut: {len(extracted['blocks'])} blocks → {len(questions)} questions")
 
         # Stage: vision_reviewing - Qwen-VL 逐题复审（仅 OCR 回落路径）
         if not use_qwen_vl:
@@ -927,43 +928,43 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
                         )
                         _model_calls.append(_vlog)
                         _db.save_model_call(_vlog)
-                        print(f"[BG] Vision #{qi}: {vl_ms}ms success={vl_result['success']} retries={schema_retries + network_retries}", flush=True)
+                        info("[BG] Vision #{qi}: {vl_ms}ms success={vl_result['success']} retries={schema_retries + network_retries}")
                         break
                     except Exception as ve:
                         err_str = str(ve).lower()
                         if "429" in err_str or "rate_limit" in err_str or "too many requests" in err_str:
                             network_retries += 1
                             if network_retries > MAX_NETWORK_RETRIES:
-                                print(f"[BG] Vision #{qi} RATE LIMITED after {MAX_NETWORK_RETRIES} retries: {ve}", flush=True)
+                                warning("[BG] Vision #{qi} RATE LIMITED after {MAX_NETWORK_RETRIES} retries: {ve}")
                                 q.status = QuestionStatus.failed
                                 break
                             delay = 2 ** network_retries
                             _deferred_vision_tasks.append((qi, q, contents, jid, parent_id, child_id, aid, page_id, network_retries, delay))
-                            print(f"[BG] Vision #{qi} RATE LIMITED, deferred for {delay}s: {ve}", flush=True)
+                            warning("[BG] Vision #{qi} RATE LIMITED, deferred for {delay}s: {ve}")
                             break  # 进延后队列，不阻塞其他题
                         elif "timeout" in err_str or "connection" in err_str or "timed out" in err_str:
                             network_retries += 1
                             if network_retries > MAX_NETWORK_RETRIES:
-                                print(f"[BG] Vision #{qi} NETWORK FAILED after {MAX_NETWORK_RETRIES} retries: {ve}", flush=True)
+                                error("[BG] Vision #{qi} NETWORK FAILED after {MAX_NETWORK_RETRIES} retries: {ve}")
                                 q.status = QuestionStatus.failed
                                 break
                             wait_s = 2 ** network_retries
-                            print(f"[BG] Vision #{qi} network retry {network_retries}/{MAX_NETWORK_RETRIES}, waiting {wait_s}s: {ve}", flush=True)
+                            info("[BG] Vision #{qi} network retry {network_retries}/{MAX_NETWORK_RETRIES}, waiting {wait_s}s: {ve}")
                             await asyncio.sleep(wait_s)
                         else:
                             schema_retries += 1
                             if schema_retries > MAX_SCHEMA_RETRIES:
-                                print(f"[BG] Vision #{qi} SCHEMA FAILED after {MAX_SCHEMA_RETRIES} retries: {ve}", flush=True)
+                                error("[BG] Vision #{qi} SCHEMA FAILED after {MAX_SCHEMA_RETRIES} retries: {ve}")
                                 q.status = QuestionStatus.failed
                                 break
-                            print(f"[BG] Vision #{qi} schema retry {schema_retries}/{MAX_SCHEMA_RETRIES}: {ve}", flush=True)
+                            info("[BG] Vision #{qi} schema retry {schema_retries}/{MAX_SCHEMA_RETRIES}: {ve}")
                             await asyncio.sleep(1)
         else:
-            print(f"[BG] Qwen-VL full-page mode: skipping per-question vision review", flush=True)
+            info("[BG] Qwen-VL full-page mode: skipping per-question vision review")
 
         # ── 延后队列处理（基准 §9/17 — 429 独立队列）────────
         if _deferred_vision_tasks:
-            print(f"[BG] Processing {len(_deferred_vision_tasks)} deferred vision tasks...", flush=True)
+            info("[BG] Processing {len(_deferred_vision_tasks)} deferred vision tasks...")
             MAX_DEFERRED_RETRIES = 3
             deferred_retry = 0
             while _deferred_vision_tasks and deferred_retry < MAX_DEFERRED_RETRIES:
@@ -995,22 +996,22 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
                         )
                         _model_calls.append(_vlog)
                         _db.save_model_call(_vlog)
-                        print(f"[BG] Deferred Vision #{qi} succeeded after {n_retries} retries: {vl_ms}ms", flush=True)
+                        info("[BG] Deferred Vision #{qi} succeeded after {n_retries} retries: {vl_ms}ms")
                     except Exception as ve:
                         err_str = str(ve).lower()
                         next_retries = n_retries + 1
                         if next_retries > MAX_NETWORK_RETRIES:
-                            print(f"[BG] Deferred Vision #{qi} FAILED after {n_retries} retries: {ve}", flush=True)
+                            error("[BG] Deferred Vision #{qi} FAILED after {n_retries} retries: {ve}")
                             q.status = QuestionStatus.failed
                         elif "429" in err_str or "rate_limit" in err_str:
                             next_delay = 2 ** next_retries
                             _deferred_vision_tasks.append((qi, q, contents, jid, parent_id, child_id, aid, page_id, next_retries, next_delay))
-                            print(f"[BG] Deferred Vision #{qi} RE-RATE-LIMITED, re-deferred {next_delay}s", flush=True)
+                            info("[BG] Deferred Vision #{qi} RE-RATE-LIMITED, re-deferred {next_delay}s")
                         else:
-                            print(f"[BG] Deferred Vision #{qi} non-429 error: {ve}", flush=True)
+                            error("[BG] Deferred Vision #{qi} non-429 error: {ve}")
                             q.status = QuestionStatus.failed
             if _deferred_vision_tasks:
-                print(f"[BG] {len(_deferred_vision_tasks)} deferred tasks abandoned after {MAX_DEFERRED_RETRIES} batch retries", flush=True)
+                error("[BG] {len(_deferred_vision_tasks)} deferred tasks abandoned after {MAX_DEFERRED_RETRIES} batch retries")
 
         # Stage: schema_validating — 基准 Table 21
         _jobs[jid]["job"].status = JobStatus.schema_validating
@@ -1039,14 +1040,14 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
         try:
             grading_cost = await grade_answers(jid, questions, trace_id, parent_id, child_id)
         except Exception as _ge:
-            print(f"[BG] Grading stage failed (non-blocking): {_ge}", flush=True)
+            error("[BG] Grading stage failed (non-blocking): {_ge}")
         total_parse_cost += grading_cost
         save_result(jid, questions, now, file, final_status)
         # 诊断：判对错保存统计
         _with_g = sum(1 for q in questions if (getattr(q, "is_correct", None) is not None) or (isinstance(q, dict) and q.get("is_correct") is not None))
         _with_sa = sum(1 for q in questions if (getattr(q, "student_answer", None)) or (isinstance(q, dict) and q.get("student_answer")))
-        print(f"[diag] grading_saved jid={jid} questions={len(questions)} with_grading={_with_g} with_child_answer={_with_sa}", flush=True)
-        print(f"[diag] worker_completed jid={jid} status={final_status.value} qcount={len(questions)} cost_cny={total_parse_cost:.4f}", flush=True)
+        debug("[diag] grading_saved jid={jid} questions={len(questions)} with_grading={_with_g} with_child_answer={_with_sa}")
+        debug("[diag] worker_completed jid={jid} status={final_status.value} qcount={len(questions)} cost_cny={total_parse_cost:.4f}")
 
     except Exception as e:
         latency_ms = int((time.time() - t_start) * 1000)
@@ -1147,7 +1148,7 @@ async def recover_by_job_id(job_id: str, user: tuple = Depends(get_current_user)
     """按 job_id 精确恢复任务状态（poll 失败后前端使用）。查内存+DB。"""
     try:
         _, child_id = user
-        print(f"[diag] recover_by_jid jid={job_id} start", flush=True)
+        debug("[diag] recover_by_jid jid={job_id} start")
         # 1. 内存
         j = _jobs.get(job_id)
         if j:
@@ -1155,11 +1156,11 @@ async def recover_by_job_id(job_id: str, user: tuple = Depends(get_current_user)
             if job:
                 st = str(job.status) if hasattr(job, "status") else job.get("status", "?")
                 qcount = job.questions_count if hasattr(job, "questions_count") else len(j.get("questions", []))
-                print(f"[diag] recover_by_jid jid={job_id} result=memory status={st} qcount={qcount}", flush=True)
+                debug("[diag] recover_by_jid jid={job_id} result=memory status={st} qcount={qcount}")
                 # 诊断 grading 字段
                 qs = j.get("questions", [])
                 _wg = sum(1 for q in qs if (getattr(q, "is_correct", None) is not None) or (isinstance(q, dict) and q.get("is_correct") is not None))
-                print(f"[diag] recover_return jid={job_id} qcount={qcount} with_grading={_wg}", flush=True)
+                debug("[diag] recover_return jid={job_id} qcount={qcount} with_grading={_wg}")
                 return {"ok": True, "data": {"job_id": job_id, "status": st, "questions_count": qcount, "file_name": getattr(job, "file_name", "") or job.get("file_name", "")}, "request_id": uuid.uuid4().hex}
         # 2. DB
         import sqlite3, json
@@ -1167,9 +1168,9 @@ async def recover_by_job_id(job_id: str, user: tuple = Depends(get_current_user)
         row = c.execute("SELECT status, questions_count, file_name FROM parse_jobs WHERE job_id=? AND deleted_at IS NULL", (job_id,)).fetchone()
         c.close()
         if row:
-            print(f"[diag] recover_by_jid jid={job_id} result=db status={row['status']} qcount={row['questions_count']}", flush=True)
+            debug("[diag] recover_by_jid jid={job_id} result=db status={row['status']} qcount={row['questions_count']}")
             return {"ok": True, "data": {"job_id": job_id, "status": row["status"], "questions_count": row["questions_count"], "file_name": row["file_name"] or ""}, "request_id": uuid.uuid4().hex}
-        print(f"[diag] recover_by_jid jid={job_id} result=not_found", flush=True)
+        debug("[diag] recover_by_jid jid={job_id} result=not_found")
         return {"ok": False, "code": "not_found", "message": "任务不存在", "request_id": uuid.uuid4().hex}
     except Exception as e:
         return {"ok": False, "code": "recover_error", "message": str(e), "request_id": uuid.uuid4().hex}
@@ -1183,7 +1184,7 @@ async def recover_parse_job(client_upload_id: str, user: tuple = Depends(get_cur
     try:
         parent_id, child_id = user
         if not client_upload_id:
-            print(f"[diag] recover_get cu=(empty) result=missing_param", flush=True)
+            debug("[diag] recover_get cu=(empty) result=missing_param")
             return {"ok": False, "code": "missing_param", "message": "缺少 client_upload_id", "request_id": uuid.uuid4().hex}
         # 先查内存（更新鲜）
         for jid, j in _jobs.items():
@@ -1191,14 +1192,14 @@ async def recover_parse_job(client_upload_id: str, user: tuple = Depends(get_cur
                 job = j.get("job")
                 if job and hasattr(job, "status") and str(job.status) != "failed":
                     st = str(job.status)
-                    print(f"[diag] recover_get cu={client_upload_id[:16]} result=found_memory jid={jid} status={st}", flush=True)
+                    debug("[diag] recover_get cu={client_upload_id[:16]} result=found_memory jid={jid} status={st}")
                     return {"ok": True, "data": {"job_id": jid, "status": st, "questions_count": job.questions_count or len(j.get("questions", [])), "file_name": job.file_name}, "request_id": uuid.uuid4().hex}
         # 再查 DB（跨重启）
         row = _db.get_job_by_client_upload_id(child_id, client_upload_id)
         if row:
-            print(f"[diag] recover_get cu={client_upload_id[:16]} result=found_db jid={row.get('job_id','?')} status={row.get('status','?')}", flush=True)
+            debug("[diag] recover_get cu={client_upload_id[:16]} result=found_db jid={row.get('job_id','?')} status={row.get('status','?')}")
             return {"ok": True, "data": row, "request_id": uuid.uuid4().hex}
-        print(f"[diag] recover_get cu={client_upload_id[:16]} result=not_found", flush=True)
+        debug("[diag] recover_get cu={client_upload_id[:16]} result=not_found")
         return {"ok": False, "code": "not_found", "message": "未找到对应任务", "request_id": uuid.uuid4().hex}
     except Exception as e:
         return {"ok": False, "code": "recover_error", "message": str(e), "request_id": uuid.uuid4().hex}
@@ -1265,7 +1266,7 @@ async def get_parse_job_status(job_id: str, user: tuple = Depends(get_current_us
         # 诊断日志（每 10 次 poll 记一次，避免刷屏）
         pc = j.get("poll_count", 0)
         if pc % 10 == 1:
-            print(f"[diag] poll_get_job jid={job_id} status={job_status} qcount={job_obj.questions_count} poll=#{pc}", flush=True)
+            debug("[diag] poll_get_job jid={job_id} status={job_status} qcount={job_obj.questions_count} poll=#{pc}")
         return {"ok": True, "data": data, "request_id": uuid.uuid4().hex}
     except HTTPException:
         raise
@@ -1286,7 +1287,7 @@ async def get_parse_job_questions(job_id: str, user: tuple = Depends(get_current
             # 诊断
             _with_g = sum(1 for d in data if d.get("is_correct") is not None)
             _with_sa = sum(1 for d in data if d.get("student_answer"))
-            print(f"[diag] questions_return jid={job_id} source=memory qcount={len(data)} with_grading={_with_g} with_child_answer={_with_sa}", flush=True)
+            debug("[diag] questions_return jid={job_id} source=memory qcount={len(data)} with_grading={_with_g} with_child_answer={_with_sa}")
             return {"ok": True, "data": data, "request_id": uuid.uuid4().hex}
         # 2) DB 回退（跨重启 / 历史记录）— data 列存的是 JSON dict，直接返回
         db_data = _db.get_job_data(job_id)
@@ -1448,7 +1449,7 @@ async def tutor_question(question_id: str, body: TutorRequest, request: Request,
                                        seq, "assistant", result["reply_text"],
                                        call_id=call_id, feature_code=feat_code)
         except Exception as _te:
-            print(f"[Tutor] ai_tutoring_messages write failed (non-blocking): {_te}", flush=True)
+            error("[Tutor] ai_tutoring_messages write failed (non-blocking): {_te}")
 
         # Log model call — SQLite 持久化
         pricing = get_active_pricing("deepseek", "deepseek-chat")
@@ -1491,7 +1492,7 @@ async def tutor_question(question_id: str, body: TutorRequest, request: Request,
                                          actual_cost_cny=actual_cost, credit_delta=-1,
                                          billing_status="free_tier")
         except Exception as _ce:
-            print(f"[Tutor] credit_ledger cost write failed (non-blocking): {_ce}", flush=True)
+            error("[Tutor] credit_ledger cost write failed (non-blocking): {_ce}")
 
         remaining = MAX_ROUNDS - len(history) // 2
         credit_after = credits - 1
@@ -1551,9 +1552,9 @@ async def vision_retry(question_id: str, request: Request = None, user: tuple = 
                 if signed_url:
                     with urllib.request.urlopen(signed_url) as resp:
                         img_bytes = resp.read()
-                    print(f"[Vision] loaded from OSS: {oss_key}", flush=True)
+                    info("[Vision] loaded from OSS: {oss_key}")
             except Exception:
-                print(f"[Vision] OSS load failed, try local", flush=True)
+                error("[Vision] OSS load failed, try local")
 
         # 降级：本地文件
         if img_bytes is None:
@@ -1904,13 +1905,13 @@ async def parse_homework(body: HomeworkParseRequest, request: Request = None):
             _db.save_model_call(_hwlog)
             if ds_result["success"] and ds_result["subjects"]:
                 subjects = [HomeworkSubjectModel(name=s["name"], tasks=s["tasks"]) for s in ds_result["subjects"]]
-                print(f"[HW] DeepSeek parsed {len(subjects)} subjects in {ds_result['latency_ms']}ms", flush=True)
+                info("[HW] DeepSeek parsed {len(subjects)} subjects in {ds_result['latency_ms']}ms")
                 return {
                     "ok": True,
                     "data": HomeworkParseResponse(subjects=subjects, raw_text=body.text).model_dump(),
                     "request_id": uuid.uuid4().hex,
                 }
-            print(f"[HW] DeepSeek failed: {ds_result.get('error')}, falling back to mock", flush=True)
+            error("[HW] DeepSeek failed: {ds_result.get('error')}, falling back to mock")
 
         # ── Mock 回落 ──
         await asyncio.sleep(0.2)

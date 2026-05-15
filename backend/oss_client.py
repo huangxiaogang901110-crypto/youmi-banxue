@@ -5,6 +5,7 @@
 import os
 import uuid
 from pathlib import Path
+from logger import info, warning, error, debug
 
 # Lazy import oss2 (避免启动时加载 C 扩展延迟)
 _client_cache: dict = {}
@@ -60,7 +61,7 @@ def upload_image(image_bytes: bytes, jid: str, suffix: str = "jpg") -> str | Non
         bucket.put_object(oss_key, image_bytes)
         return oss_key
     except Exception as e:
-        print(f"[OSS] upload failed: {e}", flush=True)
+        error(f"[OSS] upload failed: {e}")
         return None
 
 
@@ -75,7 +76,7 @@ def get_signed_url(oss_key: str, expires: int = 86400) -> str | None:
         bucket = _get_bucket()
         return bucket.sign_url("GET", oss_key, expires)
     except Exception as e:
-        print(f"[OSS] sign_url failed: {e}", flush=True)
+        error(f"[OSS] sign_url failed: {e}")
         return None
 
 
@@ -88,7 +89,7 @@ def delete_object(oss_key: str) -> bool:
         bucket.delete_object(oss_key)
         return True
     except Exception as e:
-        print(f"[OSS] delete failed: {e}", flush=True)
+        error(f"[OSS] delete failed: {e}")
         return False
 
 
@@ -105,7 +106,7 @@ def create_bucket_if_not_exists() -> bool:
         service = oss2.Service(auth, _endpoint)
         for b in service.list_buckets().buckets:
             if b.name == _bucket_name:
-                print(f"[OSS] Bucket '{_bucket_name}' 已存在")
+                info(f"[OSS] Bucket '{_bucket_name}' 已存在")
                 return True
         # 创建 bucket
         service.create_bucket(
@@ -123,8 +124,8 @@ def create_bucket_if_not_exists() -> bool:
             expiration=oss2.models.LifecycleExpiration(days=7),
         )
         bucket.put_bucket_lifecycle(oss2.models.BucketLifecycle([rule]))
-        print(f"[OSS] Bucket '{_bucket_name}' 已创建，7 天生命周期已设置")
+        info(f"[OSS] Bucket '{_bucket_name}' 已创建，7 天生命周期已设置")
         return True
     except Exception as e:
-        print(f"[OSS] create_bucket failed: {e}", flush=True)
+        error(f"[OSS] create_bucket failed: {e}")
         return False

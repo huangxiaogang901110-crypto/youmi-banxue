@@ -10,6 +10,7 @@ import time
 from base64 import urlsafe_b64encode, urlsafe_b64decode
 from dataclasses import dataclass
 from typing import Optional
+from logger import info, warning, error, debug
 
 # ─── JWT ───────────────────────────────────────────────────
 
@@ -112,10 +113,10 @@ def init_seed_users():
                 _parents[pid] = ParentUser(id=p["id"], phone=p["phone"], password_hash=p["password_hash"], name=p.get("name", ""))
             for cid, c in db_children.items():
                 _children[cid] = ChildProfile(id=c["id"], parent_id=c["parent_id"], name=c["name"], avatar=c.get("avatar", ""))
-            print(f"[auth] 从 SQLite 恢复 {len(_parents)} 家长, {len(_children)} 孩子")
+            info(f"[auth] 从 SQLite 恢复 {len(_parents)} 家长, {len(_children)} 孩子")
             return
     except Exception as e:
-        print(f"[auth] SQLite 恢复失败: {e}，使用内存种子")
+        info(f"[auth] SQLite 恢复失败: {e}，使用内存种子")
 
     # Fallback: 内存种子 + 落库
     pid = "p001"
@@ -129,9 +130,9 @@ def init_seed_users():
     try:
         _db.save_parent_user(pid, p.phone, p.password_hash, p.name)
         _db.save_child_profile(cid, pid, c.name)
-        print("[auth] 种子用户已落库 SQLite")
+        info(f"[auth] 种子用户已落库 SQLite")
     except Exception as e:
-        print(f"[auth] 种子用户落库失败: {e}")
+        info(f"[auth] 种子用户落库失败: {e}")
 
 
 def get_parent_by_phone(phone: str) -> Optional[ParentUser]:
