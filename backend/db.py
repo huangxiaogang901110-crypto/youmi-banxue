@@ -346,6 +346,7 @@ def init():
         "ALTER TABLE child_profiles ADD COLUMN semester TEXT DEFAULT ''",
         "ALTER TABLE child_profiles ADD COLUMN textbook_version TEXT DEFAULT ''",
         "ALTER TABLE child_profiles ADD COLUMN deleted_at TEXT",
+        "ALTER TABLE child_profiles ADD COLUMN jwt_secret TEXT DEFAULT ''",
         "ALTER TABLE image_registry ADD COLUMN oss_key TEXT DEFAULT ''",
         "ALTER TABLE parse_jobs ADD COLUMN file_name TEXT DEFAULT ''",
         "ALTER TABLE parse_jobs ADD COLUMN questions_count INTEGER DEFAULT 0",
@@ -644,11 +645,11 @@ def load_parent_users() -> dict[str, dict]:
     return result
 
 
-def save_child_profile(cid: str, parent_id: str, name: str, avatar: str = ""):
+def save_child_profile(cid: str, parent_id: str, name: str, avatar: str = "", jwt_secret: str = ""):
     c = _conn()
     c.execute(
-        "INSERT OR REPLACE INTO child_profiles (id, parent_id, name, avatar) VALUES (?, ?, ?, ?)",
-        (cid, parent_id, name, avatar),
+        "INSERT OR REPLACE INTO child_profiles (id, parent_id, name, avatar, jwt_secret) VALUES (?, ?, ?, ?, ?)",
+        (cid, parent_id, name, avatar, jwt_secret),
     )
     c.commit()
     c.close()
@@ -660,6 +661,22 @@ def load_child_profiles() -> dict[str, dict]:
     result = {row["id"]: dict(row) for row in rows}
     c.close()
     return result
+
+
+def get_child_jwt_secret(child_id: str) -> str:
+    """获取指定 child 的 jwt_secret。"""
+    c = _conn()
+    row = c.execute("SELECT jwt_secret FROM child_profiles WHERE id = ?", (child_id,)).fetchone()
+    c.close()
+    return row["jwt_secret"] if row and row["jwt_secret"] else ""
+
+
+def set_child_jwt_secret(child_id: str, secret: str):
+    """设置 child 的 jwt_secret。"""
+    c = _conn()
+    c.execute("UPDATE child_profiles SET jwt_secret = ? WHERE id = ?", (secret, child_id))
+    c.commit()
+    c.close()
 
 
 # ═══════════════════════════════════════════════════════════════
