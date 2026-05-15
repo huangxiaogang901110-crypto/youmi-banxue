@@ -478,6 +478,7 @@ async def register(body: RegisterRequest, request: Request = None):
 
 
 @app.get("/api/auth/children")
+@limiter.limit("10/minute")
 async def list_children(user: tuple = Depends(get_current_user)):
     """获取当前家长的所有孩子"""
     parent_id, _ = user
@@ -1082,6 +1083,7 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
 
 # ─── 2. GET /api/parse-jobs/recent (before {job_id} to avoid conflict) ──
 @app.get("/api/parse-jobs/recent")
+@limiter.limit("20/minute")
 async def get_recent_parse_jobs(user: tuple = Depends(get_current_user)):
     """返回当前 child 最近 10 条解析任务（DB + 内存合并去重）。"""
     try:
@@ -1140,6 +1142,7 @@ async def get_recent_parse_jobs(user: tuple = Depends(get_current_user)):
 
 # ─── 2.3.5. GET /api/parse-jobs/{job_id}/recover ────────────
 @app.get("/api/parse-jobs/{job_id}/recover")
+@limiter.limit("10/minute")
 async def recover_by_job_id(job_id: str, user: tuple = Depends(get_current_user)):
     """按 job_id 精确恢复任务状态（poll 失败后前端使用）。查内存+DB。"""
     try:
@@ -1174,6 +1177,7 @@ async def recover_by_job_id(job_id: str, user: tuple = Depends(get_current_user)
 
 # ─── 2.4. GET /api/parse-jobs/recover?client_upload_id=xxx ──
 @app.get("/api/parse-jobs/recover")
+@limiter.limit("10/minute")
 async def recover_parse_job(client_upload_id: str, user: tuple = Depends(get_current_user)):
     """上传超时后按 client_upload_id 恢复 job。返回 uploaded/processing/completed 状态。"""
     try:
@@ -1202,6 +1206,7 @@ async def recover_parse_job(client_upload_id: str, user: tuple = Depends(get_cur
 
 # ─── 2.5. DELETE /api/parse-jobs/{job_id} (before GET {job_id} to avoid conflict) ──
 @app.delete("/api/parse-jobs/{job_id}")
+@limiter.limit("5/minute")
 async def delete_parse_job(job_id: str, user: tuple = Depends(get_current_user)):
     """软删除解析任务，deleted_at 写入当前时间。"""
     try:
@@ -1223,6 +1228,7 @@ async def delete_parse_job(job_id: str, user: tuple = Depends(get_current_user))
 
 # ─── 3. GET /api/parse-jobs/{job_id} ───────────────────────
 @app.get("/api/parse-jobs/{job_id}")
+@limiter.limit("30/minute")
 async def get_parse_job_status(job_id: str, user: tuple = Depends(get_current_user)):
     try:
         await asyncio.sleep(0.3)
@@ -1268,6 +1274,7 @@ async def get_parse_job_status(job_id: str, user: tuple = Depends(get_current_us
 
 # ─── 4. GET /api/parse-jobs/{job_id}/questions ─────────────
 @app.get("/api/parse-jobs/{job_id}/questions")
+@limiter.limit("30/minute")
 async def get_parse_job_questions(job_id: str, user: tuple = Depends(get_current_user)):
     try:
         await asyncio.sleep(0.3)
@@ -1295,6 +1302,7 @@ async def get_parse_job_questions(job_id: str, user: tuple = Depends(get_current
 
 # ─── 3.5. GET /api/questions/{question_id} ──────────────────
 @app.get("/api/questions/{question_id}")
+@limiter.limit("30/minute")
 async def get_question_detail(question_id: str):
     """获取单题详情，从所有 job 中查找"""
     try:
@@ -1318,6 +1326,7 @@ class QuestionStatusRequest(BaseModel):
     child_answer: str = ""
 
 @app.post("/api/questions/{question_id}/status")
+@limiter.limit("10/minute")
 async def update_question_status(question_id: str, body: QuestionStatusRequest, user: tuple = Depends(get_current_user)):
     """更新题目状态：已掌握 / 加入错题本"""
     try:
@@ -1622,6 +1631,7 @@ async def vision_retry(question_id: str, request: Request = None, user: tuple = 
 
 # ─── 6. GET /api/me/entitlement ────────────────────────────
 @app.get("/api/me/entitlement")
+@limiter.limit("20/minute")
 async def get_entitlement(user: tuple = Depends(get_current_user)):
     try:
         parent_id, child_id = user
@@ -1718,12 +1728,14 @@ async def create_payment_order(body: CreateOrderRequest, request: Request = None
 
 # ─── 11. POST /api/payment/callback (Phase 2 实现) ─────────
 @app.post("/api/payment/callback")
+@limiter.limit("30/minute")
 async def payment_callback():
     """支付回调占位，Phase 2 实现验签与幂等"""
     return {"ok": True, "message": "callback received (placeholder)", "request_id": uuid.uuid4().hex}
 
 # ─── 12. GET /api/billing/credit-ledger (Phase 0 占位) ─────
 @app.get("/api/billing/credit-ledger")
+@limiter.limit("20/minute")
 async def get_credit_ledger(user: tuple = Depends(get_current_user)):
     """学豆流水查询 — 从 DB 真实读取"""
     try:
@@ -1746,6 +1758,7 @@ async def get_credit_ledger(user: tuple = Depends(get_current_user)):
 
 # ─── 13. GET /api/mistakes ──────────────────────────────────
 @app.get("/api/mistakes")
+@limiter.limit("20/minute")
 async def get_mistakes(user: tuple = Depends(get_current_user)):
     """获取当前孩子的错题列表"""
     try:
@@ -1760,6 +1773,7 @@ class SwitchChildRequest(BaseModel):
     child_id: str
 
 @app.post("/api/auth/switch-child")
+@limiter.limit("10/minute")
 async def switch_child(body: SwitchChildRequest, user: tuple = Depends(get_current_user)):
     """切换活跃孩子，返回新 JWT"""
     try:
