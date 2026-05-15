@@ -568,6 +568,17 @@ def save_credit_balance(parent_user_id: str, balance: int):
     c.close()
 
 
+def _update_model_call_credit(call_id: str, credit_delta: int, actual_cost_cny: float):
+    """回写 model_calls.credit_cost（配合 credit_ledger 落账）"""
+    c = _conn()
+    c.execute(
+        "UPDATE model_calls SET credit_cost = ? WHERE id = ?",
+        (credit_delta, call_id),
+    )
+    c.commit()
+    c.close()
+
+
 def load_all():
     """启动时从 SQLite 恢复到内存 — 排除已删除的任务"""
     c = _conn()

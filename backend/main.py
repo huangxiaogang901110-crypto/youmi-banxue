@@ -1481,6 +1481,10 @@ async def tutor_question(question_id: str, body: TutorRequest, request: Request,
                                          question_id=question_id, call_id=call_id,
                                          actual_cost_cny=actual_cost, credit_delta=-1,
                                          billing_status="free_tier")
+            # 同步更新 model_calls.credit_cost
+            call_cid = _tlog.get("id", "")
+            if call_cid and actual_cost > 0:
+                _db._update_model_call_credit(call_cid, -1, actual_cost)
         except Exception as _ce:
             print(f"[Tutor] credit_ledger cost write failed (non-blocking): {_ce}", flush=True)
 
