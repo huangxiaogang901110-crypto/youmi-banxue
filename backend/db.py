@@ -1,6 +1,7 @@
 """
 悠米伴学 SQLite 持久化 — Phase 1
 原 4 表保留（JSON 双写兼容）+ 新增商用表 + 索引 + 图片过期
+PostgreSQL/Supabase 支持：设 SUPABASE_URL 环境变量后 init() 自动创 PG 表
 """
 import json
 import os
@@ -10,6 +11,19 @@ from pathlib import Path
 from typing import Optional
 
 DB_PATH = Path(__file__).parent / "yomi.db"
+
+# 懒加载 PG 适配层（psycopg2 未安装时不报错）
+_db_pg = None
+
+def _get_db_pg():
+    global _db_pg
+    if _db_pg is None:
+        try:
+            import db_pg as _mod
+            _db_pg = _mod
+        except ImportError:
+            _db_pg = False
+    return _db_pg if _db_pg else None
 
 
 def _conn():
@@ -465,6 +479,18 @@ def init():
         c.execute(sql)
     c.commit()
     c.close()
+
+    # ── PostgreSQL/Supabase 同步建表（如果已配置 SUPABASE_URL）──
+    db_pg = _get_db_pg()
+    if db_pg and db_pg.pg_available():
+        try:
+            result = db_pg.migrate_to_pg(dry_run=False)
+            if result["ok"]:
+                print("[db] PG 表结构已同步")
+            else:
+                print(f"[db] PG 建表失败（不影响 SQLite）: {result.get('error', '')}")
+        except Exception as e:
+            print(f"[db] PG init 异常（不影响 SQLite）: {e}")
 
 
 # ═══════════════════════════════════════════════════════════════
