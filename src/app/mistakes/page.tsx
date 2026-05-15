@@ -5,10 +5,12 @@ import { useRouter } from "next/navigation";
 import { Trash2, AlertTriangle, BookOpen, ArrowRight } from "lucide-react";
 import { mistakesApi } from "@/lib/api";
 import type { MistakeItem } from "@/lib/types";
+import ErrorDisplay from "@/components/common/ErrorDisplay";
 
 export default function MistakesPage() {
   const [items, setItems] = useState<MistakeItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
   const router = useRouter();
 
   useEffect(() => {
@@ -16,7 +18,10 @@ export default function MistakesPage() {
       try {
         const resp = await mistakesApi.list();
         if (resp.ok && resp.data) setItems(resp.data);
-      } catch {}
+        else setError(resp.message || "加载失败");
+      } catch {
+        setError("网络错误，请稍后重试");
+      }
       setLoading(false);
     })();
   }, []);
@@ -25,6 +30,14 @@ export default function MistakesPage() {
     return (
       <div className="flex items-center justify-center py-20">
         <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="px-4 py-8">
+        <ErrorDisplay message={error} onRetry={() => { setError(""); setLoading(true); window.location.reload(); }} />
       </div>
     );
   }
@@ -57,8 +70,8 @@ export default function MistakesPage() {
                 </div>
                 <span className={`text-xs px-2 py-0.5 rounded-full ${
                   item.mastery_status === "pending"
-                    ? "bg-amber-50 text-amber-600"
-                    : "bg-green-50 text-green-600"
+                    ? "bg-warning/10 text-warning"
+                    : "bg-primary/10 text-primary"
                 }`}>
                   {item.mastery_status === "pending" ? "待复习" : "已掌握"}
                 </span>
