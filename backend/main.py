@@ -397,7 +397,7 @@ async def grade_answers(jid: str, questions: list, trace_id: str, parent_id: str
         _db.save_model_call(glog)
 
         if not result["success"]:
-            error("[BG] Grading failed for {jid}: {result.get('error', 'unknown')}")
+            error(f"[BG] Grading failed for {jid}: {result.get('error', 'unknown')}")
             return grading_cost
 
         # 解析 DeepSeek 返回的 JSON
@@ -437,14 +437,14 @@ async def grade_answers(jid: str, questions: list, trace_id: str, parent_id: str
                 q["is_correct"] = _is_correct
                 q["grading_explanation"] = _expl
 
-        info("[BG] Grading OK for {jid}: {len(grades)}/{len(gradable)} graded")
+        info(f"[BG] Grading OK for {jid}: {len(grades)}/{len(gradable)} graded")
         # 诊断：判对错统计
         _correct = sum(1 for g in grade_map.values() if g.get("is_correct") is True)
         _wrong = sum(1 for g in grade_map.values() if g.get("is_correct") is False)
         _sa_count = len(gradable)
         debug("[diag] grading_completed jid={jid} total={len(questions)} graded={len(grades)} correct={_correct} wrong={_wrong} has_child_answer={_sa_count}")
     except Exception as e:
-        error("[BG] Grading exception for {jid}: {e}")
+        error(f"[BG] Grading exception for {jid}: {e}")
         _log_error(f"grading_failed jid={jid}: {e}", trace_id=trace_id)
     return grading_cost
 
@@ -513,7 +513,7 @@ async def register(body: RegisterRequest, request: Request = None):
 
 @app.get("/api/auth/children")
 @limiter.limit("10/minute")
-async def list_children(user: tuple = Depends(get_current_user)):
+async def list_children(request: Request, user: tuple = Depends(get_current_user)):
     """获取当前家长的所有孩子"""
     parent_id, _ = user
     children = get_children(parent_id)
@@ -744,18 +744,18 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
         # 上传到 OSS（异步，不阻塞主流程）
         oss_key = _oss.upload_image(contents, jid)
     except Exception as _e:
-        error("[BG] OSS upload error: {_e}")
+        error(f"[BG] OSS upload error: {_e}")
         oss_key = None
 
     # register_image 可能因 DB schema 问题失败，不阻塞主流程
     try:
         _db.register_image(jid, f"/tmp/yomi/{jid}.jpg", now, oss_key or "")
     except Exception as _e:
-        error("[BG] register_image failed (non-blocking): {_e}")
+        error(f"[BG] register_image failed (non-blocking): {_e}")
 
     if oss_key:
         _jobs[jid]["oss_key"] = oss_key
-        info("[BG] OSS upload OK: {oss_key}")
+        info(f"[BG] OSS upload OK: {oss_key}")
         # 生成 OSS 签名 URL（24h 有效），Qwen-VL 通过 URL 读取图片（不传 base64）
         oss_signed_url = _oss.get_signed_url(oss_key, expires=86400)
         _jobs[jid]["oss_signed_url"] = oss_signed_url or ""
@@ -769,12 +769,12 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
     try:
         _db.create_assignment(aid, parent_id, child_id, "web_upload", file.filename)
     except Exception as _e:
-        error("[BG] create_assignment failed: {_e}")
+        error(f"[BG] create_assignment failed: {_e}")
     page_id = _uuid.uuid4().hex[:12]
     try:
         _db.create_assignment_page(page_id, aid, 1, oss_key or f"/tmp/yomi/{jid}.jpg")
     except Exception as _e:
-        error("[BG] create_assignment_page failed: {_e}")
+        error(f"[BG] create_assignment_page failed: {_e}")
     _jobs[jid]["assignment_id"] = aid
     _jobs[jid]["page_id"] = page_id
 
@@ -791,7 +791,7 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
 
         if qwen_vl._available():
             _jobs[jid]["job"].status = JobStatus.ocr_running  # 复用状态表示"识别中"
-            info("[BG] Qwen-VL extracting questions for {jid}...")
+            info(f"[BG] Qwen-VL extracting questions for {jid}...")
             qwen_result = qwen_vl.extract_questions(
                 image_bytes=contents if not oss_signed_url else None,
                 image_url=oss_signed_url,
@@ -832,7 +832,7 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
                 use_qwen_vl = True
                 raw_questions = qwen_result["questions"]
                 question_count = len(raw_questions)
-                info("[BG] Qwen-VL extracted {question_count} questions in {qwen_latency}ms")
+                info(f"[BG] Qwen-VL extracted {question_count} questions in {qwen_latency}ms")
 
                 # 分组展示用：用 raw_content 作为视觉描述
                 shared_vd = qwen_result.get("raw_content", f"Qwen-VL 全图识别，共 {question_count} 题")
@@ -882,7 +882,7 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
                     _db.create_question_item(qid, aid, page_id, q_no, q_text, [0, 0, 0, 0], shared_vd[:200],
                                               source_call_id=qwen_parse_call_id, parse_cost_allocated_cny=parse_cost_per_q)
             else:
-                error("[BG] Qwen-VL failed: {qwen_result.get('error', 'no questions')}, falling back to OCR")
+                error(f"[BG] Qwen-VL failed: {qwen_result.get('error', 'no questions')}, falling back to OCR")
 
         # ── OCR 回落（Qwen-VL 失败或不可用时）──
         if not use_qwen_vl:
@@ -924,7 +924,7 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
                     status=QuestionStatus.completed,
                 ))
                 _db.create_question_item(qid, aid, page_id, cq["question_number"], cq["question_text"], cq["bbox"])
-            info("[BG] OCR+Cut: {len(extracted['blocks'])} blocks → {len(questions)} questions")
+            info(f"[BG] OCR+Cut: {len(extracted['blocks'])} blocks → {len(questions)} questions")
 
         # Stage: vision_reviewing - Qwen-VL 逐题复审（仅 OCR 回落路径）
         if not use_qwen_vl:
@@ -969,43 +969,43 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
                         )
                         _model_calls.append(_vlog)
                         _db.save_model_call(_vlog)
-                        info("[BG] Vision #{qi}: {vl_ms}ms success={vl_result['success']} retries={schema_retries + network_retries}")
+                        info(f"[BG] Vision #{qi}: {vl_ms}ms success={vl_result['success']} retries={schema_retries + network_retries}")
                         break
                     except Exception as ve:
                         err_str = str(ve).lower()
                         if "429" in err_str or "rate_limit" in err_str or "too many requests" in err_str:
                             network_retries += 1
                             if network_retries > MAX_NETWORK_RETRIES:
-                                warning("[BG] Vision #{qi} RATE LIMITED after {MAX_NETWORK_RETRIES} retries: {ve}")
+                                warning(f"[BG] Vision #{qi} RATE LIMITED after {MAX_NETWORK_RETRIES} retries: {ve}")
                                 q.status = QuestionStatus.failed
                                 break
                             delay = 2 ** network_retries
                             _deferred_vision_tasks.append((qi, q, contents, jid, parent_id, child_id, aid, page_id, network_retries, delay))
-                            warning("[BG] Vision #{qi} RATE LIMITED, deferred for {delay}s: {ve}")
+                            warning(f"[BG] Vision #{qi} RATE LIMITED, deferred for {delay}s: {ve}")
                             break  # 进延后队列，不阻塞其他题
                         elif "timeout" in err_str or "connection" in err_str or "timed out" in err_str:
                             network_retries += 1
                             if network_retries > MAX_NETWORK_RETRIES:
-                                error("[BG] Vision #{qi} NETWORK FAILED after {MAX_NETWORK_RETRIES} retries: {ve}")
+                                error(f"[BG] Vision #{qi} NETWORK FAILED after {MAX_NETWORK_RETRIES} retries: {ve}")
                                 q.status = QuestionStatus.failed
                                 break
                             wait_s = 2 ** network_retries
-                            info("[BG] Vision #{qi} network retry {network_retries}/{MAX_NETWORK_RETRIES}, waiting {wait_s}s: {ve}")
+                            info(f"[BG] Vision #{qi} network retry {network_retries}/{MAX_NETWORK_RETRIES}, waiting {wait_s}s: {ve}")
                             await asyncio.sleep(wait_s)
                         else:
                             schema_retries += 1
                             if schema_retries > MAX_SCHEMA_RETRIES:
-                                error("[BG] Vision #{qi} SCHEMA FAILED after {MAX_SCHEMA_RETRIES} retries: {ve}")
+                                error(f"[BG] Vision #{qi} SCHEMA FAILED after {MAX_SCHEMA_RETRIES} retries: {ve}")
                                 q.status = QuestionStatus.failed
                                 break
-                            info("[BG] Vision #{qi} schema retry {schema_retries}/{MAX_SCHEMA_RETRIES}: {ve}")
+                            info(f"[BG] Vision #{qi} schema retry {schema_retries}/{MAX_SCHEMA_RETRIES}: {ve}")
                             await asyncio.sleep(1)
         else:
             info("[BG] Qwen-VL full-page mode: skipping per-question vision review")
 
         # ── 延后队列处理（基准 §9/17 — 429 独立队列）────────
         if _deferred_vision_tasks:
-            info("[BG] Processing {len(_deferred_vision_tasks)} deferred vision tasks...")
+            info(f"[BG] Processing {len(_deferred_vision_tasks)} deferred vision tasks...")
             MAX_DEFERRED_RETRIES = 3
             deferred_retry = 0
             while _deferred_vision_tasks and deferred_retry < MAX_DEFERRED_RETRIES:
@@ -1039,22 +1039,22 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
                         )
                         _model_calls.append(_vlog)
                         _db.save_model_call(_vlog)
-                        info("[BG] Deferred Vision #{qi} succeeded after {n_retries} retries: {vl_ms}ms")
+                        info(f"[BG] Deferred Vision #{qi} succeeded after {n_retries} retries: {vl_ms}ms")
                     except Exception as ve:
                         err_str = str(ve).lower()
                         next_retries = n_retries + 1
                         if next_retries > MAX_NETWORK_RETRIES:
-                            error("[BG] Deferred Vision #{qi} FAILED after {n_retries} retries: {ve}")
+                            error(f"[BG] Deferred Vision #{qi} FAILED after {n_retries} retries: {ve}")
                             q.status = QuestionStatus.failed
                         elif "429" in err_str or "rate_limit" in err_str:
                             next_delay = 2 ** next_retries
                             _deferred_vision_tasks.append((qi, q, contents, jid, parent_id, child_id, aid, page_id, next_retries, next_delay))
-                            info("[BG] Deferred Vision #{qi} RE-RATE-LIMITED, re-deferred {next_delay}s")
+                            info(f"[BG] Deferred Vision #{qi} RE-RATE-LIMITED, re-deferred {next_delay}s")
                         else:
-                            error("[BG] Deferred Vision #{qi} non-429 error: {ve}")
+                            error(f"[BG] Deferred Vision #{qi} non-429 error: {ve}")
                             q.status = QuestionStatus.failed
             if _deferred_vision_tasks:
-                error("[BG] {len(_deferred_vision_tasks)} deferred tasks abandoned after {MAX_DEFERRED_RETRIES} batch retries")
+                error(f"[BG] {len(_deferred_vision_tasks)} deferred tasks abandoned after {MAX_DEFERRED_RETRIES} batch retries")
 
         # Stage: schema_validating — 基准 Table 21
         _jobs[jid]["job"].status = JobStatus.schema_validating
@@ -1083,7 +1083,7 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
         try:
             grading_cost = await grade_answers(jid, questions, trace_id, parent_id, child_id)
         except Exception as _ge:
-            error("[BG] Grading stage failed (non-blocking): {_ge}")
+            error(f"[BG] Grading stage failed (non-blocking): {_ge}")
         total_parse_cost += grading_cost
         save_result(jid, questions, now, file, final_status)
         # 诊断：判对错保存统计
@@ -1128,7 +1128,7 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
 # ─── 2. GET /api/parse-jobs/recent (before {job_id} to avoid conflict) ──
 @app.get("/api/parse-jobs/recent")
 @limiter.limit("20/minute")
-async def get_recent_parse_jobs(user: tuple = Depends(get_current_user)):
+async def get_recent_parse_jobs(request: Request, user: tuple = Depends(get_current_user)):
     """返回当前 child 最近 10 条解析任务（DB + 内存合并去重）。"""
     try:
         parent_id, child_id = user
@@ -1187,7 +1187,7 @@ async def get_recent_parse_jobs(user: tuple = Depends(get_current_user)):
 # ─── 2.3.5. GET /api/parse-jobs/{job_id}/recover ────────────
 @app.get("/api/parse-jobs/{job_id}/recover")
 @limiter.limit("10/minute")
-async def recover_by_job_id(job_id: str, user: tuple = Depends(get_current_user)):
+async def recover_by_job_id(job_id: str, request: Request, user: tuple = Depends(get_current_user)):
     """按 job_id 精确恢复任务状态（poll 失败后前端使用）。查内存+DB。"""
     try:
         _, child_id = user
@@ -1222,7 +1222,7 @@ async def recover_by_job_id(job_id: str, user: tuple = Depends(get_current_user)
 # ─── 2.4. GET /api/parse-jobs/recover?client_upload_id=xxx ──
 @app.get("/api/parse-jobs/recover")
 @limiter.limit("10/minute")
-async def recover_parse_job(client_upload_id: str, user: tuple = Depends(get_current_user)):
+async def recover_parse_job(client_upload_id: str, request: Request, user: tuple = Depends(get_current_user)):
     """上传超时后按 client_upload_id 恢复 job。返回 uploaded/processing/completed 状态。"""
     try:
         parent_id, child_id = user
@@ -1251,7 +1251,7 @@ async def recover_parse_job(client_upload_id: str, user: tuple = Depends(get_cur
 # ─── 2.5. DELETE /api/parse-jobs/{job_id} (before GET {job_id} to avoid conflict) ──
 @app.delete("/api/parse-jobs/{job_id}")
 @limiter.limit("5/minute")
-async def delete_parse_job(job_id: str, user: tuple = Depends(get_current_user)):
+async def delete_parse_job(job_id: str, request: Request, user: tuple = Depends(get_current_user)):
     """软删除解析任务，deleted_at 写入当前时间。"""
     try:
         _, child_id = user
@@ -1273,7 +1273,7 @@ async def delete_parse_job(job_id: str, user: tuple = Depends(get_current_user))
 # ─── 3. GET /api/parse-jobs/{job_id} ───────────────────────
 @app.get("/api/parse-jobs/{job_id}")
 @limiter.limit("30/minute")
-async def get_parse_job_status(job_id: str, user: tuple = Depends(get_current_user)):
+async def get_parse_job_status(job_id: str, request: Request, user: tuple = Depends(get_current_user)):
     try:
         await asyncio.sleep(0.3)
         if job_id not in _jobs:
@@ -1319,7 +1319,7 @@ async def get_parse_job_status(job_id: str, user: tuple = Depends(get_current_us
 # ─── 4. GET /api/parse-jobs/{job_id}/questions ─────────────
 @app.get("/api/parse-jobs/{job_id}/questions")
 @limiter.limit("30/minute")
-async def get_parse_job_questions(job_id: str, user: tuple = Depends(get_current_user)):
+async def get_parse_job_questions(job_id: str, request: Request, user: tuple = Depends(get_current_user)):
     try:
         await asyncio.sleep(0.3)
         # 1) 内存优先（活跃任务，且 questions 非空）
@@ -1347,7 +1347,7 @@ async def get_parse_job_questions(job_id: str, user: tuple = Depends(get_current
 # ─── 3.5. GET /api/questions/{question_id} ──────────────────
 @app.get("/api/questions/{question_id}")
 @limiter.limit("30/minute")
-async def get_question_detail(question_id: str):
+async def get_question_detail(question_id: str, request: Request):
     """获取单题详情，从所有 job 中查找"""
     try:
         for jid, j in _jobs.items():
@@ -1371,7 +1371,7 @@ class QuestionStatusRequest(BaseModel):
 
 @app.post("/api/questions/{question_id}/status")
 @limiter.limit("10/minute")
-async def update_question_status(question_id: str, body: QuestionStatusRequest, user: tuple = Depends(get_current_user)):
+async def update_question_status(question_id: str, body: QuestionStatusRequest, request: Request, user: tuple = Depends(get_current_user)):
     """更新题目状态：已掌握 / 加入错题本"""
     try:
         _, child_id = user
@@ -1492,7 +1492,7 @@ async def tutor_question(question_id: str, body: TutorRequest, request: Request,
                                        seq, "assistant", result["reply_text"],
                                        call_id=call_id, feature_code=feat_code)
         except Exception as _te:
-            error("[Tutor] ai_tutoring_messages write failed (non-blocking): {_te}")
+            error(f"[Tutor] ai_tutoring_messages write failed (non-blocking): {_te}")
 
         # Log model call — SQLite 持久化
         pricing = get_active_pricing("deepseek", "deepseek-v4-flash")
@@ -1539,7 +1539,7 @@ async def tutor_question(question_id: str, body: TutorRequest, request: Request,
             if call_cid and actual_cost > 0:
                 _db._update_model_call_credit(call_cid, -1, actual_cost)
         except Exception as _ce:
-            error("[Tutor] credit_ledger cost write failed (non-blocking): {_ce}")
+            error(f"[Tutor] credit_ledger cost write failed (non-blocking): {_ce}")
 
         remaining = MAX_ROUNDS - len(history) // 2
         credit_after = credits - 1
@@ -1599,7 +1599,7 @@ async def vision_retry(question_id: str, request: Request = None, user: tuple = 
                 if signed_url:
                     with urllib.request.urlopen(signed_url) as resp:
                         img_bytes = resp.read()
-                    info("[Vision] loaded from OSS: {oss_key}")
+                    info(f"[Vision] loaded from OSS: {oss_key}")
             except Exception:
                 error("[Vision] OSS load failed, try local")
 
@@ -1680,7 +1680,7 @@ async def vision_retry(question_id: str, request: Request = None, user: tuple = 
 # ─── 6. GET /api/me/entitlement ────────────────────────────
 @app.get("/api/me/entitlement")
 @limiter.limit("20/minute")
-async def get_entitlement(user: tuple = Depends(get_current_user)):
+async def get_entitlement(request: Request, user: tuple = Depends(get_current_user)):
     try:
         parent_id, child_id = user
         # 从 credit_account 真实读取余额
@@ -1777,14 +1777,14 @@ async def create_payment_order(body: CreateOrderRequest, request: Request = None
 # ─── 11. POST /api/payment/callback (Phase 2 实现) ─────────
 @app.post("/api/payment/callback")
 @limiter.limit("30/minute")
-async def payment_callback():
+async def payment_callback(request: Request):
     """支付回调占位，Phase 2 实现验签与幂等"""
     return {"ok": True, "message": "callback received (placeholder)", "request_id": uuid.uuid4().hex}
 
 # ─── 12. GET /api/billing/credit-ledger (Phase 0 占位) ─────
 @app.get("/api/billing/credit-ledger")
 @limiter.limit("20/minute")
-async def get_credit_ledger(user: tuple = Depends(get_current_user)):
+async def get_credit_ledger(request: Request, user: tuple = Depends(get_current_user)):
     """学豆流水查询 — 从 DB 真实读取"""
     try:
         parent_id, _ = user
@@ -1807,7 +1807,7 @@ async def get_credit_ledger(user: tuple = Depends(get_current_user)):
 # ─── 13. GET /api/mistakes ──────────────────────────────────
 @app.get("/api/mistakes")
 @limiter.limit("20/minute")
-async def get_mistakes(user: tuple = Depends(get_current_user)):
+async def get_mistakes(request: Request, user: tuple = Depends(get_current_user)):
     """获取当前孩子的错题列表"""
     try:
         _, child_id = user
@@ -1822,7 +1822,7 @@ class SwitchChildRequest(BaseModel):
 
 @app.post("/api/auth/switch-child")
 @limiter.limit("10/minute")
-async def switch_child(body: SwitchChildRequest, user: tuple = Depends(get_current_user)):
+async def switch_child(body: SwitchChildRequest, request: Request, user: tuple = Depends(get_current_user)):
     """切换活跃孩子，返回新 JWT"""
     try:
         parent_id, _ = user
@@ -1952,13 +1952,13 @@ async def parse_homework(body: HomeworkParseRequest, request: Request = None):
             _db.save_model_call(_hwlog)
             if ds_result["success"] and ds_result["subjects"]:
                 subjects = [HomeworkSubjectModel(name=s["name"], tasks=s["tasks"]) for s in ds_result["subjects"]]
-                info("[HW] DeepSeek parsed {len(subjects)} subjects in {ds_result['latency_ms']}ms")
+                info(f"[HW] DeepSeek parsed {len(subjects)} subjects in {ds_result['latency_ms']}ms")
                 return {
                     "ok": True,
                     "data": HomeworkParseResponse(subjects=subjects, raw_text=body.text).model_dump(),
                     "request_id": uuid.uuid4().hex,
                 }
-            error("[HW] DeepSeek failed: {ds_result.get('error')}, falling back to mock")
+            error(f"[HW] DeepSeek failed: {ds_result.get('error')}, falling back to mock")
 
         # ── Mock 回落 ──
         await asyncio.sleep(0.2)
