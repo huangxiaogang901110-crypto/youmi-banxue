@@ -26,8 +26,8 @@ def _load_config():
                 if line and not line.startswith("#") and "=" in line:
                     k, v = line.split("=", 1)
                     os.environ.setdefault(k.strip(), v.strip())
-    _bucket_name = os.getenv("OSS_BUCKET", "youmi-images")
-    _endpoint = os.getenv("OSS_ENDPOINT", "oss-cn-hangzhou.aliyuncs.com")
+    _bucket_name = os.getenv("OSS_BUCKET", "youmi-images2026")
+    _endpoint = os.getenv("OSS_ENDPOINT", "oss-cn-beijing.aliyuncs.com")
     _config_loaded = True
 
 
