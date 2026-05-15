@@ -351,6 +351,8 @@ async def grade_answers(jid: str, questions: list, trace_id: str, parent_id: str
             success=result["success"],
             input_tokens=usage.get("input_tokens", 0),
             output_tokens=usage.get("output_tokens", 0),
+            cache_hit_tokens=usage.get("cache_hit_tokens", 0),
+            cache_miss_tokens=usage.get("cache_miss_tokens", 0),
             parent_user_id=parent_id, child_id=child_id,
             error_code=result.get("error"),
             billing_status="free_tier" if result["success"] else "failed",
@@ -1445,6 +1447,8 @@ async def tutor_question(question_id: str, body: TutorRequest, request: Request,
         usage = result.get("usage") or {}
         in_tok = usage.get("input_tokens", 0)
         out_tok = usage.get("output_tokens", 0)
+        cache_hit = usage.get("cache_hit_tokens", 0)
+        cache_miss = usage.get("cache_miss_tokens", 0)
         _tlog = make_log_entry(
             task_id="tutor",
             question_id=question_id,
@@ -1460,6 +1464,8 @@ async def tutor_question(question_id: str, body: TutorRequest, request: Request,
             prompt_name=f"tutor_{body.mode}",
             input_tokens=in_tok,
             output_tokens=out_tok,
+            cache_hit_tokens=cache_hit,
+            cache_miss_tokens=cache_miss,
             estimated_cost=0.0,
             pricing=pricing,
         )
@@ -1874,6 +1880,8 @@ async def parse_homework(body: HomeworkParseRequest, request: Request = None):
                 success=ds_result["success"],
                 input_tokens=usage.get("prompt_tokens", 0) if isinstance(usage, dict) else 0,
                 output_tokens=usage.get("completion_tokens", 0) if isinstance(usage, dict) else 0,
+                cache_hit_tokens=usage.get("prompt_cache_hit_tokens", 0) if isinstance(usage, dict) else 0,
+                cache_miss_tokens=usage.get("prompt_cache_miss_tokens", 0) if isinstance(usage, dict) else 0,
                 billing_status="free_tier" if ds_result["success"] else "failed",
                 pricing=pricing,
                 subjects_count=len(ds_result.get("subjects", [])),

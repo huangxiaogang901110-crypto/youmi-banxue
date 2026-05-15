@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; background: #f0f2f5; padding: 40px 20px; }
+.card { max-width: 900px; margin:0 auto; background:#fff; border-radius:12px; box-shadow:0 2px 12px rgba(0,0,0,.08); overflow:hidden; }
+.header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color:#fff; padding:28px 32px; }
+.header h1 { font-size:22px; font-weight:600; margin-bottom:6px; }
+.header .meta { font-size:13px; opacity:.85; line-height:1.8; }
+.section { padding:24px 32px; border-bottom:1px solid #eee; }
+.section:last-child { border-bottom:none; }
+.section h3 { font-size:14px; color:#666; margin-bottom:8px; font-weight:500; }
+table { width:100%; border-collapse:collapse; font-size:14px; }
+th { background:#f7f8fa; color:#555; font-weight:600; text-align:right; padding:12px 14px; border-bottom:2px solid #e8e8e8; white-space:nowrap; }
+th:first-child { text-align:left; }
+td { padding:12px 14px; border-bottom:1px solid #f0f0f0; text-align:right; font-variant-numeric:tabular-nums; }
+td:first-child { text-align:left; font-weight:600; }
+tr:last-child td { border-bottom:none; }
+.num { font-family:"SF Mono","Menlo","Consolas",monospace; }
+.badge-ok { color:#52c41a; font-weight:600; }
+.badge-warn { color:#faad14; font-weight:600; }
+.price-tag { font-family:"SF Mono","Menlo","Consolas",monospace; font-size:13px; }
+.summary { display:flex; gap:32px; flex-wrap:wrap; }
+.summary-item { }
+.summary-item .label { font-size:12px; color:#999; margin-bottom:2px; }
+.summary-item .value { font-size:20px; font-weight:700; color:#333; }
+.footer { font-size:12px; color:#aaa; padding:16px 32px; background:#fafafa; border-top:1px solid #eee; line-height:1.8; }
+</style>
+</head>
+<body>
+<div class="card">
+
+<div class="header">
+<h1>📊 悠米伴学 每日成本日报</h1>
+<div class="meta">
+报告日期：2026-05-14<br>
+价格查询日期：2026-05-14<br>
+价格来源：model_price_snapshots
+</div>
+</div>
+
+<div class="section">
+<h3>模型成本明细</h3>
+<table>
+<thead>
+<tr>
+<th>模型</th>
+<th>输入 Token 数</th>
+<th>输出 Token 数</th>
+<th>输入单价</th>
+<th>输出单价</th>
+<th>成本小计</th>
+<th>题数 / 次数</th>
+<th>单题 / 单次成本</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Qwen-VL <span class="badge-ok">✅</span></td>
+<td class="num">81,789</td>
+<td class="num">84,859</td>
+<td class="price-tag">¥1.6/1M tok</td>
+<td class="price-tag">¥4.0/1M tok</td>
+<td class="num">¥1.98</td>
+<td class="num">912 题</td>
+<td class="num">¥0.0022/题</td>
+</tr>
+<tr>
+<td>DeepSeek <span class="badge-ok">✅</span></td>
+<td class="num">61,816</td>
+<td class="num">30,921</td>
+<td class="price-tag">¥1.015/1M tok</td>
+<td class="price-tag">¥2.03/1M tok</td>
+<td class="num">¥0.37</td>
+<td class="num">63 次</td>
+<td class="num">¥0.0059/次</td>
+</tr>
+</tbody>
+</table>
+</div>
+
+<div class="section">
+<h3>汇总</h3>
+<div class="summary">
+<div class="summary-item">
+<div class="label">当日总成本</div>
+<div class="value">¥2.35</div>
+</div>
+<div class="summary-item">
+<div class="label">发生费用用户数</div>
+<div class="value">2 人</div>
+</div>
+<div class="summary-item">
+<div class="label">单户平均成本</div>
+<div class="value">¥1.17/户</div>
+</div>
+</div>
+</div>
+
+<div class="footer">
+<strong>统计口径：</strong>仅统计 call_source IN ('prod','test')，排除 dev 开发调试<br>
+Qwen-VL：aliyun_dashscope + aliyun_ocr 全部调用（102 次） |
+DeepSeek：deepseek provider 的 tutor / followup / check 类调用（63 次，含 63 次有效回答）<br>
+价格来源：model_price_snapshots 最新记录（非硬编码） | 价格不可用时显示「未核实」且不计算成本
+</div>
+
+</div>
+</body>
+</html>

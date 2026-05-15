@@ -3,6 +3,7 @@
 原 4 表保留（JSON 双写兼容）+ 新增商用表 + 索引 + 图片过期
 """
 import json
+import os
 import sqlite3
 from datetime import datetime
 from pathlib import Path
@@ -384,6 +385,8 @@ def init():
         "ALTER TABLE model_calls ADD COLUMN trace_id TEXT DEFAULT ''",
         "ALTER TABLE model_calls ADD COLUMN parent_trace_id TEXT DEFAULT ''",
         "ALTER TABLE model_calls ADD COLUMN sub_stage TEXT DEFAULT ''",
+        # call_source 分账字段
+        "ALTER TABLE model_calls ADD COLUMN call_source TEXT DEFAULT 'prod'",
         # credit_ledger 补字段
         "ALTER TABLE credit_ledger ADD COLUMN feature_code TEXT DEFAULT ''",
         "ALTER TABLE credit_ledger ADD COLUMN job_id TEXT DEFAULT ''",
@@ -429,6 +432,7 @@ def init():
         # model_calls 查询加速
         "CREATE INDEX IF NOT EXISTS idx_model_calls_created ON model_calls(created_at)",
         "CREATE INDEX IF NOT EXISTS idx_model_calls_feature ON model_calls(feature_code)",
+        "CREATE INDEX IF NOT EXISTS idx_model_calls_call_source ON model_calls(call_source)",
         # 用户查询
         "CREATE INDEX IF NOT EXISTS idx_parent_users_phone ON parent_users(phone)",
         "CREATE INDEX IF NOT EXISTS idx_child_profiles_parent ON child_profiles(parent_id)",
@@ -519,6 +523,7 @@ def save_model_call(data: dict):
     trace_id = data.get("trace_id", "")
     parent_trace_id = data.get("parent_trace_id", "")
     sub_stage = data.get("sub_stage", "")
+    call_source = os.environ.get("YOMICALL_SOURCE", "prod")
     c.execute(
         "INSERT OR REPLACE INTO model_calls "
         "(id, task_id, feature_code, job_id, question_id, provider, model_name, "
@@ -527,8 +532,8 @@ def save_model_call(data: dict):
         "cache_hit_tokens, cache_miss_tokens, "
         "unit_price_input, unit_price_output, unit_price_cache_hit, unit_price_cache_miss, "
         "currency, raw_cost, cost_cny, pricing_snapshot_id, "
-        "latency_ms, status, error_code, credit_cost, retry_count, trace_id, parent_trace_id, sub_stage, data) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "latency_ms, status, error_code, credit_cost, retry_count, trace_id, parent_trace_id, sub_stage, call_source, data) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (call_id, task_id, feature_code, job_id, question_id, provider, model_name,
          prompt_version, schema_version, request_id,
          input_tokens, output_tokens, image_count, image_total_bytes,
@@ -536,7 +541,7 @@ def save_model_call(data: dict):
          unit_price_input, unit_price_output, unit_price_cache_hit, unit_price_cache_miss,
          currency, raw_cost, cost_cny, pricing_snapshot_id,
          latency_ms, status, error_code, credit_cost, retry_count,
-         trace_id, parent_trace_id, sub_stage,
+         trace_id, parent_trace_id, sub_stage, call_source,
          json.dumps(data, default=str)),
     )
     c.commit()

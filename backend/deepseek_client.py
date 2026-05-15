@@ -88,6 +88,8 @@ class DeepSeekClient:
                 "usage": {
                     "input_tokens": usage.get("prompt_tokens", 0),
                     "output_tokens": usage.get("completion_tokens", 0),
+                    "cache_hit_tokens": usage.get("prompt_cache_hit_tokens", 0),
+                    "cache_miss_tokens": usage.get("prompt_cache_miss_tokens", 0),
                 },
             }
 

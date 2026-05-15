@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>悠米伴学 · 每日成本日报 · 2026-05-15</title>
+<style>
+:root {
+  --bg: #0a0a0f; --card: rgba(22,22,38,0.95); --border: rgba(255,255,255,0.08);
+  --text: #e0e0e8; --muted: #8888a0;
+  --blue: #4f8fff; --purple: #a855f7; --green: #22c55e; --amber: #f59e0b; --orange: #ffa040;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  background: #0a0a0f;
+  background-image: linear-gradient(135deg, #1a1a3e 0%, #0f0f23 50%, #1a1028 100%);
+  color: var(--text); min-height: 100vh; overflow-x: hidden;
+}
+.container { position: relative; z-index: 1; max-width: 1000px; margin: 0 auto; padding: 30px 16px 60px; }
+
+/* Header */
+.header { text-align: center; margin-bottom: 36px; }
+.header .badge { display: inline-block; padding: 5px 16px; background: rgba(79,143,255,0.12); border: 1px solid rgba(79,143,255,0.25); border-radius: 20px; font-size: 12px; color: var(--blue); margin-bottom: 12px; }
+.header h1 { font-size: 32px; font-weight: 700; background: linear-gradient(135deg, #e0e0ff, #b8c8ff, #d0b8ff); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+.header .date { font-size: 14px; color: var(--muted); margin-top: 4px; }
+
+/* Summary cards */
+.summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 32px; }
+.stat-card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 18px 14px; position: relative; overflow: hidden; }
+.stat-card::before { content: ''; position: absolute; top: 0; left: 8px; right: 8px; height: 2px; opacity: .7; }
+.stat-card:nth-child(1)::before { background: var(--blue); }
+.stat-card:nth-child(2)::before { background: var(--purple); }
+.stat-card:nth-child(3)::before { background: var(--green); }
+.stat-card:nth-child(4)::before { background: var(--amber); }
+.stat-card .label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
+.stat-card .value { font-size: 26px; font-weight: 700; margin-top: 6px; }
+.stat-card .sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+/* Section */
+.section { margin-bottom: 24px; }
+.section-title { display: flex; align-items: center; gap: 10px; font-size: 16px; font-weight: 600; margin-bottom: 12px; flex-wrap: wrap; }
+.dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.dot-blue { background: var(--blue); box-shadow: 0 0 10px var(--blue); }
+.dot-purple { background: var(--purple); box-shadow: 0 0 10px var(--purple); }
+.badge { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 10px; font-weight: 600; white-space: nowrap; }
+.badge-ds { background: rgba(79,143,255,0.15); color: var(--blue); }
+.badge-qw { background: rgba(168,85,247,0.15); color: var(--purple); }
+
+/* Table wrapper with horizontal scroll */
+.table-wrap { 
+  background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+  overflow-x: auto; -webkit-overflow-scrolling: touch;
+}
+table { width: 100%; min-width: 760px; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+thead { background: rgba(255,255,255,0.03); }
+th { padding: 10px 8px; text-align: right; font-size: 11px; color: var(--muted); font-weight: 500; letter-spacing: .3px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+th:first-child { text-align: left; }
+td { padding: 11px 8px; text-align: right; font-size: 13px; border-bottom: 1px solid rgba(255,255,255,0.03); }
+td:first-child { text-align: left; font-weight: 600; font-size: 12px; }
+tr:last-child td { border-bottom: none; }
+
+.subtotal td { background: rgba(255,255,255,0.02); }
+.subtotal .label-cell { color: #b4bcc8; }
+.daily-cost td { background: rgba(34,197,94,0.06); font-size: 17px; font-weight: 700; }
+.daily-cost .label-cell { color: var(--orange); }
+.unit-row td { background: rgba(255,160,64,0.05); }
+.unit-row .label-cell { color: var(--orange); font-weight: 600; }
+.meta-row td { background: rgba(255,255,255,0.01); font-size: 12px; color: var(--muted); }
+.col-cost { color: var(--green); font-weight: 700; }
+
+/* Highlighted per-customer cost bar */
+.highlight-bar {
+  background: var(--card); border: 2px solid var(--orange); border-radius: 14px;
+  padding: 18px 24px; margin-bottom: 16px;
+  display: flex; justify-content: space-around; align-items: center;
+  position: relative; overflow: hidden; flex-wrap: wrap; gap: 12px;
+}
+.highlight-bar::before { content: ''; position: absolute; top: 0; left: 12px; right: 12px; height: 2px; background: var(--orange); opacity: .7; }
+.highlight-bar .hl-item { text-align: center; }
+.highlight-bar .hl-label { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+.highlight-bar .hl-value { font-size: 22px; font-weight: 700; }
+.hl-green { color: var(--green); }
+.hl-orange { color: var(--orange); }
+
+/* Bottom */
+.bottom-wrap {
+  background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+  padding: 22px 28px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px 40px;
+  position: relative; overflow: hidden;
+}
+.bottom-wrap::before { content: ''; position: absolute; top: 0; left: 12px; right: 12px; height: 2px; background: var(--blue); opacity: .6; }
+.bottom-wrap .item { display: flex; justify-content: space-between; font-size: 13px; }
+.bottom-wrap .lbl { color: var(--muted); }
+.bottom-wrap .val { font-weight: 600; }
+.footer { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border); font-size: 12px; color: var(--muted); text-align: center; }
+
+@media (max-width: 700px) {
+  .summary { grid-template-columns: repeat(2, 1fr); }
+  .header h1 { font-size: 24px; }
+  .bottom-wrap { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<div class="container">
+
+<div class="header">
+  <div class="badge">YOMI COST REPORT v3</div>
+  <h1>悠米伴学 · 每日成本日报</h1>
+  <div class="date">2026年5月15日 · 缓存命中/未命中拆账</div>
+</div>
+
+<div class="summary">
+  <div class="stat-card"><div class="label">当日总成本</div><div class="value">2.37</div><div class="sub">Qwen 1.98 + DS 0.39</div></div>
+  <div class="stat-card"><div class="label">用户数</div><div class="value">2 人</div><div class="sub">单户 1.1869</div></div>
+  <div class="stat-card"><div class="label">调用次数</div><div class="value">174</div><div class="sub">Qwen 102 · DS 72</div></div>
+  <div class="stat-card"><div class="label">Token 总量</div><div class="value">273K</div><div class="sub">输入 153K · 输出 120K</div></div>
+</div>
+
+<!-- DeepSeek -->
+<div class="section">
+  <div class="section-title">
+    <div class="dot dot-blue"></div>DeepSeek <span style="font-weight:400;color:var(--muted)">· deepseek-v4-flash</span>
+    <span class="badge badge-ds">USD→CNY ×7.25</span>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>指标</th><th>输入命中</th><th>输入未命中</th><th>输出命中</th><th>输出未命中</th><th>小计</th></tr></thead>
+      <tbody>
+        <tr><td>Token 用量</td><td>0</td><td>71,174</td><td>0</td><td>34,923</td><td>106,097</td></tr>
+        <tr style="color:var(--muted);font-size:12px"><td>单价 (/1M)</td><td>0.0203</td><td>1.015</td><td>-</td><td>2.03</td><td></td></tr>
+        <tr><td>成本</td><td>0.0000</td><td>0.0709</td><td>-</td><td>0.0709</td><td>0.1418</td></tr>
+      </tbody>
+      <tfoot>
+        <tr class="subtotal"><td class="label-cell">输入成本</td><td colspan="4"></td><td class="col-cost">0.0709</td></tr>
+        <tr class="subtotal"><td class="label-cell">输出成本</td><td colspan="4"></td><td class="col-cost">0.0709</td></tr>
+        <tr class="daily-cost"><td class="label-cell">当日成本小计</td><td colspan="4"></td><td class="col-cost">0.3947</td></tr>
+        <tr class="unit-row"><td class="label-cell">单次回答成本</td><td colspan="4"></td><td>0.0055 / 次</td></tr>
+        <tr class="meta-row"><td>72 次调用 · 72 次有效回答</td><td colspan="4"></td><td></td></tr>
+      </tfoot>
+    </table>
+  </div>
+</div>
+
+<!-- Qwen-VL -->
+<div class="section">
+  <div class="section-title">
+    <div class="dot dot-purple"></div>Qwen-VL <span style="font-weight:400;color:var(--muted)">· qwen-vl-max</span>
+    <span class="badge badge-qw">原生 CNY</span>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>指标</th><th>输入命中</th><th>输入未命中</th><th>输出命中</th><th>输出未命中</th><th>小计</th></tr></thead>
+      <tbody>
+        <tr><td>Token 用量</td><td>0</td><td>81,789</td><td>0</td><td>84,859</td><td>166,648</td></tr>
+        <tr style="color:var(--muted);font-size:12px"><td>单价 (/1M)</td><td>0.32</td><td>1.60</td><td>-</td><td>4.00</td><td></td></tr>
+        <tr><td>成本</td><td>0.0000</td><td>0.1309</td><td>-</td><td>0.3394</td><td>0.4703</td></tr>
+      </tbody>
+      <tfoot>
+        <tr class="subtotal"><td class="label-cell">输入成本</td><td colspan="4"></td><td class="col-cost">0.1309</td></tr>
+        <tr class="subtotal"><td class="label-cell">输出成本</td><td colspan="4"></td><td class="col-cost">0.3394</td></tr>
+        <tr class="daily-cost"><td class="label-cell">当日成本小计</td><td colspan="4"></td><td class="col-cost">1.9791</td></tr>
+        <tr class="unit-row"><td class="label-cell">单题识别成本</td><td colspan="4"></td><td>0.0022 / 题</td></tr>
+        <tr class="meta-row"><td>102 次调用 · 912 题</td><td colspan="4"></td><td></td></tr>
+      </tfoot>
+    </table>
+  </div>
+</div>
+
+<!-- ⭐ PER-CUSTOMER COST HIGHLIGHT BAR -->
+<div class="highlight-bar">
+  <div class="hl-item">
+    <div class="hl-label">当日成本总计</div>
+    <div class="hl-value hl-green">2.3738</div>
+  </div>
+  <div class="hl-item">
+    <div class="hl-label">发生费用用户</div>
+    <div class="hl-value" style="color:var(--text)">2 人</div>
+  </div>
+  <div class="hl-item">
+    <div class="hl-label">单客平均成本</div>
+    <div class="hl-value hl-orange">1.1869</div>
+  </div>
+</div>
+
+<!-- Bottom -->
+<div class="bottom-wrap">
+  <div class="item"><span class="lbl">总调用次数</span><span class="val">174 次（Qwen 102 + DS 72）</span></div>
+  <div class="item"><span class="lbl">Qwen-VL 识别题数</span><span class="val">912 题</span></div>
+  <div class="item"><span class="lbl">总 Token 量</span><span class="val">272,745（入 152,963 + 出 119,782）</span></div>
+  <div class="item"><span class="lbl">DeepSeek 有效回答</span><span class="val">72 次</span></div>
+  <div class="item"><span class="lbl">价格来源</span><span class="val" style="color:var(--green)">DeepSeek API Docs + DashScope API</span></div>
+  <div class="item"><span class="lbl">统计口径</span><span class="val">call_source IN ('prod','test')</span></div>
+</div>
+
+<div class="footer">价格每日实时从官方 API 拉取 · 缓存拆账 v3</div>
+
+</div>
+</body>
+</html>

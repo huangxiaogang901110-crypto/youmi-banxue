@@ -13,20 +13,32 @@ def _compute_cost_cny(
     output_tokens: int,
     pricing: dict | None,
     image_count: int = 0,
-) -> tuple[float, str, float, float]:
+    cache_hit_tokens: int = 0,
+    cache_miss_tokens: int = 0,
+) -> tuple[float, str, float, float, float, float]:
     """根据 token 用量和价格快照计算 CNY 成本。
-    返回 (cost_cny, pricing_snapshot_id, unit_price_input, unit_price_output)
+    返回 (cost_cny, pricing_snapshot_id, unit_price_input, unit_price_output,
+           unit_price_cache_hit, unit_price_cache_miss)
+    输入 token 按缓存命中/未命中分拆计价。
     """
     if not pricing:
-        return 0.0, "", 0.0, 0.0
+        return 0.0, "", 0.0, 0.0, 0.0, 0.0
 
     pid = pricing.get("id", "")
-    up_in = float(pricing.get("input_price_per_1m", 0.0))
+    up_cache_hit = float(pricing.get("cache_hit_price_per_1m", 0.0))
+    up_cache_miss = float(pricing.get("cache_miss_price_per_1m", 0.0))
     up_out = float(pricing.get("output_price_per_1m", 0.0))
-    # 每百万 token 价格 → 单 token 价格
-    cost = (input_tokens * up_in + output_tokens * up_out) / 1_000_000
-    # 图片不计入 token（已折算为 image_tokens），但保留占位
-    return round(cost, 6), pid, up_in, up_out
+    up_in = float(pricing.get("input_price_per_1m", 0.0))
+
+    # 如果缓存字段有值，使用缓存分拆；否则回退到统一输入价
+    if cache_hit_tokens > 0 or cache_miss_tokens > 0:
+        input_cost = (cache_hit_tokens * up_cache_hit + cache_miss_tokens * up_cache_miss) / 1_000_000
+    else:
+        input_cost = input_tokens * up_in / 1_000_000
+
+    output_cost = output_tokens * up_out / 1_000_000
+    cost = round(input_cost + output_cost, 6)
+    return cost, pid, up_in, up_out, up_cache_hit, up_cache_miss
 
 
 def make_log_entry(
@@ -67,8 +79,10 @@ def make_log_entry(
     Extra kwargs become additional fields (e.g. blocks_count for OCR).
     If pricing is provided, computes cost_cny from tokens × prices.
     """
-    cost_cny, pricing_snapshot_id, up_in, up_out = _compute_cost_cny(
-        input_tokens, output_tokens, pricing, image_count
+    cost_cny, pricing_snapshot_id, up_in, up_out, up_cache_hit, up_cache_miss = _compute_cost_cny(
+        input_tokens, output_tokens, pricing, image_count,
+        cache_hit_tokens=cache_hit_tokens,
+        cache_miss_tokens=cache_miss_tokens,
     )
 
     base = {
@@ -99,8 +113,8 @@ def make_log_entry(
         "cost_cny": cost_cny if cost_cny > 0 else float(credit_cost or estimated_cost),
         "unit_price_input": up_in,
         "unit_price_output": up_out,
-        "unit_price_cache_hit": 0.0,
-        "unit_price_cache_miss": 0.0,
+        "unit_price_cache_hit": up_cache_hit,
+        "unit_price_cache_miss": up_cache_miss,
         "currency": "CNY",
         "pricing_snapshot_id": pricing_snapshot_id,
         "credit_cost": credit_cost,
