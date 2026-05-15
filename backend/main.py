@@ -1,6 +1,6 @@
 """
 悠米伴学 API — FastAPI 后端骨架
-Phase 0 Mock 模式，所有接口返回假数据
+Phase 1 真实 AI 接入，DeepSeek tutor + Qwen-VL 已上线
 """
 
 import asyncio
@@ -342,10 +342,10 @@ async def grade_answers(jid: str, questions: list, trace_id: str, parent_id: str
         latency_ms = int((time.time() - t_start) * 1000)
 
         # 记录模型调用
-        pricing = get_active_pricing("deepseek", "deepseek-chat")
+        pricing = get_active_pricing("deepseek", "deepseek-v4-flash")
         usage = result.get("usage", {}) or {}
         glog = make_log_entry(
-            task_id=jid, provider_name="deepseek", model_name="deepseek-chat",
+            task_id=jid, provider_name="deepseek", model_name="deepseek-v4-flash",
             feature_code="deepseek_grade_answers", trace_id=trace_id,
             sub_stage="grading", latency_ms=latency_ms,
             success=result["success"],
@@ -721,7 +721,11 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
     if oss_key:
         _jobs[jid]["oss_key"] = oss_key
         print(f"[BG] OSS upload OK: {oss_key}", flush=True)
+        # 生成 OSS 签名 URL（24h 有效），Qwen-VL 通过 URL 读取图片（不传 base64）
+        oss_signed_url = _oss.get_signed_url(oss_key, expires=86400)
+        _jobs[jid]["oss_signed_url"] = oss_signed_url or ""
     else:
+        oss_signed_url = None
         print(f"[BG] OSS unavailable, using local only", flush=True)
 
     # ── 创建 assignment + page（基准 Table 12）──
@@ -753,7 +757,10 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
         if qwen_vl._available():
             _jobs[jid]["job"].status = JobStatus.ocr_running  # 复用状态表示"识别中"
             print(f"[BG] Qwen-VL extracting questions for {jid}...", flush=True)
-            qwen_result = qwen_vl.extract_questions(contents)
+            qwen_result = qwen_vl.extract_questions(
+                image_bytes=contents if not oss_signed_url else None,
+                image_url=oss_signed_url,
+            )
             qwen_latency = int((time.time() - t_start) * 1000)
             usage = qwen_result.get("usage", {}) if qwen_result.get("success") else {}
             input_tokens = usage.get("prompt_tokens", 0) if isinstance(usage, dict) else 0
@@ -897,7 +904,8 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
                     try:
                         t_vs = time.time()
                         vl_result = qwen_vl.analyze_question(
-                            image_bytes=contents,
+                            image_bytes=contents if not oss_signed_url else None,
+                            image_url=oss_signed_url,
                             bbox=q.bbox or [0, 0, 0, 0],
                             question_text=q.question_text,
                         )
@@ -974,7 +982,9 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
                     try:
                         t_vs = time.time()
                         vl_result = qwen_vl.analyze_question(
-                            image_bytes=contents, bbox=q.bbox or [0, 0, 0, 0],
+                            image_bytes=contents if not oss_signed_url else None,
+                            image_url=oss_signed_url,
+                            bbox=q.bbox or [0, 0, 0, 0],
                             question_text=q.question_text,
                         )
                         vl_ms = int((time.time() - t_vs) * 1000)
@@ -1442,7 +1452,7 @@ async def tutor_question(question_id: str, body: TutorRequest, request: Request,
             print(f"[Tutor] ai_tutoring_messages write failed (non-blocking): {_te}", flush=True)
 
         # Log model call — SQLite 持久化
-        pricing = get_active_pricing("deepseek", "deepseek-chat")
+        pricing = get_active_pricing("deepseek", "deepseek-v4-flash")
         tutor_trace_id = uuid.uuid4().hex  # 辅导链路 trace
         usage = result.get("usage") or {}
         in_tok = usage.get("input_tokens", 0)
@@ -1454,7 +1464,7 @@ async def tutor_question(question_id: str, body: TutorRequest, request: Request,
             question_id=question_id,
             job_id=question_id,
             provider_name="deepseek",
-            model_name="deepseek-chat",
+            model_name="deepseek-v4-flash",
             feature_code=feat_code,
             trace_id=tutor_trace_id,
             latency_ms=result.get("latency_ms", latency_ms),

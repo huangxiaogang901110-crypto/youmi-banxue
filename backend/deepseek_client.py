@@ -17,7 +17,7 @@ class DeepSeekClient:
     def __init__(self, api_key: Optional[str] = None):
         self.api_key = api_key or os.environ.get("DEEPSEEK_API_KEY", "")
         self.base_url = "https://api.deepseek.com/v1"
-        self.model = "deepseek-chat"
+        self.model = "deepseek-v4-flash"
 
     def _available(self) -> bool:
         return bool(self.api_key and len(self.api_key) > 10 and self.api_key.startswith("sk-"))
@@ -73,7 +73,7 @@ class DeepSeekClient:
             # 绕过全局 SOCKS5 代理（DeepSeek 国内直连）
             proxy_handler = request.ProxyHandler({})
             opener = request.build_opener(proxy_handler)
-            resp = opener.open(req, timeout=60)
+            resp = opener.open(req, timeout=30)
             data = json.loads(resp.read().decode())
             latency_ms = int((time.time() - t_start) * 1000)
 
