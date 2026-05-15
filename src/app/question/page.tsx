@@ -35,6 +35,7 @@ function QuestionPageInner() {
   const [isCorrect, setIsCorrect] = useState<boolean | null>(null);
   const [gradingExplanation, setGradingExplanation] = useState<string | null>(null);
   const msgEndRef = useRef<HTMLDivElement>(null);
+  const currentActionRef = useRef<"hint" | "solve">((action as "hint" | "solve") || "solve");
 
   const { displayed, isComplete, skip } = useTypewriter({
     text: currentReply,
@@ -46,7 +47,9 @@ function QuestionPageInner() {
   useEffect(() => {
     (async () => {
       try {
-        const cached = await loadTutorResult(id);
+        const currentAction = (action as "hint" | "solve") || "solve";
+        currentActionRef.current = currentAction;
+        const cached = await loadTutorResult(id, currentAction);
         const cachedVision = await loadVisionResult(id);
         if (cached) {
           const r = cached as TutorResponse;
@@ -67,7 +70,7 @@ function QuestionPageInner() {
         setRestored(true);
       } catch { setRestored(true); }
     })();
-  }, [id]);
+  }, [id, action]);
 
   // ── Auto-scroll ──
   useEffect(() => { msgEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, displayed]);
@@ -75,15 +78,16 @@ function QuestionPageInner() {
   // ── Auto-trigger tutoring from workspace action ──
   const triggeredRef = useRef(false);
   useEffect(() => {
-    if (!restored || triggeredRef.current || messages.length > 0) return;
+    if (!restored || triggeredRef.current) return;
     const actionMap: Record<string, string> = {
       hint: "请给我一点提示",
       solve: "请给出完整解析",
     };
     const msg = actionMap[action];
-    if (msg) {
+    if (msg && messages.length === 0) {
       triggeredRef.current = true;
-      doTutor("initial", msg, action as "hint" | "step" | "solve");
+      currentActionRef.current = action as "hint" | "solve";
+      doTutor("initial", msg, action as "hint" | "solve");
     }
   }, [restored, action, messages.length]);
 
@@ -91,7 +95,7 @@ function QuestionPageInner() {
   const deductLocal = useEntitlementStore((s) => s.deductLocal);
   const setCreditBalance = useEntitlementStore((s) => s.setCreditBalance);
 
-  const doTutor = async (mode: "initial" | "followup", message: string, tutorAction?: "hint" | "step" | "solve") => {
+  const doTutor = async (mode: "initial" | "followup", message: string, tutorAction?: "hint" | "solve") => {
     if (creditBalance <= 0) { setError("额度不足，请兑换激活码"); return; }
     setLoading(true);
     setError("");
@@ -100,7 +104,9 @@ function QuestionPageInner() {
       if (!resp.ok || !resp.data) throw new Error("辅导请求失败");
       const text = resp.data.reply_text;
       setCurrentReply(text);
-      await saveTutorResult(id, resp.data);
+      // 用当前 active action 做 key，区分 hint/solve 缓存
+      const cacheAction = tutorAction || currentActionRef.current;
+      await saveTutorResult(id, cacheAction, resp.data);
       // 用服务端真实余额替代硬编码递减（基准 §15）
       if (resp.data.credit_balance >= 0) {
         setCreditBalance(resp.data.credit_balance);
@@ -240,19 +246,38 @@ function QuestionPageInner() {
       {/* Error */}
       {error && <div className="mb-3"><ErrorDisplay message={error} onRetry={() => setError("")} /></div>}
 
-      {/* Action buttons */}
-      {messages.length === 0 && !currentReply && (
-        <div className="flex gap-2 mb-3 flex-wrap">
-          <button onClick={() => doTutor("initial", "请给我一点提示", "hint")} disabled={loading}
-            className="flex items-center gap-1.5 rounded-full border border-border px-3 py-2 text-xs text-foreground hover:bg-muted transition disabled:opacity-50">
-            <Lightbulb className="w-3.5 h-3.5 text-amber-500" /> 给我一点提示
-          </button>
-          <button onClick={() => doTutor("initial", "请给出完整解析", "solve")} disabled={loading}
-            className="flex items-center gap-1.5 rounded-full bg-primary text-primary-foreground px-3 py-2 text-xs hover:opacity-90 transition disabled:opacity-50">
-            <Eye className="w-3.5 h-3.5" /> 查看完整解析
-          </button>
-        </div>
-      )}
+      {/* Action buttons — 始终可见，已有回复时缩小尺寸 */}
+      <div className="flex gap-2 mb-3 flex-wrap">
+        <button
+          onClick={() => {
+            // 切换 action：清空当前内容并重新请求
+            currentActionRef.current = "hint";
+            setMessages([]);
+            setCurrentReply("");
+            doTutor("initial", "请给我一点提示", "hint");
+          }}
+          disabled={loading}
+          className={`flex items-center gap-1.5 rounded-full border border-border px-3 py-2 text-xs text-foreground hover:bg-muted transition disabled:opacity-50 ${
+            currentActionRef.current === "hint" && currentReply ? "ring-2 ring-primary/30" : ""
+          }`}>
+          <Lightbulb className="w-3.5 h-3.5 text-amber-500" /> 给我一点提示
+        </button>
+        <button
+          onClick={() => {
+            currentActionRef.current = "solve";
+            setMessages([]);
+            setCurrentReply("");
+            doTutor("initial", "请给出完整解析", "solve");
+          }}
+          disabled={loading}
+          className={`flex items-center gap-1.5 rounded-full px-3 py-2 text-xs transition disabled:opacity-50 ${
+            currentActionRef.current === "solve" && currentReply
+              ? "bg-primary text-primary-foreground ring-2 ring-primary/30"
+              : "bg-primary text-primary-foreground hover:opacity-90"
+          }`}>
+          <Eye className="w-3.5 h-3.5" /> 查看完整解析
+        </button>
+      </div>
 
       {/* Follow-up input — 显示条件：有消息或有正在流式输出的回复 */}
       {(messages.length > 0 || !!currentReply) && (

@@ -285,6 +285,9 @@ function WorkspaceContent() {
   // 任务完成 → 更新历史 + 诊断 grading 字段
   useEffect(() => {
     if (status === "completed" && job?.job_id && questions) {
+      // tombstone 检查：已删记录不复写 IndexedDB
+      const deletedIds = getDeletedJobIds();
+      if (deletedIds.has(job.job_id)) return;
       const _wg = questions.filter(q => q.is_correct !== null && q.is_correct !== undefined).length;
       const _wsa = questions.filter(q => q.student_answer).length;
       addDiagEvent("questions_received", { source: "poll", jid: job.job_id.slice(0, 8), qcount: questions.length, with_grading: _wg, with_child_answer: _wsa });

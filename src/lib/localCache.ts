@@ -24,21 +24,23 @@ function openDB(): Promise<IDBDatabase> {
   });
 }
 
-export async function saveTutorResult(questionId: string, data: unknown) {
+export async function saveTutorResult(questionId: string, action: string, data: unknown) {
   const db = await openDB();
+  const key = `${questionId}::${action}`;
   return new Promise<void>((resolve, reject) => {
     const tx = db.transaction("tutor_results", "readwrite");
-    tx.objectStore("tutor_results").put({ id: questionId, data, savedAt: Date.now() });
+    tx.objectStore("tutor_results").put({ id: key, data, savedAt: Date.now() });
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
 }
 
-export async function loadTutorResult(questionId: string): Promise<unknown | null> {
+export async function loadTutorResult(questionId: string, action: string): Promise<unknown | null> {
   const db = await openDB();
+  const key = `${questionId}::${action}`;
   return new Promise((resolve, reject) => {
     const tx = db.transaction("tutor_results", "readonly");
-    const req = tx.objectStore("tutor_results").get(questionId);
+    const req = tx.objectStore("tutor_results").get(key);
     req.onsuccess = () => resolve(req.result?.data ?? null);
     req.onerror = () => reject(req.error);
   });

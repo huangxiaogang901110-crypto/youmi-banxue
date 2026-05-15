@@ -1222,7 +1222,10 @@ async def get_parse_job_status(job_id: str, user: tuple = Depends(get_current_us
             raise HTTPException(status_code=404, detail={"ok": False, "code": "not_found", "message": "任务不存在", "request_id": uuid.uuid4().hex})
         j = _jobs[job_id]
         job_obj = j.get("job")
-        # 防御：job entry 被异常路径破坏时返回 404（兼容 load_all 恢复的 dict）
+        # 兼容扁平旧格式：无 job 包装时直接从顶层读 status
+        if not job_obj and isinstance(j, dict) and "status" in j:
+            job_obj = j  # 整个 j 就是 job 数据
+        # 防御：job entry 被异常路径破坏时返回 404
         if not job_obj:
             raise HTTPException(status_code=404, detail={"ok": False, "code": "not_found", "message": "任务已过期或数据异常", "request_id": uuid.uuid4().hex})
         # 兼容两种格式：Pydantic ParseJob 对象 或 load_all 恢复的 dict
