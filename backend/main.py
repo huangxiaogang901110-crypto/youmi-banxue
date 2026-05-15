@@ -1106,12 +1106,18 @@ async def get_recent_parse_jobs(user: tuple = Depends(get_current_user)):
         for jid, j in _jobs.items():
             if j.get("child_id") == child_id:
                 job = j.get("job")
+                # 兼容扁平旧格式：无 job 包装时用 j 本身
+                if not job and isinstance(j, dict) and "status" in j:
+                    job = j
                 if not job or not hasattr(job, "status"):
                     continue
                 if hasattr(job, "status") and str(job.status) == "failed":
                     continue
-                entry = add_job(jid, job.status, job.questions_count or len(j.get("questions", [])),
-                                job.file_name, job.created_at)
+                # 扁平格式可能没有 questions_count 属性，用 .get
+                qcount = job.questions_count if hasattr(job, "questions_count") else (job.get("questions_count") if isinstance(job, dict) else 0) or len(j.get("questions", []))
+                fname = job.file_name if hasattr(job, "file_name") else (job.get("file_name", "") if isinstance(job, dict) else "")
+                cat = job.created_at if hasattr(job, "created_at") else (job.get("created_at", "") if isinstance(job, dict) else "")
+                entry = add_job(jid, job.status if hasattr(job, "status") else job.get("status", "?"), qcount, fname, cat)
                 if entry:
                     recent.append(entry)
 

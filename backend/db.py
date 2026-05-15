@@ -568,7 +568,30 @@ def load_all():
     c = _conn()
 
     rows = c.execute("SELECT job_id, data FROM parse_jobs WHERE deleted_at IS NULL").fetchall()
-    jobs = {row["job_id"]: json.loads(row["data"]) for row in rows}
+    jobs = {}
+    for row in rows:
+        entry = json.loads(row["data"])
+        # 规范化：扁平旧格式 → 嵌套新格式（统一数据结构，根治端点兼容问题）
+        if "job" not in entry and "status" in entry:
+            entry = {
+                "job": {
+                    "status": entry.get("status", ""),
+                    "questions_count": entry.get("questions_count", 0),
+                    "file_name": entry.get("file_name", ""),
+                    "created_at": entry.get("created_at", ""),
+                    "updated_at": entry.get("updated_at", ""),
+                    "completed_at": entry.get("completed_at", ""),
+                },
+                "questions": entry.get("questions", []),
+                "poll_count": entry.get("poll_count", 0),
+                "child_id": entry.get("child_id", ""),
+                "parent_id": entry.get("parent_id", ""),
+                "client_task_id": entry.get("client_task_id", ""),
+                "progress": entry.get("progress", ""),
+                "error_code": entry.get("error_code", ""),
+                "retry_count": entry.get("retry_count", 0),
+            }
+        jobs[row["job_id"]] = entry
 
     rows = c.execute("SELECT data FROM model_calls ORDER BY created_at").fetchall()
     model_calls = [json.loads(row["data"]) for row in rows]
