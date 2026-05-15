@@ -1,6 +1,6 @@
 """
 悠米伴学 API — FastAPI 后端骨架
-Phase 0 Mock 模式，所有接口返回假数据
+Phase 1 真实 AI 接入，DeepSeek tutor + Qwen-VL 已上线
 """
 
 import asyncio
@@ -26,6 +26,7 @@ import oss_client as _oss
 from auth import (
     create_token, verify_token, hash_password, verify_password,
     init_seed_users, get_parent_by_phone, get_children,
+    create_child_token, verify_child_token, generate_child_secret,
     ParentUser, ChildProfile, _parents, _children,
 )
 import db as _db
@@ -87,14 +88,46 @@ async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
 from fastapi import Depends, Header
 from typing import Annotated
 
-def get_current_user(authorization: Annotated[str | None, Header()] = None):
-    """FastAPI 依赖：验证 JWT，返回 (parent_id, child_id)"""
+def get_current_user(
+    authorization: Annotated[str | None, Header()] = None,
+    x_child_id: Annotated[str | None, Header(alias="X-Child-Id")] = None,
+):
+    """FastAPI 依赖：验证 JWT（parent token 或 child token），返回 (parent_id, child_id)"""
     if not authorization:
         raise HTTPException(status_code=401, detail={"ok": False, "code": "unauthorized", "message": "请先登录"})
+
+    # 优先尝试 child token（有 X-Child-Id 头）
+    if x_child_id:
+        secret = _db.get_child_jwt_secret(x_child_id)
+        if secret:
+            payload = verify_child_token(authorization, secret)
+            if payload and payload.get("child_id") == x_child_id:
+                return payload.get("parent_id", ""), payload.get("child_id", "")
+        raise HTTPException(status_code=401, detail={"ok": False, "code": "child_token_invalid", "message": "子 token 无效"})
+
+    # 回退 parent token
     payload = verify_token(authorization)
     if not payload:
         raise HTTPException(status_code=401, detail={"ok": False, "code": "token_expired", "message": "登录已过期，请重新登录"})
     return payload.get("parent_id", ""), payload.get("child_id", "")
+
+
+def get_current_child(
+    authorization: Annotated[str | None, Header()] = None,
+    x_child_id: Annotated[str | None, Header(alias="X-Child-Id")] = None,
+):
+    """FastAPI 依赖：验证 child JWT（每 child 独立 secret），返回 (child_id, parent_id)"""
+    if not authorization or not x_child_id:
+        raise HTTPException(status_code=401, detail={"ok": False, "code": "unauthorized", "message": "缺少 Authorization 或 X-Child-Id"})
+    secret = _db.get_child_jwt_secret(x_child_id)
+    if not secret:
+        raise HTTPException(status_code=401, detail={"ok": False, "code": "child_not_found", "message": f"孩子 {x_child_id} 不存在"})
+    payload = verify_child_token(authorization, secret)
+    if not payload:
+        raise HTTPException(status_code=401, detail={"ok": False, "code": "token_invalid", "message": "子 token 无效或已过期"})
+    if payload.get("child_id") != x_child_id:
+        raise HTTPException(status_code=401, detail={"ok": False, "code": "child_mismatch", "message": "X-Child-Id 与 token 不匹配"})
+    return payload.get("child_id", ""), payload.get("parent_id", "")
 
 # ─── 枚举 ──────────────────────────────────────────────────
 class EntitlementStatus(str, Enum):
@@ -343,10 +376,10 @@ async def grade_answers(jid: str, questions: list, trace_id: str, parent_id: str
         latency_ms = int((time.time() - t_start) * 1000)
 
         # 记录模型调用
-        pricing = get_active_pricing("deepseek", "deepseek-chat")
+        pricing = get_active_pricing("deepseek", "deepseek-v4-flash")
         usage = result.get("usage", {}) or {}
         glog = make_log_entry(
-            task_id=jid, provider_name="deepseek", model_name="deepseek-chat",
+            task_id=jid, provider_name="deepseek", model_name="deepseek-v4-flash",
             feature_code="deepseek_grade_answers", trace_id=trace_id,
             sub_stage="grading", latency_ms=latency_ms,
             success=result["success"],
@@ -723,7 +756,11 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
     if oss_key:
         _jobs[jid]["oss_key"] = oss_key
         info("[BG] OSS upload OK: {oss_key}")
+        # 生成 OSS 签名 URL（24h 有效），Qwen-VL 通过 URL 读取图片（不传 base64）
+        oss_signed_url = _oss.get_signed_url(oss_key, expires=86400)
+        _jobs[jid]["oss_signed_url"] = oss_signed_url or ""
     else:
+        oss_signed_url = None
         info("[BG] OSS unavailable, using local only")
 
     # ── 创建 assignment + page（基准 Table 12）──
@@ -755,7 +792,10 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
         if qwen_vl._available():
             _jobs[jid]["job"].status = JobStatus.ocr_running  # 复用状态表示"识别中"
             info("[BG] Qwen-VL extracting questions for {jid}...")
-            qwen_result = qwen_vl.extract_questions(contents)
+            qwen_result = qwen_vl.extract_questions(
+                image_bytes=contents if not oss_signed_url else None,
+                image_url=oss_signed_url,
+            )
             qwen_latency = int((time.time() - t_start) * 1000)
             usage = qwen_result.get("usage", {}) if qwen_result.get("success") else {}
             input_tokens = usage.get("prompt_tokens", 0) if isinstance(usage, dict) else 0
@@ -899,7 +939,8 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
                     try:
                         t_vs = time.time()
                         vl_result = qwen_vl.analyze_question(
-                            image_bytes=contents,
+                            image_bytes=contents if not oss_signed_url else None,
+                            image_url=oss_signed_url,
                             bbox=q.bbox or [0, 0, 0, 0],
                             question_text=q.question_text,
                         )
@@ -976,7 +1017,9 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
                     try:
                         t_vs = time.time()
                         vl_result = qwen_vl.analyze_question(
-                            image_bytes=contents, bbox=q.bbox or [0, 0, 0, 0],
+                            image_bytes=contents if not oss_signed_url else None,
+                            image_url=oss_signed_url,
+                            bbox=q.bbox or [0, 0, 0, 0],
                             question_text=q.question_text,
                         )
                         vl_ms = int((time.time() - t_vs) * 1000)
@@ -1452,7 +1495,7 @@ async def tutor_question(question_id: str, body: TutorRequest, request: Request,
             error("[Tutor] ai_tutoring_messages write failed (non-blocking): {_te}")
 
         # Log model call — SQLite 持久化
-        pricing = get_active_pricing("deepseek", "deepseek-chat")
+        pricing = get_active_pricing("deepseek", "deepseek-v4-flash")
         tutor_trace_id = uuid.uuid4().hex  # 辅导链路 trace
         usage = result.get("usage") or {}
         in_tok = usage.get("input_tokens", 0)
@@ -1464,7 +1507,7 @@ async def tutor_question(question_id: str, body: TutorRequest, request: Request,
             question_id=question_id,
             job_id=question_id,
             provider_name="deepseek",
-            model_name="deepseek-chat",
+            model_name="deepseek-v4-flash",
             feature_code=feat_code,
             trace_id=tutor_trace_id,
             latency_ms=result.get("latency_ms", latency_ms),
@@ -1491,6 +1534,10 @@ async def tutor_question(question_id: str, body: TutorRequest, request: Request,
                                          question_id=question_id, call_id=call_id,
                                          actual_cost_cny=actual_cost, credit_delta=-1,
                                          billing_status="free_tier")
+            # 同步更新 model_calls.credit_cost
+            call_cid = _tlog.get("id", "")
+            if call_cid and actual_cost > 0:
+                _db._update_model_call_credit(call_cid, -1, actual_cost)
         except Exception as _ce:
             error("[Tutor] credit_ledger cost write failed (non-blocking): {_ce}")
 
