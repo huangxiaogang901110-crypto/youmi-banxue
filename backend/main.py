@@ -64,7 +64,7 @@ app = FastAPI(title="悠米伴学 API", version="0.1.0")
 # ─── CORS ──────────────────────────────────────────────────
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://39.107.119.136:3000", "https://youmi.xyz"],
+    allow_origins=["http://localhost:3000", "http://39.107.119.136:3000", "http://39.107.119.136:3001", "https://youmi.xyz"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -339,6 +339,8 @@ async def grade_answers(jid: str, questions: list, trace_id: str, parent_id: str
     gradable = [(i, q) for i, q in enumerate(questions)
                  if hasattr(q, "student_answer") and q.student_answer or
                  isinstance(q, dict) and q.get("student_answer")]
+    with open("/tmp/grade_diag.log", "a") as _f:
+        _f.write(f"{_ts()} | grade_answers START jid={jid} total_q={len(questions)} gradable={len(gradable)}\n")
     if not gradable:
         return 0.0
 
@@ -372,8 +374,11 @@ async def grade_answers(jid: str, questions: list, trace_id: str, parent_id: str
         result = ds.tutor([
             {"role": "system", "content": "你是作业批改老师，输出纯 JSON 数组。"},
             {"role": "user", "content": prompt},
-        ], max_tokens=1024)
+        ], max_tokens=min(4096, max(1024, 80 * len(gradable))))
         latency_ms = int((time.time() - t_start) * 1000)
+        with open("/tmp/grade_diag.log", "a") as _f:
+            _f.write(f"{_ts()} | grade_answers API result success={result.get('success')} reply_len={len(result.get('reply_text',''))} latency_ms={latency_ms}\n")
+            _f.write(f"{_ts()} | grade_answers REPLY content={result.get('reply_text','')[:500]}\n")
 
         # 记录模型调用
         pricing = get_active_pricing("deepseek", "deepseek-v4-flash")
@@ -402,11 +407,37 @@ async def grade_answers(jid: str, questions: list, trace_id: str, parent_id: str
 
         # 解析 DeepSeek 返回的 JSON
         content = result["reply_text"]
-        import re as _re
-        json_match = _re.search(r'\[.*\]', content, _re.DOTALL)
-        grades = json.loads(json_match.group()) if json_match else []
+        # 写入完整回复供排查
+        with open(f"/tmp/grade_reply_{jid}.txt", "w") as _f:
+            _f.write(content)
+        # 直接解析整个回复为 JSON
+        parse_method = "direct_json"
+        try:
+            grades = json.loads(content)
+        except json.JSONDecodeError:
+            import re as _re
+            json_match = _re.search(r'\[.*\]', content, _re.DOTALL)
+            if json_match:
+                grades = json.loads(json_match.group())
+                parse_method = "regex"
+            else:
+                # 截断兜底：切到最后一个完整 JSON 对象并补 ]（常见于 max_tokens 截断）
+                try:
+                    _trimmed = content.rstrip()
+                    _last_brace = _trimmed.rfind("}")
+                    if _last_brace > 0:
+                        grades = json.loads(_trimmed[:_last_brace + 1] + "]")
+                        parse_method = "truncation_fix"
+                    else:
+                        grades = []
+                        parse_method = "regex"
+                except json.JSONDecodeError:
+                    grades = []
+                    parse_method = "regex"
         if not isinstance(grades, list):
             grades = []
+        with open("/tmp/grade_diag.log", "a") as _f:
+            _f.write(f"{_ts()} | grade_answers PARSE method={parse_method} grades_len={len(grades)}\n")
 
         # 回填 by index
         grade_map = {}
@@ -438,6 +469,8 @@ async def grade_answers(jid: str, questions: list, trace_id: str, parent_id: str
                 q["grading_explanation"] = _expl
 
         info(f"[BG] Grading OK for {jid}: {len(grades)}/{len(gradable)} graded")
+        with open("/tmp/grade_diag.log", "a") as _f:
+            _f.write(f"{_ts()} | grade_answers BACKFILL grade_map_keys={sorted(grade_map.keys())[:10]} backfill_done\n")
         # 诊断：判对错统计
         _correct = sum(1 for g in grade_map.values() if g.get("is_correct") is True)
         _wrong = sum(1 for g in grade_map.values() if g.get("is_correct") is False)
@@ -446,6 +479,9 @@ async def grade_answers(jid: str, questions: list, trace_id: str, parent_id: str
     except Exception as e:
         error(f"[BG] Grading exception for {jid}: {e}")
         _log_error(f"grading_failed jid={jid}: {e}", trace_id=trace_id)
+        with open("/tmp/grade_diag.log", "a") as _f:
+            import traceback
+            _f.write(f"{_ts()} | grade_answers EXCEPTION jid={jid}: {e}\n{traceback.format_exc()}\n")
     return grading_cost
 
 
@@ -829,9 +865,13 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
             _db.save_model_call(_log)
 
             if qwen_result["success"] and qwen_result["questions"]:
-                use_qwen_vl = True
                 raw_questions = qwen_result["questions"]
                 question_count = len(raw_questions)
+                # 阈值：Qwen-VL 返回 <5 题 → 不可靠，回落 OCR+切题
+                if question_count < 5:
+                    print(f"[BG] Qwen-VL only got {question_count} questions, falling back to OCR+cutting", flush=True)
+                else:
+                    use_qwen_vl = True
                 info(f"[BG] Qwen-VL extracted {question_count} questions in {qwen_latency}ms")
 
                 # 分组展示用：用 raw_content 作为视觉描述

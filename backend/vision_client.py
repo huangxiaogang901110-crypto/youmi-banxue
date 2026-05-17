@@ -1,8 +1,7 @@
 """
-Qwen-VL 视觉理解客户端 — Phase 1 真实 AI 接入
+Qwen-VL 视觉理解客户端 — Phase 1
 支持全图识题（extract_questions）和逐题视觉分析（analyze_question）
 通过 DashScope API 调用，模型：qwen-vl-max
-图片传输：OSS 签名 URL 优先（不传 base64），OSS 不可用时回落 base64
 """
 import os, time, base64, json, re
 from typing import Optional, List
@@ -20,10 +19,8 @@ class QwenVLClient:
     def _available(self) -> bool:
         return bool(self.api_key and len(self.api_key) > 10 and self.api_key.startswith("sk-"))
 
-    def _call(self, image_bytes: bytes = None, image_url: str = None, prompt: str = "", max_tokens: int = 2000) -> dict:
-        """底层调用，返回原始 API 响应。
-        image_url 优先（OSS 签名 URL），否则 image_bytes → base64 data URL。
-        """
+    def _call(self, image_bytes: bytes, prompt: str, max_tokens: int = 2000) -> dict:
+        """底层调用，返回原始 API 响应。"""
         t_start = time.time()
         if not self._available():
             return {
@@ -33,25 +30,15 @@ class QwenVLClient:
                 "latency_ms": 0,
             }
 
-        if image_url:
-            _url = image_url
-        elif image_bytes:
-            image_b64 = base64.b64encode(image_bytes).decode("ascii")
-            _url = f"data:image/jpeg;base64,{image_b64}"
-        else:
-            return {
-                "content": "",
-                "success": False,
-                "error": "no_image_input",
-                "latency_ms": 0,
-            }
+        image_b64 = base64.b64encode(image_bytes).decode("ascii")
+        image_url = f"data:image/jpeg;base64,{image_b64}"
 
         body = json.dumps({
             "model": self.model,
             "messages": [{
                 "role": "user",
                 "content": [
-                    {"type": "image_url", "image_url": {"url": _url}},
+                    {"type": "image_url", "image_url": {"url": image_url}},
                     {"type": "text", "text": prompt},
                 ],
             }],
@@ -98,10 +85,9 @@ class QwenVLClient:
                 "latency_ms": latency_ms,
             }
 
-    def extract_questions(self, image_bytes: bytes = None, image_url: str = None) -> dict:
+    def extract_questions(self, image_bytes: bytes) -> dict:
         """
         全图识题：直接让 Qwen-VL 识别图片中所有题目。
-        image_url 优先（OSS 签名 URL），否则 image_bytes → base64。
         返回 {"questions": [...], "success": bool, "latency_ms": int, "error": str}
         其中 questions 数组每项含 number, type, content。
         """
@@ -116,7 +102,7 @@ class QwenVLClient:
             "如果只有单一题型没有分组，section_title 填 null。"
             "只输出 JSON 数组，不要有其他文字。"
         )
-        r = self._call(image_bytes=image_bytes, image_url=image_url, prompt=prompt, max_tokens=3000)
+        r = self._call(image_bytes, prompt, max_tokens=3000)
         if not r["success"]:
             return {"questions": [], "success": False, "latency_ms": r["latency_ms"], "error": r.get("error", "unknown")}
 
@@ -147,14 +133,12 @@ class QwenVLClient:
 
     def analyze_question(
         self,
-        image_bytes: bytes = None,
-        image_url: str = None,
-        bbox: List[float] = None,
-        question_text: str = "",
+        image_bytes: bytes,
+        bbox: List[float],
+        question_text: str,
     ) -> dict:
         """
         分析题目图片区域，返回语义描述。
-        image_url 优先（OSS 签名 URL），否则 image_bytes → base64。
         （当全图识题已提取所有题目时，本方法可跳过以节省 token）
         """
         t_start = time.time()
@@ -168,7 +152,6 @@ class QwenVLClient:
                 "error": "api_key_empty",
             }
 
-        bbox = bbox or [0, 0, 0, 0]
         x, y, w, h = [int(v) for v in bbox]
         prompt = (
             "请分析题目图片中标出的区域内容。"
@@ -178,7 +161,7 @@ class QwenVLClient:
             f"\n\n区域坐标参考：({x},{y}) 宽{w}高{h}"
         )
 
-        r = self._call(image_bytes=image_bytes, image_url=image_url, prompt=prompt, max_tokens=500)
+        r = self._call(image_bytes, prompt, max_tokens=500)
         if not r["success"]:
             return {
                 "visual_description": f"[Qwen-VL 异常] {question_text[:80]}",

@@ -1,9 +1,11 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { GraduationCap, ClipboardList } from "lucide-react";
 import Link from "next/link";
 import ActivationModal from "@/components/entitlement/ActivationModal";
+import { getToken } from "@/lib/api";
 
 const STORAGE_KEY = "yomi_homework_subjects";
 const STORAGE_DONE_KEY = "yomi_homework_done";
@@ -14,6 +16,32 @@ export default function HomePage() {
     total: number;
     done: number;
   } | null>(null);
+
+  const router = useRouter();
+
+  // 首页分流：新用户→注册 / 老用户→登录 / 已登录→正常。
+  // sessionStorage 检测新会话——浏览器被杀进程重开视为登出。
+  useEffect(() => {
+    const SESSION_KEY = "yomi_session";
+    const isNewSession = !sessionStorage.getItem(SESSION_KEY);
+
+    if (isNewSession) {
+      sessionStorage.setItem(SESSION_KEY, "1");
+      localStorage.removeItem("yomi_token");
+    }
+
+    const token = getToken();
+    if (token) return; // 已登录，正常展示首页
+
+    const VISITED_KEY = "yomi_has_visited";
+    const hasVisited = localStorage.getItem(VISITED_KEY);
+    if (!hasVisited) {
+      localStorage.setItem(VISITED_KEY, "1");
+      router.replace("/register");
+    } else {
+      router.replace("/login");
+    }
+  }, [router]);
 
   useEffect(() => {
     try {

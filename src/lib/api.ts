@@ -63,12 +63,6 @@ async function typedFetch<T>(
     if (response.status === 429) {
       return { ok: false, code: body.code || 'rate_limited', message: body.message || '请求太频繁，请稍后再试', request_id: body.request_id || '' };
     }
-    // 401 未授权 → 清 token 跳登录
-    if (response.status === 401) {
-      clearToken();
-      window.location.href = '/login';
-      return { ok: false, code: 'unauthorized', message: '登录已过期，请重新登录', request_id: '' };
-    }
     return body;
   } catch (error: unknown) {
     const isAbort = error instanceof DOMException && error.name === 'AbortError';

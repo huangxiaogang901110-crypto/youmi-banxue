@@ -1,7 +1,6 @@
 """
 悠米伴学 SQLite 持久化 — Phase 1
 原 4 表保留（JSON 双写兼容）+ 新增商用表 + 索引 + 图片过期
-PostgreSQL/Supabase 支持：设 SUPABASE_URL 环境变量后 init() 自动创 PG 表
 """
 import json
 import os
@@ -11,19 +10,6 @@ from pathlib import Path
 from typing import Optional
 
 DB_PATH = Path(__file__).parent / "yomi.db"
-
-# 懒加载 PG 适配层（psycopg2 未安装时不报错）
-_db_pg = None
-
-def _get_db_pg():
-    global _db_pg
-    if _db_pg is None:
-        try:
-            import db_pg as _mod
-            _db_pg = _mod
-        except ImportError:
-            _db_pg = False
-    return _db_pg if _db_pg else None
 
 
 def _conn():
@@ -360,7 +346,6 @@ def init():
         "ALTER TABLE child_profiles ADD COLUMN semester TEXT DEFAULT ''",
         "ALTER TABLE child_profiles ADD COLUMN textbook_version TEXT DEFAULT ''",
         "ALTER TABLE child_profiles ADD COLUMN deleted_at TEXT",
-        "ALTER TABLE child_profiles ADD COLUMN jwt_secret TEXT DEFAULT ''",
         "ALTER TABLE image_registry ADD COLUMN oss_key TEXT DEFAULT ''",
         "ALTER TABLE parse_jobs ADD COLUMN file_name TEXT DEFAULT ''",
         "ALTER TABLE parse_jobs ADD COLUMN questions_count INTEGER DEFAULT 0",
@@ -479,18 +464,6 @@ def init():
         c.execute(sql)
     c.commit()
     c.close()
-
-    # ── PostgreSQL/Supabase 同步建表（如果已配置 SUPABASE_URL）──
-    db_pg = _get_db_pg()
-    if db_pg and db_pg.pg_available():
-        try:
-            result = db_pg.migrate_to_pg(dry_run=False)
-            if result["ok"]:
-                print("[db] PG 表结构已同步")
-            else:
-                print(f"[db] PG 建表失败（不影响 SQLite）: {result.get('error', '')}")
-        except Exception as e:
-            print(f"[db] PG init 异常（不影响 SQLite）: {e}")
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -671,11 +644,11 @@ def load_parent_users() -> dict[str, dict]:
     return result
 
 
-def save_child_profile(cid: str, parent_id: str, name: str, avatar: str = "", jwt_secret: str = ""):
+def save_child_profile(cid: str, parent_id: str, name: str, avatar: str = ""):
     c = _conn()
     c.execute(
-        "INSERT OR REPLACE INTO child_profiles (id, parent_id, name, avatar, jwt_secret) VALUES (?, ?, ?, ?, ?)",
-        (cid, parent_id, name, avatar, jwt_secret),
+        "INSERT OR REPLACE INTO child_profiles (id, parent_id, name, avatar) VALUES (?, ?, ?, ?)",
+        (cid, parent_id, name, avatar),
     )
     c.commit()
     c.close()
@@ -687,22 +660,6 @@ def load_child_profiles() -> dict[str, dict]:
     result = {row["id"]: dict(row) for row in rows}
     c.close()
     return result
-
-
-def get_child_jwt_secret(child_id: str) -> str:
-    """获取指定 child 的 jwt_secret。"""
-    c = _conn()
-    row = c.execute("SELECT jwt_secret FROM child_profiles WHERE id = ?", (child_id,)).fetchone()
-    c.close()
-    return row["jwt_secret"] if row and row["jwt_secret"] else ""
-
-
-def set_child_jwt_secret(child_id: str, secret: str):
-    """设置 child 的 jwt_secret。"""
-    c = _conn()
-    c.execute("UPDATE child_profiles SET jwt_secret = ? WHERE id = ?", (secret, child_id))
-    c.commit()
-    c.close()
 
 
 # ═══════════════════════════════════════════════════════════════
