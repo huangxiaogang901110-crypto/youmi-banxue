@@ -2131,3 +2131,62 @@ async def save_homework_days(request: Request, body: HomeworkDaySaveRequest, use
             "message": str(e),
             "request_id": uuid.uuid4().hex,
         }
+
+
+# ─── 9. 识图切题历史后端持久化 ─────────────────────────
+
+class ParseHistoryItem(PydanticBase):
+    job_id: str
+    data_json: str
+    updated_at: str
+
+
+class ParseHistorySaveRequest(PydanticBase):
+    job_id: str
+    data_json: str  # JSON string of JobHistoryEntry
+
+
+@app.get("/api/parse-history")
+@limiter.limit("30/minute")
+async def get_parse_history(request: Request, user: tuple = Depends(get_current_user)):
+    """返回当前 child 的识图切题历史（最近 50 条）。"""
+    try:
+        parent_id, child_id = user
+        rows = _db.get_parse_history(child_id)
+        return {
+            "ok": True,
+            "data": [ParseHistoryItem(**r).model_dump() for r in rows],
+            "request_id": uuid.uuid4().hex,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        return {
+            "ok": False,
+            "code": "parse_history_error",
+            "message": str(e),
+            "request_id": uuid.uuid4().hex,
+        }
+
+
+@app.post("/api/parse-history")
+@limiter.limit("30/minute")
+async def save_parse_history(request: Request, body: ParseHistorySaveRequest, user: tuple = Depends(get_current_user)):
+    """保存一条识图切题历史到后端（清缓存后可恢复）。"""
+    try:
+        parent_id, child_id = user
+        _db.save_parse_history(child_id, body.job_id, body.data_json)
+        return {
+            "ok": True,
+            "message": "saved",
+            "request_id": uuid.uuid4().hex,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        return {
+            "ok": False,
+            "code": "parse_history_save_error",
+            "message": str(e),
+            "request_id": uuid.uuid4().hex,
+        }

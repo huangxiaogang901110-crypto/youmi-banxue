@@ -350,6 +350,14 @@ def init():
             updated_at TEXT DEFAULT (datetime('now')),
             UNIQUE(child_id, date)
         );
+        CREATE TABLE IF NOT EXISTS parse_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            child_id TEXT NOT NULL DEFAULT '',
+            job_id TEXT NOT NULL DEFAULT '',
+            data_json TEXT NOT NULL DEFAULT '{}',
+            updated_at TEXT DEFAULT (datetime('now')),
+            UNIQUE(child_id, job_id)
+        );
     """)
     c.commit()
 
@@ -1182,6 +1190,31 @@ def save_homework_day(child_id: str, date: str, data_json: str):
         "INSERT OR REPLACE INTO homework_days (child_id, date, data_json, updated_at) "
         "VALUES (?, ?, ?, datetime('now'))",
         (child_id, date, data_json),
+    )
+    c.commit()
+    c.close()
+
+
+def get_parse_history(child_id: str) -> list[dict]:
+    """返回指定 child 的识图切题历史（最近 30 天）。"""
+    c = _conn()
+    rows = c.execute(
+        "SELECT job_id, data_json, updated_at FROM parse_history "
+        "WHERE child_id = ? "
+        "ORDER BY updated_at DESC LIMIT 50",
+        (child_id,),
+    ).fetchall()
+    c.close()
+    return [dict(r) for r in rows]
+
+
+def save_parse_history(child_id: str, job_id: str, data_json: str):
+    """INSERT OR REPLACE 一条识图切题历史。"""
+    c = _conn()
+    c.execute(
+        "INSERT OR REPLACE INTO parse_history (child_id, job_id, data_json, updated_at) "
+        "VALUES (?, ?, ?, datetime('now'))",
+        (child_id, job_id, data_json),
     )
     c.commit()
     c.close()

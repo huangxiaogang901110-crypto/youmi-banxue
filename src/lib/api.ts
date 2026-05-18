@@ -361,6 +361,19 @@ export const homeworkApi = {
     }),
 };
 
+/**
+ * parseHistoryApi 提供识图切题历史后端持久化接口。
+ */
+export const parseHistoryApi = {
+  getHistory: (): Promise<ApiResponse<Array<{ job_id: string; data_json: string; updated_at: string }>>> =>
+    typedFetch<Array<{ job_id: string; data_json: string; updated_at: string }>>(`${API_BASE_URL}/api/parse-history`),
+  saveHistory: (job_id: string, data_json: string): Promise<ApiResponse<{ message: string }>> =>
+    typedFetch<{ message: string }>(`${API_BASE_URL}/api/parse-history`, {
+      method: "POST",
+      body: JSON.stringify({ job_id, data_json }),
+    }),
+};
+
 function mockParseHomework(text: string): import("./types").HomeworkParseData {
   const subjects: import("./types").HomeworkSubject[] = [];
   const lines = text.split("\n").filter((l) => l.trim());
