@@ -26,6 +26,8 @@ push 请求 → pre-receive 检查 /tmp/yomi_git_unlocked
 
 **令牌是一次性的**：一次 push 完成后自动销毁。下次要推必须刚哥再说「开门」。
 
+**令牌也约束 hermes_me 自己**：即使是在公共区本地执行 git reset / pull / rebase / merge 等直接操作，也必须先开门。hermes_me 不能绕过门禁。
+
 开门命令（仅 hermes_me 执行）：
 ```bash
 touch /tmp/yomi_git_unlocked
@@ -194,6 +196,7 @@ git push github main        # github 为工作区配置的 GitHub remote
 ## 七、禁止清单
 
 - ⛔ 在 `~/yomi/` 执行任何 git 写操作
+- ⛔ hermes_me 在 `~/yomi/` 直接 git reset / pull / rebase / merge（必须通过令牌门禁）
 - ⛔ hermes_me 不在 `~/yomi-dev/` 时执行 git 操作
 - ⛔ hermes_colleague 不在 `/home/hermes_colleague/yomi/` 时执行 git 操作
 - ⛔ 工作区不干净时直接 rebase

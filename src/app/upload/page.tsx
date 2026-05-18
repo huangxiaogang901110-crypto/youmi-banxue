@@ -2,10 +2,10 @@
 
 import { useState, useRef, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Camera, Image, FileText, X, Loader2, CheckCircle2, ClipboardList, Send, Copy, ChevronDown, ChevronRight, Trash2 } from "lucide-react";
+import { Camera, Image, FileText, X, Loader2, CheckCircle2, ClipboardList, Send, Copy, ChevronDown, ChevronRight, Trash2, Lightbulb } from "lucide-react";
 import { compressImage } from "@/lib/imageCompress";
 import { uuidv4 } from "@/lib/uuid";
-import { parseJobApi, homeworkApi } from "@/lib/api";
+import { parseJobApi, homeworkApi, getToken } from "@/lib/api";
 import type { HomeworkSubject } from "@/lib/types";
 import ErrorDisplay from "@/components/common/ErrorDisplay";
 import HomeworkList from "@/components/homework/HomeworkList";
@@ -87,9 +87,36 @@ function UploadContent() {
       } else {
         uploadFile = file;
       }
+
+      // ── 图片哈希去重：对原始文件计算 SHA-256（压缩前）──
+      // canvas.toBlob JPEG 编码不幂等，压缩后哈希无法匹配
+      const hashBuffer = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
+      const hash = Array.from(new Uint8Array(hashBuffer))
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("");
+
+      // 预检：同一张图已解析过？
+      try {
+        const checkResp = await fetch(
+          `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/parse-jobs/check-hash?hash=${hash}`,
+          { headers: getToken() ? { Authorization: `Bearer ${getToken()}` } : {} }
+        );
+        const checkData = await checkResp.json();
+        if (checkData.hit && checkData.job_id) {
+          setJobId(checkData.job_id);
+          setStatus("success");
+          setTimeout(() => {
+            router.push(`/workspace?job_id=${checkData.job_id}`);
+          }, 500);
+          return;
+        }
+      } catch {
+        // 预检失败 → 回退到正常上传
+      }
+
       setStatus("uploading");
       const clientTaskId = uuidv4();
-      const resp = await parseJobApi.create(uploadFile, clientTaskId);
+      const resp = await parseJobApi.create(uploadFile, clientTaskId, hash);
       if (!resp.ok || !resp.data?.job_id) {
         throw new Error(resp.message || "服务器未返回任务 ID");
       }
@@ -180,7 +207,7 @@ function UploadContent() {
           }`}
         >
           <Camera className="w-4 h-4" />
-          拍照片
+          上传文件
         </button>
       </div>
 
@@ -189,13 +216,20 @@ function UploadContent() {
         <div className="space-y-4">
           {/* 今日作业 */}
           {todayEntry && todayEntry.subjects.length > 0 && (
-            <HomeworkList
-              subjects={todayEntry.subjects}
-              doneMap={todayEntry.doneMap}
-              onToggle={handleToggle}
-              onDelete={handleDelete}
-              readOnly={false}
-            />
+            <SwipeableCard
+              actions={[
+                { label: "取消", color: "blue", onClick: () => {} },
+                { label: "删除", color: "red", onClick: () => removeDay(todayEntry.date) },
+              ]}
+            >
+              <HomeworkList
+                subjects={todayEntry.subjects}
+                doneMap={todayEntry.doneMap}
+                onToggle={handleToggle}
+                onDelete={handleDelete}
+                readOnly={false}
+              />
+            </SwipeableCard>
           )}
 
           {/* 粘贴区 */}
@@ -232,11 +266,11 @@ function UploadContent() {
           {/* 空态引导 */}
           {!todayEntry && historyEntries.length === 0 && (
             <div className="bg-muted rounded-xl p-4 text-xs text-muted-foreground space-y-2">
-              <p className="font-medium text-foreground text-sm">💡 怎么用</p>
+              <p className="font-medium text-foreground text-sm"><Lightbulb className="w-4 h-4 inline mr-1" /> 怎么用</p>
               <p>1. 复制微信群里的作业文本</p>
               <p>2. 粘贴到上方输入框</p>
               <p>3. 点「生成作业清单」→ AI 自动拆分科目和任务</p>
-              <p>4. 孩子完成一项勾一项 ✨</p>
+              <p>4. 孩子完成一项勾一项</p>
               <p className="text-muted-foreground/60 mt-2">
                 支持任意格式——DeepSeek AI 会自动识别，不用照着示例格式改
               </p>
@@ -298,8 +332,11 @@ function UploadContent() {
                         <HomeworkList
                           subjects={entry.subjects}
                           doneMap={entry.doneMap}
-                          onToggle={() => {}}
-                          readOnly={true}
+                          onToggle={(si, ti) => {
+                            const s = entry.subjects[si];
+                            if (s) toggleDayTask(entry.date, s.name, s.tasks[ti]);
+                          }}
+                          readOnly={false}
                         />
                       </div>
                     )}
@@ -351,8 +388,8 @@ function UploadContent() {
                 >
                   <Image className="w-12 h-12 text-primary mx-auto" strokeWidth={1.5} />
                   <div>
-                    <p className="text-foreground font-medium">点击拍照或选择图片</p>
-                    <p className="text-muted-foreground text-sm mt-1">支持 JPG / PNG / PDF，单文件 ≤10MB</p>
+                    <p className="text-foreground font-medium">点击选择 PDF 或 Word 文档</p>
+                    <p className="text-muted-foreground text-sm mt-1">支持 PDF / Word / JPG / PNG，单文件 ≤10MB</p>
                   </div>
                 </div>
               ) : (
@@ -391,13 +428,13 @@ function UploadContent() {
                   onClick={() => cameraRef.current?.click()}
                   className="flex-1 flex items-center justify-center gap-2 rounded-xl border border-border py-3 text-sm text-foreground hover:bg-muted transition"
                 >
-                  <Camera className="w-4 h-4" /> 拍照
+                  <Camera className="w-4 h-4" /> 拍照上传
                 </button>
                 <button
                   onClick={() => galleryRef.current?.click()}
                   className="flex-1 flex items-center justify-center gap-2 rounded-xl border border-border py-3 text-sm text-foreground hover:bg-muted transition"
                 >
-                  <Image className="w-4 h-4" /> 从相册选择
+                  <Image className="w-4 h-4" /> 选择文件
                 </button>
               </div>
 

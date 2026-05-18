@@ -174,22 +174,25 @@ export async function deleteHomeworkByJobId(jobId: string): Promise<void> {
 }
 
 export async function clearAllCache() {
-  // 1. 清除 IndexedDB 临时缓存（保留作业清单 + 识图历史）
+  // 1. 清除 IndexedDB 所有 store
   const db = await openDB();
   await new Promise<void>((resolve, reject) => {
-    // 只清 tutor_results（辅导缓存，可从后端重新获取）
-    // 保留 homework_history（作业清单历史）、vision_results（识图历史）
-    const tx = db.transaction("tutor_results", "readwrite");
-    tx.objectStore("tutor_results").clear();
+    const stores = ["tutor_results", "vision_results", "homework_history"];
+    const tx = db.transaction(stores, "readwrite");
+    for (const name of stores) {
+      tx.objectStore(name).clear();
+    }
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
 
-  // 2. 清除 localStorage 临时缓存（保留作业清单 + 识图历史）
-  // 只清可从后端恢复的 job 列表缓存
+  // 2. 清除 localStorage 缓存（保留登录 token）
   const LOCAL_KEYS = [
     "yomi_job_history",
     "yomi_deleted_jobs",
+    "yomi_homework_days",
+    "yomi_homework_subjects",
+    "yomi_homework_done",
   ];
   for (const key of LOCAL_KEYS) {
     try { localStorage.removeItem(key); } catch { /* ignore */ }

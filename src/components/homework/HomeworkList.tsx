@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, X } from "lucide-react";
+import { Check, X, PartyPopper } from "lucide-react";
 import type { HomeworkSubject } from "@/lib/types";
 
 interface Props {
@@ -43,7 +43,7 @@ export default function HomeworkList({
           />
         </div>
         <p className="text-xs text-muted-foreground text-right">
-          {pct === 100 ? "🎉 全部完成！" : `还剩 ${totalTasks - doneCount} 项`}
+          {pct === 100 ? <span><PartyPopper className="w-4 h-4 inline mr-1" /> 全部完成！</span> : `还剩 ${totalTasks - doneCount} 项`}
         </p>
       </div>
 

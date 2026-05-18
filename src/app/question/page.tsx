@@ -211,9 +211,25 @@ function QuestionPageInner() {
 
       {/* Messages */}
       <div className="flex-1 space-y-3 mb-3 min-h-[200px]">
-        {messages.length === 0 && !currentReply && (
+        {messages.length === 0 && !currentReply && !loading && (
           <div className="text-center py-8">
             <p className="text-muted-foreground text-sm mb-3">选择一种辅导方式开始</p>
+          </div>
+        )}
+
+        {/* AI 思考中 */}
+        {loading && !currentReply && (
+          <div className="flex justify-start animate-in fade-in slide-in-from-bottom-2 duration-300">
+            <div className="max-w-[85%] rounded-2xl rounded-tl-md bg-primary/10 px-4 py-3">
+              <div className="flex items-center gap-3">
+                <div className="flex gap-1">
+                  <span className="w-2 h-2 bg-primary/60 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
+                  <span className="w-2 h-2 bg-primary/60 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
+                  <span className="w-2 h-2 bg-primary/60 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+                </div>
+                <span className="text-sm text-muted-foreground">AI 正在思考...</span>
+              </div>
+            </div>
           </div>
         )}
 
@@ -249,12 +265,17 @@ function QuestionPageInner() {
       {/* Action buttons — 始终可见，已有回复时缩小尺寸 */}
       <div className="flex gap-2 mb-3 flex-wrap">
         <button
-          onClick={() => {
-            // 切换 action：清空当前内容并重新请求
+          onClick={async () => {
             currentActionRef.current = "hint";
             setMessages([]);
             setCurrentReply("");
-            doTutor("initial", "请给我一点提示", "hint");
+            const cached = await loadTutorResult(id, "hint");
+            if (cached) {
+              const r = cached as TutorResponse;
+              setMessages([{ role: "ai", text: r.reply_text }]);
+            } else {
+              doTutor("initial", "请给我一点提示", "hint");
+            }
           }}
           disabled={loading}
           className={`flex items-center gap-1.5 rounded-full border border-border px-3 py-2 text-xs text-foreground hover:bg-muted transition disabled:opacity-50 ${
@@ -263,11 +284,17 @@ function QuestionPageInner() {
           <Lightbulb className="w-3.5 h-3.5 text-amber-500" /> 给我一点提示
         </button>
         <button
-          onClick={() => {
+          onClick={async () => {
             currentActionRef.current = "solve";
             setMessages([]);
             setCurrentReply("");
-            doTutor("initial", "请给出完整解析", "solve");
+            const cached = await loadTutorResult(id, "solve");
+            if (cached) {
+              const r = cached as TutorResponse;
+              setMessages([{ role: "ai", text: r.reply_text }]);
+            } else {
+              doTutor("initial", "请给出完整解析", "solve");
+            }
           }}
           disabled={loading}
           className={`flex items-center gap-1.5 rounded-full px-3 py-2 text-xs transition disabled:opacity-50 ${

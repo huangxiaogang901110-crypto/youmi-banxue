@@ -27,6 +27,10 @@ export default function SwipeableCard({ actions, children, onTap, className = ""
     };
 
     const onTouchEnd = (e: TouchEvent) => {
+      // 触摸落在按钮/链接上 → 不触发 onTap，让元素的 click 处理
+      const target = e.target as HTMLElement;
+      if (target.closest("button, a, [role='button'], input, select, textarea")) return;
+
       const deltaX = startX.current - e.changedTouches[0].clientX;
       const deltaY = startY - e.changedTouches[0].clientY;
       const absX = Math.abs(deltaX);

@@ -12,7 +12,7 @@ export interface HomeworkDayEntry {
 }
 
 const LS_KEY = "yomi_homework_days";
-const MAX_AGE_DAYS = 30; // 最多保留 30 天
+const MAX_AGE_DAYS = 7; // 最多保留 7 天
 
 function today(): string {
   const d = new Date();
