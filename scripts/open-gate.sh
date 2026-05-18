@@ -9,7 +9,11 @@ TIMEOUT_MIN=5
 
 log() { echo "[$(date '+%H:%M:%S')] $1"; }
 
-# ── 1. 解锁全链路 other write ──
+# ── 1. 解锁 owner write（hermes_me push 用）──
+chmod -R u+w "$GIT_DIR/" 2>/dev/null || true
+log "🔓 .git owner 写权限已恢复"
+
+# ── 2. 解锁全链路 other write ──
 log "🔓 解锁 .git 写权限..."
 chmod o+w "$GIT_DIR/" 2>/dev/null || true
 chmod o+w "$GIT_DIR/HEAD" 2>/dev/null || true
@@ -27,7 +31,7 @@ chown -R hermes_me:hermes_me "$GIT_DIR/"
 log "✅ .git 所有权已移交 hermes_me"
 
 # ── 2. 创建令牌 ──
-touch "$UNLOCK_FILE" && chmod 666 "$UNLOCK_FILE"
+touch "$UNLOCK_FILE" && chown hermes_me:hermes_me "$UNLOCK_FILE" && chmod 666 "$UNLOCK_FILE"
 log "✅ 令牌已创建"
 
 # ── 3. 超时保护（N 分钟后自动关门）──
