@@ -426,6 +426,10 @@ function mockParseHomework(text: string): import("./types").HomeworkParseData {
 export const mistakesApi = {
   list: (): Promise<ApiResponse<import("./types").MistakeItem[]>> =>
     typedFetch<import("./types").MistakeItem[]>(`${API_BASE_URL}/api/mistakes`),
+  delete: (id: string): Promise<ApiResponse<{ id: string }>> =>
+    typedFetch<{ id: string }>(`${API_BASE_URL}/api/mistakes/${id}`, { method: "DELETE" }),
+  update: (id: string, body: { mastery_status?: string; error_type_code?: string; reason_desc?: string }): Promise<ApiResponse<{ id: string }>> =>
+    typedFetch<{ id: string }>(`${API_BASE_URL}/api/mistakes/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
 };
 
 export const authSwitchApi = {

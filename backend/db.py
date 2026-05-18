@@ -771,7 +771,11 @@ def save_mistake(child_id: str, question_id: str, error_type: str = "unknown", r
 def get_mistakes(child_id: str) -> list[dict]:
     c = _conn()
     rows = c.execute(
-        "SELECT * FROM mistake_book_item WHERE child_id = ? AND deleted_at IS NULL ORDER BY created_at DESC",
+        """SELECT m.*, q.question_text, q.crop_url, q.visual_description
+           FROM mistake_book_item m
+           LEFT JOIN question_item q ON m.question_id = q.id
+           WHERE m.child_id = ? AND m.deleted_at IS NULL
+           ORDER BY m.created_at DESC""",
         (child_id,),
     ).fetchall()
     result = [dict(r) for r in rows]
@@ -790,6 +794,26 @@ def delete_mistake(mistake_id: str):
     if question_id:
         c.execute("UPDATE ai_tutoring_chat SET deleted_at = datetime('now') WHERE question_id = ? AND deleted_at IS NULL", (question_id,))
     c.commit()
+    c.close()
+
+def update_mistake(mistake_id: str, mastery_status: str = None, error_type_code: str = None, reason_desc: str = None):
+    """更新错题状态/类型/原因"""
+    c = _conn()
+    sets = []
+    vals = []
+    if mastery_status is not None:
+        sets.append("mastery_status = ?")
+        vals.append(mastery_status)
+    if error_type_code is not None:
+        sets.append("error_type_code = ?")
+        vals.append(error_type_code)
+    if reason_desc is not None:
+        sets.append("reason_desc = ?")
+        vals.append(reason_desc)
+    if sets:
+        vals.append(mistake_id)
+        c.execute(f"UPDATE mistake_book_item SET {', '.join(sets)} WHERE id = ?", vals)
+        c.commit()
     c.close()
 
 # ═══════════════════════════════════════════════════════════════

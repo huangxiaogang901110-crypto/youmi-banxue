@@ -190,6 +190,9 @@ export interface MistakeItem {
   mastery_status: string;
   next_review_at?: string;
   created_at?: string;
+  question_text?: string;
+  crop_url?: string;
+  visual_description?: string;
 }
 
 export interface RecentJob {

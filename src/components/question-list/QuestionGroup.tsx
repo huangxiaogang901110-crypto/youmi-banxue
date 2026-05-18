@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronDown, ChevronUp, Lightbulb, BookOpen } from "lucide-react";
+import { ChevronDown, ChevronUp, Lightbulb, BookOpen, Bookmark } from "lucide-react";
 import type { Question } from "@/lib/types";
+import { questionStatusApi, mistakesApi } from "@/lib/api";
 
 interface QuestionGroupProps {
   groupIndex: number;
@@ -21,7 +22,19 @@ export default function QuestionGroup({
   defaultOpen = false,
 }: QuestionGroupProps) {
   const [open, setOpen] = useState(defaultOpen);
+  const MISTAKE_KEY = "yomi_mistake_ids";
+  const [mistakeIds, setMistakeIds] = useState<Set<string>>(() => {
+    try {
+      const stored = localStorage.getItem(MISTAKE_KEY);
+      return stored ? new Set(JSON.parse(stored)) : new Set();
+    } catch { return new Set(); }
+  });
   const router = useRouter();
+
+  // 持久化到 localStorage
+  useEffect(() => {
+    localStorage.setItem(MISTAKE_KEY, JSON.stringify([...mistakeIds]));
+  }, [mistakeIds]);
 
   return (
     <div className="bg-card rounded-2xl shadow-sm border border-border overflow-hidden">
@@ -77,15 +90,44 @@ export default function QuestionGroup({
               <div className="flex gap-2 pl-8">
                 <button
                   onClick={() => router.push(`/question?qid=${q.question_id}&action=hint`)}
-                  className="flex-1 flex items-center justify-center gap-1.5 rounded-lg border border-border py-2 text-xs text-foreground hover:bg-muted transition">
+                  className="flex items-center justify-center gap-1 rounded-lg border border-border px-2.5 py-2 text-xs text-foreground hover:bg-muted transition">
                   <Lightbulb className="w-3.5 h-3.5 text-amber-500" />
-                  给我一点提示
+                  提示
                 </button>
                 <button
                   onClick={() => router.push(`/question?qid=${q.question_id}&action=solve`)}
-                  className="flex-1 flex items-center justify-center gap-1.5 rounded-lg bg-primary text-primary-foreground py-2 text-xs font-medium hover:opacity-90 transition">
+                  className="flex items-center justify-center gap-1 rounded-lg bg-primary text-primary-foreground px-2.5 py-2 text-xs font-medium hover:opacity-90 transition">
                   <BookOpen className="w-3.5 h-3.5" />
-                  查看完整解析
+                  完整解析
+                </button>
+                <button
+                  onClick={async () => {
+                    const newSet = new Set(mistakeIds);
+                    if (newSet.has(q.question_id)) {
+                      // 取消：从错题本移除
+                      newSet.delete(q.question_id);
+                      setMistakeIds(newSet);
+                      try {
+                        const resp = await mistakesApi.list();
+                        if (resp.ok && resp.data) {
+                          const record = resp.data.find((m) => m.question_id === q.question_id);
+                          if (record) await mistakesApi.delete(record.id);
+                        }
+                      } catch { /* 后端失败不影响本地状态 */ }
+                    } else {
+                      // 加入错题本
+                      newSet.add(q.question_id);
+                      setMistakeIds(newSet);
+                      questionStatusApi.update(q.question_id, "mistake_book");
+                    }
+                  }}
+                  className={`flex items-center justify-center gap-1 rounded-lg border px-2.5 py-2 text-xs transition ${
+                    mistakeIds.has(q.question_id)
+                      ? "border-primary bg-primary/10 text-primary ring-1 ring-primary/30"
+                      : "border-border text-foreground hover:bg-muted"
+                  }`}>
+                  <Bookmark className={`w-3.5 h-3.5 ${mistakeIds.has(q.question_id) ? "text-primary" : ""}`} />
+                  加入错题
                 </button>
               </div>
             </div>
