@@ -14,7 +14,7 @@ const stages = [
 ];
 
 // 每阶段虚拟耗时（ms），用于自动推进
-const STAGE_MS = [3000, 3000, 5000, 8000, 10000, 10000, 10000];
+const STAGE_MS = [3000, 8000, 12000, 15000, 20000, 15000, 10000];
 
 // backend status → stage index
 const STATUS_TO_STAGE: Record<string, number> = {
