@@ -468,6 +468,13 @@ async def grade_answers(jid: str, questions: list, trace_id: str, parent_id: str
                 q["is_correct"] = _is_correct
                 q["grading_explanation"] = _expl
 
+        # 合规校验：翻转数学误判
+        from grade_compliance import check_compliance
+        cr = check_compliance(questions)
+        if cr["flipped"] > 0:
+            with open("/tmp/grade_diag.log", "a") as _f:
+                _f.write(f"{_ts()} | grade_answers COMPLIANCE flipped={cr['flipped']} details={cr['details']}\n")
+
         info(f"[BG] Grading OK for {jid}: {len(grades)}/{len(gradable)} graded")
         with open("/tmp/grade_diag.log", "a") as _f:
             _f.write(f"{_ts()} | grade_answers BACKFILL grade_map_keys={sorted(grade_map.keys())[:10]} backfill_done\n")
@@ -962,6 +969,7 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
                     bbox=cq["bbox"],
                     visual_description=None,
                     status=QuestionStatus.completed,
+                    student_answer=None,
                 ))
                 _db.create_question_item(qid, aid, page_id, cq["question_number"], cq["question_text"], cq["bbox"])
             info(f"[BG] OCR+Cut: {len(extracted['blocks'])} blocks → {len(questions)} questions")

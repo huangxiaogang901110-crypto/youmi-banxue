@@ -72,6 +72,12 @@ export default function QuestionGroup({
                   {q.question_text || `(题目 #${q.question_number} — 识别中)`}
                 </p>
                 {/* 判题结果 */}
+                {q.student_answer && (
+                  <span className="text-xs text-blue-600 bg-blue-50 rounded-full px-2 py-0.5 font-medium shrink-0 mt-0.5">
+                    答：{q.student_answer}
+                  </span>
+                )}
+                {/* 判对错 */}
                 {q.student_answer != null && q.is_correct === true && (
                   <span className="text-xs text-green-600 font-medium shrink-0 mt-0.5">✓ 正确</span>
                 )}
