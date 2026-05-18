@@ -395,6 +395,7 @@ function WorkspaceContent() {
       });
 
       // ── 导航到任务页，开始轮询 ──
+      setIsRestoring(true);  // 触发统一"处理中"视图，消除 loading 白屏间隙
       const targetUrl = `/workspace?job_id=${jid}`;
       addDiagEvent("router_replace", { from: window.location.search || "/", to: targetUrl });
       router.replace(targetUrl);
@@ -517,24 +518,23 @@ function WorkspaceContent() {
     h.questions_count > 0
   ).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
-  // ── 恢复中 ──
-  if (isRestoring && (status === "loading" || status === "polling")) {
+  // ── 处理中（恢复 / 上传 / 轮询）── 合并为单实例，避免 ProcessingStatus 卸载重挂载
+  if ((isRestoring || status === "loading" || status === "polling") && status !== "completed" && status !== "failed") {
     return (
-      <div className="space-y-4 pb-4">
+      <div className={`space-y-4 ${isRestoring ? 'pb-4' : ''}`}>
         {showDebug && <DiagPanel events={diagEvents} expanded={diagExpanded} onToggle={() => setDiagExpanded(!diagExpanded)} />}
+        {!isRestoring && (
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-muted-foreground">正在处理中…</span>
+            <button
+              onClick={() => { resetUpload(); router.push("/workspace"); }}
+              className="text-xs text-primary border border-primary rounded-lg px-3 py-1"
+            >
+              新上传
+            </button>
+          </div>
+        )}
         <ProcessingStatus status={job?.status || "uploaded"} />
-      </div>
-    );
-  }
-
-  // ── loading ──
-  if (status === "loading") {
-    return (
-      <div className="space-y-4 pb-4">
-        {showDebug && <DiagPanel events={diagEvents} expanded={diagExpanded} onToggle={() => setDiagExpanded(!diagExpanded)} />}
-        <div className="flex items-center justify-center py-20">
-          <Loader2 className="w-8 h-8 text-primary animate-spin" />
-        </div>
       </div>
     );
   }
@@ -701,25 +701,6 @@ function WorkspaceContent() {
             resetUpload();
           }}
         />
-      </div>
-    );
-  }
-
-  // ── polling ──
-  if (status === "polling") {
-    return (
-      <div className="space-y-4">
-        {showDebug && <DiagPanel events={diagEvents} expanded={diagExpanded} onToggle={() => setDiagExpanded(!diagExpanded)} />}
-        <div className="flex items-center justify-between">
-          <span className="text-sm text-muted-foreground">正在处理中…</span>
-          <button
-            onClick={() => { resetUpload(); router.push("/workspace"); }}
-            className="text-xs text-primary border border-primary rounded-lg px-3 py-1"
-          >
-            新上传
-          </button>
-        </div>
-        <ProcessingStatus status={job?.status || "uploaded"} />
       </div>
     );
   }
