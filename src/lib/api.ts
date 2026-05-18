@@ -350,6 +350,15 @@ export const homeworkApi = {
           `${API_BASE_URL}/api/homework/parse`,
           { method: "POST", body: JSON.stringify({ text }) }
         ),
+  /** 从后端恢复作业清单 */
+  getDays: (): Promise<ApiResponse<Array<{ date: string; data_json: string; updated_at: string }>>> =>
+    typedFetch<Array<{ date: string; data_json: string; updated_at: string }>>(`${API_BASE_URL}/api/homework/days`),
+  /** 保存作业清单到后端 */
+  saveDays: (date: string, entries_json: string): Promise<ApiResponse<{ message: string }>> =>
+    typedFetch<{ message: string }>(`${API_BASE_URL}/api/homework/days`, {
+      method: "POST",
+      body: JSON.stringify({ date, entries_json }),
+    }),
 };
 
 function mockParseHomework(text: string): import("./types").HomeworkParseData {

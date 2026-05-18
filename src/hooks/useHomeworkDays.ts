@@ -2,6 +2,8 @@
 
 import { useState, useCallback, useEffect } from "react";
 import type { HomeworkSubject } from "@/lib/types";
+import { idbGet, idbSet, idbDel } from "@/lib/idbStorage";
+import { homeworkApi } from "@/lib/api";
 
 export interface HomeworkDayEntry {
   date: string; // "2026-05-11"
@@ -23,35 +25,106 @@ function makeKey(subjectName: string, taskText: string): string {
   return `${subjectName}||${taskText.trim()}`;
 }
 
-function loadDays(): HomeworkDayEntry[] {
+async function loadDays(): Promise<HomeworkDayEntry[]> {
+  const diag = (...args: unknown[]) => console.log("[HW-DIAG] loadDays:", ...args);
+
+  // 1. 优先 IndexedDB（清缓存不清 IDB）
+  try {
+    const raw = await idbGet(LS_KEY);
+    diag("step1-IDB raw?", raw !== null, "len:", raw?.length ?? 0);
+    if (raw) {
+      const entries: HomeworkDayEntry[] = JSON.parse(raw);
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - MAX_AGE_DAYS);
+      const valid = entries.filter((e) => new Date(e.created_at) > cutoff);
+      diag("step1-IDB entries:", entries.length, "valid:", valid.length);
+      if (valid.length < entries.length) {
+        idbSet(LS_KEY, JSON.stringify(valid));
+      }
+      return valid;
+    }
+  } catch (e) { diag("step1-IDB ERROR", e); /* fall through */ }
+
+  // 2. 回退 localStorage
   try {
     const raw = localStorage.getItem(LS_KEY);
-    if (!raw) return [];
-    const entries: HomeworkDayEntry[] = JSON.parse(raw);
-    // 清理过期
-    const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - MAX_AGE_DAYS);
-    const valid = entries.filter((e) => new Date(e.created_at) > cutoff);
-    if (valid.length < entries.length) {
-      localStorage.setItem(LS_KEY, JSON.stringify(valid));
+    diag("step2-LS raw?", raw !== null, "len:", raw?.length ?? 0);
+    if (raw) {
+      const entries: HomeworkDayEntry[] = JSON.parse(raw);
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - MAX_AGE_DAYS);
+      const valid = entries.filter((e) => new Date(e.created_at) > cutoff);
+      diag("step2-LS entries:", entries.length, "valid:", valid.length);
+      if (valid.length > 0) {
+        idbSet(LS_KEY, JSON.stringify(valid)); // 迁移到 IDB
+        return valid;
+      }
     }
-    return valid;
-  } catch {
-    return [];
-  }
+  } catch (e) { diag("step2-LS ERROR", e); /* fall through */ }
+
+  // 3. 后端兜底（清缓存/换设备后恢复）
+  try {
+    diag("step3-API calling homeworkApi.getDays()...");
+    const res = await homeworkApi.getDays();
+    diag("step3-API res.ok:", res.ok, "data_len:", res.data?.length ?? 0, "code:", (res as any).code, "message:", (res as any).message);
+    if (!res.ok) {
+      const code = (res as any).code;
+      if (code === 'unauthorized' || code === 'token_expired') {
+        console.warn('[HW-DIAG] loadDays step3-API auth failed, skipping backend restore:', code);
+      }
+      // fall through to return []
+    }
+    if (res.ok && res.data && res.data.length > 0) {
+      const entries: HomeworkDayEntry[] = res.data
+        .flatMap((d) => {
+          try {
+            const parsed = JSON.parse(d.data_json);
+            return Array.isArray(parsed) ? parsed : [parsed];
+          } catch { return []; }
+        });
+      diag("step3-API parsed entries:", entries.length);
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - MAX_AGE_DAYS);
+      const valid = entries.filter((e) => new Date(e.created_at) > cutoff);
+      diag("step3-API valid after cutoff:", valid.length);
+      if (valid.length > 0) {
+        // 恢复到本地
+        localStorage.setItem(LS_KEY, JSON.stringify(valid));
+        idbSet(LS_KEY, JSON.stringify(valid));
+        return valid;
+      }
+    }
+  } catch (e) { diag("step3-API ERROR", e); /* ignore */ }
+
+  diag("FINAL return [] — all steps failed or empty");
+  return [];
 }
 
 function saveDays(entries: HomeworkDayEntry[]) {
+  const d = new Date().toISOString().slice(0, 10);
+  console.log("[HW-DIAG] saveDays called, entries:", entries.length, "today:", d);
+  // 同步写 localStorage（React setState 回调需要同步）
   try {
     localStorage.setItem(LS_KEY, JSON.stringify(entries));
-  } catch {}
+    console.log("[HW-DIAG] saveDays localStorage OK");
+  } catch (e) { console.log("[HW-DIAG] saveDays localStorage ERROR", e); }
+  // 异步写 IndexedDB
+  idbSet(LS_KEY, JSON.stringify(entries)).then(
+    () => console.log("[HW-DIAG] saveDays IDB OK"),
+    (e) => console.log("[HW-DIAG] saveDays IDB ERROR", e),
+  );
+  // 异步写后端
+  homeworkApi.saveDays(d, JSON.stringify(entries)).then(
+    (res) => console.log("[HW-DIAG] saveDays API res:", res.ok, (res as any).code, (res as any).message),
+    (e) => console.log("[HW-DIAG] saveDays API ERROR", e),
+  );
 }
 
 export function useHomeworkDays() {
   const [days, setDays] = useState<HomeworkDayEntry[]>([]);
 
   useEffect(() => {
-    setDays(loadDays());
+    loadDays().then(setDays);
   }, []);
 
   const getToday = useCallback((): HomeworkDayEntry | undefined => {
@@ -215,6 +288,7 @@ export function useHomeworkDays() {
     try {
       localStorage.removeItem(LS_KEY);
     } catch {}
+    idbDel(LS_KEY); // fire-and-forget
     setDays([]);
   }, []);
 

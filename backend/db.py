@@ -342,6 +342,14 @@ def init():
             status TEXT DEFAULT 'pending',
             created_at TEXT DEFAULT (datetime('now'))
         );
+        CREATE TABLE IF NOT EXISTS homework_days (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            child_id TEXT NOT NULL DEFAULT '',
+            date TEXT NOT NULL DEFAULT '',
+            data_json TEXT NOT NULL DEFAULT '{}',
+            updated_at TEXT DEFAULT (datetime('now')),
+            UNIQUE(child_id, date)
+        );
     """)
     c.commit()
 
@@ -1152,3 +1160,28 @@ def seed_default_pricing():
     仅创建表结构，不插入种子数据。
     """
     pass  # 价格由外部 Agent 维护，不硬编码
+
+
+def get_homework_days(child_id: str) -> list[dict]:
+    """返回指定 child 的作业清单历史（最近 14 天）。"""
+    c = _conn()
+    rows = c.execute(
+        "SELECT date, data_json, updated_at FROM homework_days "
+        "WHERE child_id = ? "
+        "ORDER BY date DESC LIMIT 14",
+        (child_id,),
+    ).fetchall()
+    c.close()
+    return [dict(r) for r in rows]
+
+
+def save_homework_day(child_id: str, date: str, data_json: str):
+    """INSERT OR REPLACE 某天的作业清单。"""
+    c = _conn()
+    c.execute(
+        "INSERT OR REPLACE INTO homework_days (child_id, date, data_json, updated_at) "
+        "VALUES (?, ?, ?, datetime('now'))",
+        (child_id, date, data_json),
+    )
+    c.commit()
+    c.close()

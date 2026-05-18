@@ -2062,3 +2062,64 @@ async def parse_homework(body: HomeworkParseRequest, request: Request = None):
             "message": str(e),
             "request_id": uuid.uuid4().hex,
         }
+
+
+# ─── 8.1 GET /api/homework/days ──────────────────────────
+
+class HomeworkDayItem(PydanticBase):
+    date: str
+    data_json: str
+    updated_at: str
+
+
+@app.get("/api/homework/days")
+@limiter.limit("30/minute")
+async def get_homework_days(request: Request, user: tuple = Depends(get_current_user)):
+    """返回当前 child 的作业清单历史（最近 14 天）。"""
+    try:
+        parent_id, child_id = user
+        rows = _db.get_homework_days(child_id)
+        return {
+            "ok": True,
+            "data": [HomeworkDayItem(**r).model_dump() for r in rows],
+            "request_id": uuid.uuid4().hex,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        return {
+            "ok": False,
+            "code": "homework_days_error",
+            "message": str(e),
+            "request_id": uuid.uuid4().hex,
+        }
+
+
+# ─── 8.2 POST /api/homework/days ─────────────────────────
+
+class HomeworkDaySaveRequest(PydanticBase):
+    date: str
+    entries_json: str  # JSON string of HomeworkDayEntry[]
+
+
+@app.post("/api/homework/days")
+@limiter.limit("30/minute")
+async def save_homework_days(request: Request, body: HomeworkDaySaveRequest, user: tuple = Depends(get_current_user)):
+    """保存某天的作业清单到后端（清缓存后可从 GET 恢复）。"""
+    try:
+        parent_id, child_id = user
+        _db.save_homework_day(child_id, body.date, body.entries_json)
+        return {
+            "ok": True,
+            "message": "saved",
+            "request_id": uuid.uuid4().hex,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        return {
+            "ok": False,
+            "code": "homework_save_error",
+            "message": str(e),
+            "request_id": uuid.uuid4().hex,
+        }
