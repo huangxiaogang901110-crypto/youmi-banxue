@@ -171,9 +171,11 @@ class QwenVLClient:
         bbox = bbox or [0, 0, 0, 0]
         x, y, w, h = [int(v) for v in bbox]
         prompt = (
-            "请分析题目图片中标出的区域内容。"
-            "只描述其中包含的图形、表格、线段图、公式符号、题目结构；"
-            "不要生成答案，不要画坐标框，不要解题。"
+            "分析题目图片区域，返回 JSON 格式："
+            '{"visual_description":"题目图形/表格/符号描述",'
+            '"student_answer":"孩子手写答案，没有则填 null"}'
+            "\n\n规则：只描述不解题；如果区域内有孩子手写笔迹，提取为 student_answer；"
+            "没有手写或看不清则 student_answer 填 null。只输出 JSON。"
             f"\n\nOCR 已识别的文字：{question_text[:300]}"
             f"\n\n区域坐标参考：({x},{y}) 宽{w}高{h}"
         )
@@ -182,12 +184,19 @@ class QwenVLClient:
         if not r["success"]:
             return {
                 "visual_description": f"[Qwen-VL 异常] {question_text[:80]}",
+                "student_answer": None,
                 "latency_ms": r["latency_ms"],
                 "success": False,
                 "error": r.get("error", "unknown"),
             }
+        content = r.get("content", "")
+        try:
+            parsed = json.loads(content)
+        except json.JSONDecodeError:
+            parsed = {"visual_description": content, "student_answer": None}
         return {
-            "visual_description": r["content"] if r["content"] else f"[Qwen-VL 返回空] {question_text[:80]}",
+            "visual_description": parsed.get("visual_description") or f"[Qwen-VL 返回空] {question_text[:80]}",
+            "student_answer": parsed.get("student_answer") if parsed.get("student_answer") and parsed.get("student_answer") != "null" else None,
             "latency_ms": r["latency_ms"],
             "success": True,
             "usage": r.get("usage", {}),

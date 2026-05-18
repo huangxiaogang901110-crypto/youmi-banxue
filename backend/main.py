@@ -986,6 +986,8 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
                         )
                         vl_ms = int((time.time() - t_vs) * 1000)
                         q.visual_description = vl_result["visual_description"]
+                        if vl_result.get("student_answer"):
+                            q.student_answer = vl_result["student_answer"]
                         q.status = QuestionStatus.completed
                         _db.create_question_item(q.question_id, aid, page_id, q.question_number, q.question_text, q.bbox or [], q.visual_description or "")
 
@@ -1064,6 +1066,8 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
                         )
                         vl_ms = int((time.time() - t_vs) * 1000)
                         q.visual_description = vl_result["visual_description"]
+                        if vl_result.get("student_answer"):
+                            q.student_answer = vl_result["student_answer"]
                         q.status = QuestionStatus.completed
                         _db.create_question_item(q.question_id, aid, page_id, q.question_number, q.question_text, q.bbox or [], q.visual_description or "")
                         _vlog = make_log_entry(
