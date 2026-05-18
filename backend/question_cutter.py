@@ -158,6 +158,7 @@ def cut_to_questions(ocr_blocks: List[dict]) -> List[dict]:
     便捷函数：直接返回前端可用的题目列表
     """
     groups = cut_questions(ocr_blocks)
+    groups = _split_arithmetic_groups(groups)
     questions = []
     for g in groups:
         questions.append({
@@ -167,3 +168,50 @@ def cut_to_questions(ocr_blocks: List[dict]) -> List[dict]:
             "blocks_count": len(g.blocks),
         })
     return questions
+
+
+# ─── 密集算式拆分（2026-05-19）────────────────────────────
+_RE_ARITH = re.compile(r'(\d+)\s*[+\-×÷]\s*\d+')
+
+
+def _is_arithmetic_block(text: str) -> bool:
+    """检测文本是否含算术表达式"""
+    return bool(_RE_ARITH.search(text))
+
+
+def _split_arithmetic_groups(groups: List[QuestionGroup]) -> List[QuestionGroup]:
+    """对 y-gap fallback 产生的大组，按算术行二次拆分为独立题目"""
+    result: List[QuestionGroup] = []
+    for g in groups:
+        blocks = g.blocks
+        # 只有 ≥3 个 block 且 ≥2 个含算术才拆分
+        arith_blocks = [b for b in blocks if _is_arithmetic_block(b.text)]
+        if len(blocks) < 3 or len(arith_blocks) < 2:
+            result.append(g)
+            continue
+
+        # 拆分：以每个算术 block 为中心，往前吞非算术邻居
+        sub_groups: List[List[OCRBlock]] = []
+        pending_non_arith: List[OCRBlock] = []
+        qn = 1
+        for b in blocks:
+            if _is_arithmetic_block(b.text):
+                merged = pending_non_arith + [b]
+                sub_groups.append(merged)
+                pending_non_arith = []
+                qn += 1
+            else:
+                if sub_groups:
+                    sub_groups[-1].append(b)
+                else:
+                    pending_non_arith.append(b)
+        # 尾部的非算术块归入最后一组
+        if pending_non_arith and sub_groups:
+            sub_groups[-1].extend(pending_non_arith)
+        elif pending_non_arith and not sub_groups:
+            result.append(g)
+            continue
+
+        for sg in sub_groups:
+            result.append(QuestionGroup(sg, len(result) + 1, ""))
+    return result
