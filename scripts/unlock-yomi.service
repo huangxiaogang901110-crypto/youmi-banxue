@@ -1,0 +1,8 @@
+[Unit]
+Description=Unlock yomi worktree for git reset
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash -c "chmod -R u+w /home/hermes_me/yomi/"
+User=root

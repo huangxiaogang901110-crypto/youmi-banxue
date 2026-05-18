@@ -1,0 +1,8 @@
+[Unit]
+Description=Close yomi gate (make read-only)
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/home/hermes_me/yomi-dev/scripts/close-gate.sh
+User=root
