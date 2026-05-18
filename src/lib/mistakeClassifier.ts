@@ -197,6 +197,15 @@ const CLASSIFY_RULES: Rule[] = [
   { subject: "英语", domain: "词汇", knowledge: "数字颜色动物食物", keywords: ["apple", "banana", "dog", "cat", "red", "blue", "one", "two"] },
 ];
 
+// ─── 辅助函数 ──────────────────────────────────
+
+/** 从文本中提取所有整数 */
+function extractNumbers(text: string): number[] {
+  const matches = text.match(/\d+/g);
+  if (!matches) return [];
+  return matches.map(Number).filter(n => n > 0 && n <= 999);
+}
+
 // ─── 推断函数 ──────────────────────────────────
 
 export interface ClassifyResult {
@@ -212,6 +221,18 @@ export function classifyMistake(text: string | undefined | null): ClassifyResult
   for (const rule of CLASSIFY_RULES) {
     for (const kw of rule.keywords) {
       if (t.includes(kw.toLowerCase())) {
+        // ── 数与运算域 加减法 → 数值范围二次分流 ──
+        if (rule.knowledge === "20以内加减法" || rule.knowledge === "100以内加减法") {
+          const numbers = extractNumbers(t);
+          const maxNum = numbers.length > 0 ? Math.max(...numbers) : 0;
+
+          if (maxNum > 0 && maxNum <= 20) {
+            return { subject: "数学", domain: "数与运算", knowledge: "20以内加减法" };
+          }
+          if (maxNum >= 21 && maxNum <= 100) {
+            return { subject: "数学", domain: "数与运算", knowledge: "100以内加减法" };
+          }
+        }
         return { subject: rule.subject, domain: rule.domain, knowledge: rule.knowledge };
       }
     }
@@ -220,6 +241,16 @@ export function classifyMistake(text: string | undefined | null): ClassifyResult
   // 2. 简单数学运算符号匹配（>=3个数字/符号 → 数学）
   const mathChars = (t.match(/[+\-×÷=0-9]/g) || []).length;
   if (mathChars >= 3) {
+    // ── 数值范围分流 ──
+    const numbers = extractNumbers(t);
+    const maxNum = numbers.length > 0 ? Math.max(...numbers) : 0;
+
+    if (maxNum > 0 && maxNum <= 20) {
+      return { subject: "数学", domain: "数与运算", knowledge: "20以内加减法" };
+    }
+    if (maxNum >= 21 && maxNum <= 100) {
+      return { subject: "数学", domain: "数与运算", knowledge: "100以内加减法" };
+    }
     return { subject: "数学", domain: "数与运算", knowledge: "其他" };
   }
 
