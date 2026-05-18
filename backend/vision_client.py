@@ -171,13 +171,15 @@ class QwenVLClient:
         bbox = bbox or [0, 0, 0, 0]
         x, y, w, h = [int(v) for v in bbox]
         prompt = (
-            "分析题目图片区域，返回 JSON 格式："
+            "分析题目图片区域。必须返回严格 JSON，不要任何额外文字：\n"
             '{"visual_description":"题目图形/表格/符号描述",'
-            '"student_answer":"孩子手写答案，没有则填 null"}'
-            "\n\n规则：只描述不解题；如果区域内有孩子手写笔迹，提取为 student_answer；"
-            "没有手写或看不清则 student_answer 填 null。只输出 JSON。"
-            f"\n\nOCR 已识别的文字：{question_text[:300]}"
-            f"\n\n区域坐标参考：({x},{y}) 宽{w}高{h}"
+            '"student_answer":"孩子手写答案或null"}\n'
+            "规则：\n"
+            "- visual_description：只描述图形/表格/符号，不解题\n"
+            "- student_answer：区域内孩子手写笔迹原文，没有则填 null\n"
+            "- 只输出一行 JSON，不加解释、不加 markdown 代码块\n"
+            f"OCR 文字：{question_text[:300]}\n"
+            f"坐标：({x},{y}) 宽{w}高{h}"
         )
 
         r = self._call(image_bytes=image_bytes, image_url=image_url, prompt=prompt, max_tokens=500)
@@ -193,7 +195,19 @@ class QwenVLClient:
         try:
             parsed = json.loads(content)
         except json.JSONDecodeError:
-            parsed = {"visual_description": content, "student_answer": None}
+            # JSON 失败 → 正则兜底提取 student_answer
+            sa = None
+            for pat in [
+                r'"student_answer"\s*:\s*"([^"]+)"',
+                r"student_answer\s*:\s*'([^']+)'",
+                r'孩子答案[：:]\s*(.+?)(?:\n|$)',
+                r'student_answer\s*[：:]\s*(.+?)(?:\n|$)',
+            ]:
+                m = re.search(pat, content)
+                if m and m.group(1).strip().lower() not in ("null", "none", "无", "空", ""):
+                    sa = m.group(1).strip()
+                    break
+            parsed = {"visual_description": content, "student_answer": sa}
         return {
             "visual_description": parsed.get("visual_description") or f"[Qwen-VL 返回空] {question_text[:80]}",
             "student_answer": parsed.get("student_answer") if parsed.get("student_answer") and parsed.get("student_answer") != "null" else None,
