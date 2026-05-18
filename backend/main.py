@@ -1455,7 +1455,13 @@ async def tutor_question(question_id: str, body: TutorRequest, request: Request,
 
         # Credit check — 基准 Table 24: 后端二次校验（按家长计费）
         parent_id, child_id_for_credit = user
-        credits = _credit_balances.setdefault(parent_id, 50)
+        # 优先从 DB 加载余额到内存缓存（避免重启后内存缓存过期覆盖 DB 真实值）
+        if parent_id not in _credit_balances:
+            c = _db._conn()
+            bal_row = c.execute("SELECT balance FROM credit_account WHERE parent_user_id = ?", (parent_id,)).fetchone()
+            c.close()
+            _credit_balances[parent_id] = bal_row["balance"] if bal_row else 50
+        credits = _credit_balances[parent_id]
         if credits <= 0:
             return {
                 "ok": True,
