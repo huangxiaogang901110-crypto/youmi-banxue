@@ -190,8 +190,9 @@ const CLASSIFY_RULES: Rule[] = [
   { subject: "数学", domain: "量与单位", knowledge: "千米吨年月日", keywords: ["千米", "吨", "克", "千克", "年月日", "闰年"] },
   { subject: "数学", domain: "应用题与思维", knowledge: "找规律与推理", keywords: ["找规律", "推理", "鸡兔同笼", "植树问题", "排列"] },
 
-  // ── 英语 — 英文特征词 ──
-  { subject: "英语", domain: "句型与语法", knowledge: "There be与一般现在时", keywords: ["There is", "There are", "there is", "there are"] },
+  // ── 英语 — 英文特征词（按 specificity 排序：题型关键词优先）──
+  { subject: "英语", domain: "词汇", knowledge: "填空与选择", keywords: ["fill in", "blanks", "choose", "correct", "circle", "match", "write", "listen", "read and", "complete"] },
+  { subject: "英语", domain: "句型与语法", knowledge: "There be与一般现在时", keywords: ["there is", "there are"] },
   { subject: "英语", domain: "句型与语法", knowledge: "现在进行时与过去时", keywords: ["is reading", "are playing", "was", "were", "yesterday"] },
   { subject: "英语", domain: "句型与语法", knowledge: "一般将来时与比较级", keywords: ["will", "going to", "taller", "bigger", "better"] },
   { subject: "英语", domain: "词汇", knowledge: "数字颜色动物食物", keywords: ["apple", "banana", "dog", "cat", "red", "blue", "one", "two"] },
@@ -254,17 +255,26 @@ export function classifyMistake(text: string | undefined | null): ClassifyResult
     return { subject: "数学", domain: "数与运算", knowledge: "其他" };
   }
 
-  // 3. 英文字母占比 >50% → 英语
+  // 3. 含英文字母（且无中文）→ 英语
   const alphaCount = (t.match(/[a-zA-Z]/g) || []).length;
-  if (t.length > 0 && alphaCount / t.length > 0.5) {
-    return { subject: "英语", domain: "其他", knowledge: "其他" };
+  const hasChinese = /[\u4e00-\u9fff]/.test(t);
+  if (alphaCount > 0 && !hasChinese) {
+    return { subject: "英语", domain: "词汇", knowledge: "其他" };
   }
 
   // 4. 含中文字符 → 语文
-  if (/[\u4e00-\u9fff]/.test(t)) {
+  if (hasChinese) {
     return { subject: "语文", domain: "其他", knowledge: "其他" };
   }
 
-  // 5. 兜底
-  return { subject: "语文", domain: "其他", knowledge: "其他" };
+  // 5. 空文本或纯符号 → 未分类
+  if (t.length === 0) {
+    return { subject: "未分类", domain: "其他", knowledge: "其他" };
+  }
+
+  // 6. 兜底：含数字 → 数学，否则 → 英语（英语题型常见编号/标点）  
+  if (/[0-9]/.test(t)) {
+    return { subject: "英语", domain: "词汇", knowledge: "其他" };
+  }
+  return { subject: "英语", domain: "其他", knowledge: "其他" };
 }

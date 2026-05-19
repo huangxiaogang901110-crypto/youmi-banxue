@@ -49,12 +49,14 @@ const SUBJECT_COLORS: Record<string, string> = {
   "数学": "bg-blue-50 text-blue-700",
   "语文": "bg-emerald-50 text-emerald-700",
   "英语": "bg-violet-50 text-violet-700",
+  "未分类": "bg-slate-100 text-slate-500",
 };
 
 const DOMAIN_COLORS: Record<string, string> = {
   "数学": "bg-blue-50/50 text-blue-600",
   "语文": "bg-emerald-50/50 text-emerald-600",
   "英语": "bg-violet-50/50 text-violet-600",
+  "未分类": "bg-slate-100/50 text-slate-500",
 };
 
 export default function MistakesPage() {
