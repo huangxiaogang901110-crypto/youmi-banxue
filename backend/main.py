@@ -64,7 +64,7 @@ app = FastAPI(title="悠米伴学 API", version="0.1.0")
 # ─── CORS ──────────────────────────────────────────────────
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://39.107.119.136:3000", "http://39.107.119.136:3001", "https://youmi.xyz"],
+    allow_origins=["http://localhost:3000", "http://localhost:3001", "http://39.107.119.136:3000", "http://39.107.119.136:3001", "https://youmi.xyz"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

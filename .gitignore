@@ -27,3 +27,16 @@ nginx-serve/_next/
 login-baseline*
 *.db.bak*
 backend/logs/
+
+# 测试缓存
+.pytest_cache/
+tests/__pycache__/
+.coverage
+htmlcov/
+
+# Playwright E2E 生成物
+test-results/
+playwright-report/
+
+# TypeScript 增量编译
+tsconfig.tsbuildinfo
