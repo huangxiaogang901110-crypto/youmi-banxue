@@ -30,6 +30,11 @@ log "✅ 权限已解锁"
 chown -R hermes_me:hermes_me "$GIT_DIR/"
 log "✅ .git 所有权已移交 hermes_me"
 
+# ── 1.6 解锁工作树（git reset --hard 用）──
+chown -R hermes_me:hermes_me /home/hermes_me/yomi/
+chmod -R u+w /home/hermes_me/yomi/
+log "✅ 工作树写权限已恢复"
+
 # ── 2. 创建令牌 ──
 touch "$UNLOCK_FILE" && chown hermes_me:hermes_me "$UNLOCK_FILE" && chmod 666 "$UNLOCK_FILE"
 log "✅ 令牌已创建"
