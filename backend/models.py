@@ -29,6 +29,7 @@ class JobStatus(str, Enum):
     schema_validating = "schema_validating"
     completed = "completed"
     needs_review = "needs_review"
+    low_confidence = "low_confidence"
     failed = "failed"
 
 

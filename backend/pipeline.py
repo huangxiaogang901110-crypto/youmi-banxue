@@ -4,6 +4,7 @@
 """
 import asyncio
 import json
+import re
 import time
 
 import db as _db
@@ -249,8 +250,64 @@ async def grade_answers(jid: str, questions: list, trace_id: str, parent_id: str
     return grading_cost
 
 
+# ─── OCR blocks 作业图预筛（Repair-4 负样本收口）────────────
+
+_HW_KEYWORDS = re.compile(r'计算|口算|填一填|比大小|竖式|直接写出|列竖式|乘法口诀|不退位|进位|退位|'
+                           r'得数|算式|写出|算一算|练一练|课时|任务[一二三四五]')
+_NON_HW_KEYWORDS = re.compile(r'登录|密码|验证码|隐私|协议|注册|设置中心|个人中心|退出登录|'
+                               r'欢迎回来|营养成分|配料|保质期|生产日期|食品|克[)\s]|毫升|净含量|'
+                               r'¥|元[)\s]|小票|收银|快递|面单|条形码')
+_ARITH_PAT = re.compile(r'\d+\s*[+\-×÷]\s*\d+')
+_QNUM_PAT = re.compile(r'^\s*\d+[.、．)]')
+
+
+def _is_homework_image(ocr_blocks: list) -> bool:
+    """保守判断 OCR blocks 是否像数学作业图。
+    宁可漏判（→needs_review）不可误判（→low_confidence）。
+    """
+    texts = [b.get("text", "") for b in ocr_blocks]
+    all_text = " ".join(texts)
+
+    # 1. 显式非作业关键词 → 直接否定
+    if _NON_HW_KEYWORDS.search(all_text):
+        return False
+
+    # 2. 作业关键词 → 强信号
+    if _HW_KEYWORDS.search(all_text):
+        return True
+
+    # 3. 计数算术表达式（含等号）
+    arith_count = sum(1 for t in texts if _ARITH_PAT.search(t))
+    eq_count = sum(1 for t in texts if "=" in t)
+
+    # 4. 计题号
+    qnum_count = sum(1 for t in texts if _QNUM_PAT.match(t))
+
+    # 5. 综合判断
+    if arith_count >= 5 and eq_count >= 3:
+        return True
+    if qnum_count >= 5 and arith_count >= 2:
+        return True
+    if arith_count >= 8:
+        return True
+    if qnum_count >= 8:
+        return True
+
+    # 边缘：有少量算数但无结构 → 可能是 UI 中的数字
+    return False
+
+
 async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_id: str, child_id: str):
     """后台异步执行：Qwen-VL 全图识题优先 → OCR+切题回落 → Schema 校验 → 保存"""
+    import os as _os_env
+    SLA_ENABLED = _os_env.getenv("YOMI_RECOGNITION_10S_SLA", "true").lower() in ("1", "true", "yes")
+    SLA_DEADLINE_S = int(_os_env.getenv("YOMI_SYNC_JOB_TIMEOUT_SECONDS", "10"))
+    QWEN_FULL_TIMEOUT_S = int(_os_env.getenv("YOMI_QWEN_FULL_TIMEOUT_SECONDS",
+                              _os_env.getenv("YOMI_QWEN_FULL_TIMEOUT_SECONDS", "9")))
+    OCR_TIMEOUT_S = int(_os_env.getenv("YOMI_GENERAL_OCR_TIMEOUT_SECONDS",
+                        _os_env.getenv("YOMI_GENERAL_OCR_TIMEOUT_SECONDS", "3")))
+    DISABLE_PER_Q_VISION = _os_env.getenv("YOMI_DISABLE_SYNC_PER_QUESTION_VISION", "true").lower() in ("1", "true", "yes")
+    PER_Q_VISION_LIMIT = int(_os_env.getenv("YOMI_PER_QUESTION_VISION_SYNC_LIMIT", "0"))
     import uuid as _uuid
     trace_id = _uuid.uuid4().hex
     _log_info(f"job_start jid={jid}", trace_id=trace_id, parent_id=parent_id, child_id=child_id)
@@ -304,305 +361,341 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
     total_parse_cost = 0.0  # 累计 Qwen-VL 解析成本
 
     try:
-        # ── Phase 1: Qwen-VL 全图识题优先 ──
-        _jobs[jid]["job"].status = JobStatus.enhancing
-        qwen_vl = QwenVLClient()
+        # ── Phase 1: Qwen-VL 全图 + 通用 OCR 并行 ──
+        _jobs[jid]["job"].status = JobStatus.ocr_running
         use_qwen_vl = False
-        qwen_parse_call_id = ""  # 默认空，OCR 回落时不填
+        qwen_parse_call_id = ""
         questions = []
+        ocr_blocks = []
 
-        if qwen_vl._available():
-            _jobs[jid]["job"].status = JobStatus.ocr_running  # 复用状态表示"识别中"
-            info(f"[BG] Qwen-VL extracting questions for {jid}...")
-            qwen_result = qwen_vl.extract_questions(
+        qwen_vl = QwenVLClient()
+        qwen_available = qwen_vl._available()
+
+        info(f"[BG] Parallel Qwen(avail={qwen_available},to={QWEN_FULL_TIMEOUT_S}s) + OCR(to={OCR_TIMEOUT_S}s) for {jid}...")
+
+        async def _run_qwen():
+            if not qwen_available:
+                return {"success": False, "questions": [], "error": "qwen_unavailable", "latency_ms": 0, "usage": {}, "raw_content": ""}
+            return await asyncio.to_thread(
+                qwen_vl.extract_questions,
                 image_bytes=contents if not oss_signed_url else None,
                 image_url=oss_signed_url,
+                timeout=QWEN_FULL_TIMEOUT_S,
             )
-            qwen_latency = int((time.time() - t_start) * 1000)
-            usage = qwen_result.get("usage", {}) if qwen_result.get("success") else {}
-            input_tokens = usage.get("prompt_tokens", 0) if isinstance(usage, dict) else 0
-            output_tokens = usage.get("completion_tokens", 0) if isinstance(usage, dict) else 0
-            image_tokens = usage.get("prompt_tokens_details", {}).get("image_tokens", 0) if isinstance(usage, dict) else 0
 
-            pricing = get_active_pricing("aliyun_dashscope", "qwen-vl-max")
+        async def _run_ocr():
+            try:
+                ocr = AliyunOCRClient()
+                result = ocr.recognize(contents)
+                return result
+            except Exception as _e:
+                with open("/tmp/ocr_error.log", "a") as f:
+                    import traceback
+                    f.write(f"{time.time()}: {_e}\n{traceback.format_exc()}\n")
+                raise
 
-            _log = make_log_entry(
-                task_id=jid,
-                provider_name="aliyun_dashscope",
-                model_name="qwen-vl-max",
-                feature_code="qwen_vl_parse_homework",
-                trace_id=trace_id,
-                sub_stage="fullpage_extract",
-                latency_ms=qwen_latency,
-                success=qwen_result["success"],
-                input_tokens=input_tokens,
-                output_tokens=output_tokens,
-                image_count=1,
-                image_total_bytes=len(contents),
-                parent_user_id=parent_id,
-                child_id=child_id,
-                billing_status="free_tier" if qwen_result["success"] else "failed",
-                pricing=pricing,
-                blocks_count=len(qwen_result.get("questions", [])),
+        qwen_result = {"success": False, "questions": [], "error": "not_started", "latency_ms": 0, "usage": {}, "raw_content": ""}
+        ocr_raw = {"success": False, "blocks": [], "text": "", "latency_ms": 0}
+
+        try:
+            gathered = await asyncio.wait_for(
+                asyncio.gather(_run_qwen(), _run_ocr(), return_exceptions=True),
+                timeout=SLA_DEADLINE_S,
             )
-            qwen_parse_call_id = _log["id"]
-            total_parse_cost += _log.get("cost_cny", 0.0)
-            _model_calls.append(_log)
-            _db.save_model_call(_log)
+            qwen_result, ocr_raw = gathered
+            if isinstance(qwen_result, Exception):
+                error(f"[BG] Qwen-VL exception: {qwen_result}")
+                qwen_result = {"success": False, "questions": [], "error": str(qwen_result)[:100], "latency_ms": 0, "usage": {}, "raw_content": ""}
+            if isinstance(ocr_raw, Exception):
+                error(f"[BG] OCR exception: {ocr_raw}")
+                ocr_raw = {"success": False, "blocks": [], "text": "", "latency_ms": 0}
+        except asyncio.TimeoutError:
+            elapsed = int((time.time() - t_start) * 1000)
+            error(f"[BG] DEADLINE exceeded after {elapsed}ms for {jid}")
+            qwen_result = {"success": False, "questions": [], "error": "deadline", "latency_ms": elapsed, "usage": {}, "raw_content": ""}
+            ocr_raw = {"success": False, "blocks": [], "text": "", "latency_ms": elapsed}
 
-            if qwen_result["success"] and qwen_result["questions"]:
-                raw_questions = qwen_result["questions"]
-                question_count = len(raw_questions)
-                # 阈值：Qwen-VL 返回 <5 题 → 不可靠，回落 OCR+切题
-                if question_count < 5:
-                    print(f"[BG] Qwen-VL only got {question_count} questions, falling back to OCR+cutting", flush=True)
-                else:
-                    use_qwen_vl = True
-                info(f"[BG] Qwen-VL extracted {question_count} questions in {qwen_latency}ms")
+        qwen_latency = qwen_result.get("latency_ms", 0)
+        ocr_latency = ocr_raw.get("latency_ms", 0)
+        ocr_blocks = ocr_raw.get("blocks", [])
+        info(f"[BG] Parallel done: Qwen={'OK' if qwen_result.get('success') else 'FAIL'}({qwen_latency}ms) OCR={len(ocr_blocks)}blocks({ocr_latency}ms)")
+        usage = qwen_result.get("usage", {}) if qwen_result.get("success") else {}
+        input_tokens = usage.get("prompt_tokens", 0) if isinstance(usage, dict) else 0
+        output_tokens = usage.get("completion_tokens", 0) if isinstance(usage, dict) else 0
+        image_tokens = usage.get("prompt_tokens_details", {}).get("image_tokens", 0) if isinstance(usage, dict) else 0
 
-                # 分组展示用：用 raw_content 作为视觉描述
-                shared_vd = qwen_result.get("raw_content", f"Qwen-VL 全图识别，共 {question_count} 题")
+        pricing = get_active_pricing("aliyun_dashscope", "qwen-vl-max")
 
-                # 按题数平摊 Qwen-VL 解析成本
-                parse_cost_per_q = total_parse_cost / question_count if question_count > 0 else 0.0
+        _log = make_log_entry(
+            task_id=jid,
+            provider_name="aliyun_dashscope",
+            model_name="qwen-vl-max",
+            feature_code="qwen_vl_parse_homework",
+            trace_id=trace_id,
+            sub_stage="fullpage_extract",
+            latency_ms=qwen_latency,
+            success=qwen_result["success"],
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            image_count=1,
+            image_total_bytes=len(contents),
+            parent_user_id=parent_id,
+            child_id=child_id,
+            billing_status="free_tier" if qwen_result["success"] else "failed",
+            pricing=pricing,
+            blocks_count=len(qwen_result.get("questions", [])),
+        )
+        qwen_parse_call_id = _log["id"]
+        total_parse_cost += _log.get("cost_cny", 0.0)
+        _model_calls.append(_log)
+        _db.save_model_call(_log)
 
-                for i, rq in enumerate(raw_questions):
-                    qid = f"{jid}-{rq.get('number', i+1)}-{i}"
-                    q_text = rq.get("content", f"第{rq.get('number', i+1)}题")
-                    # 安全提取 student_answer：null/None/空字符串视为无答案
-                    student_ans = rq.get("student_answer")
-                    if student_ans is None or (isinstance(student_ans, str) and not student_ans.strip()):
-                        student_ans = None
-                    # 安全提取分组字段
-                    section_title = rq.get("section_title")
-                    if section_title and isinstance(section_title, str) and not section_title.strip():
-                        section_title = None
-                    section_index = rq.get("section_index")
-                    try:
-                        section_index = int(section_index) if section_index is not None else None
-                    except (ValueError, TypeError):
-                        section_index = None
-                    sub_index = rq.get("sub_index")
-                    try:
-                        sub_index = int(sub_index) if sub_index is not None else None
-                    except (ValueError, TypeError):
-                        sub_index = None
-                    # 安全解析题号：Qwen-VL 可能返回非数字（如 "VOCABULARY 1"）
-                    raw_no = rq.get("number", i+1)
-                    try:
-                        q_no = int(raw_no)
-                    except (ValueError, TypeError):
-                        q_no = i + 1
-                    questions.append(Question(
-                        question_id=qid,
-                        question_number=q_no,
-                        question_text=q_text,
-                        bbox=[0, 0, 0, 0],  # 全图识题无精确 bbox
-                        visual_description=shared_vd,
-                        status=QuestionStatus.completed,
-                        student_answer=student_ans,
-                        section_title=section_title,
-                        section_index=section_index,
-                        sub_index=sub_index,
-                    ))
-                    _db.create_question_item(qid, aid, page_id, q_no, q_text, [0, 0, 0, 0], shared_vd[:200],
-                                              source_call_id=qwen_parse_call_id, parse_cost_allocated_cny=parse_cost_per_q)
-            else:
-                error(f"[BG] Qwen-VL failed: {qwen_result.get('error', 'no questions')}, falling back to OCR")
+        if qwen_result["success"] and qwen_result["questions"]:
+            raw_questions = qwen_result["questions"]
+            question_count = len(raw_questions)
+            if question_count >= 5:
+                use_qwen_vl = True
+            info(f"[BG] Qwen-VL extracted {question_count} questions in {qwen_latency}ms")
 
-        # ── OCR 回落（Qwen-VL 失败或不可用时）──
-        if not use_qwen_vl:
-            _jobs[jid]["job"].status = JobStatus.ocr_running
-            ocr = AliyunOCRClient()
-            result = ocr.recognize(contents)
-            extracted = ocr.extract_text_and_blocks(result)
-            latency_ms = int((time.time() - t_start) * 1000)
+            shared_vd = qwen_result.get("raw_content", f"Qwen-VL 全图识别，共 {question_count} 题")
+            parse_cost_per_q = total_parse_cost / question_count if question_count > 0 else 0.0
 
-            _log = make_log_entry(
-                task_id=jid,
-                provider_name="aliyun_ocr",
-                model_name="ocr_api20210707",
-                feature_code="ocr",
-                trace_id=trace_id,
-                latency_ms=latency_ms,
-                success=True,
-                parent_user_id=parent_id,
-                child_id=child_id,
-                request_id=result.get("RequestId", ""),
-                billing_status="free_tier",
-                blocks_count=len(extracted["blocks"]),
-            )
-            _model_calls.append(_log)
-            _db.save_model_call(_log)
-
-            # Stage: cutting — 智能切题（题号规则 + 版面规则）
-            _jobs[jid]["job"].status = JobStatus.cutting
-            cut_results = cut_to_questions(extracted["blocks"])
-            questions = []
-            for i, cq in enumerate(cut_results):
-                qid = f"{jid}-{cq['question_number']}-{i}"
+            for i, rq in enumerate(raw_questions):
+                qid = f"{jid}-{rq.get('number', i+1)}-{i}"
+                q_text = rq.get("content", f"第{rq.get('number', i+1)}题")
+                student_ans = rq.get("student_answer")
+                if student_ans is None or (isinstance(student_ans, str) and not student_ans.strip()):
+                    student_ans = None
+                section_title = rq.get("section_title")
+                if section_title and isinstance(section_title, str) and not section_title.strip():
+                    section_title = None
+                section_index = rq.get("section_index")
+                try:
+                    section_index = int(section_index) if section_index is not None else None
+                except (ValueError, TypeError):
+                    section_index = None
+                sub_index = rq.get("sub_index")
+                try:
+                    sub_index = int(sub_index) if sub_index is not None else None
+                except (ValueError, TypeError):
+                    sub_index = None
+                raw_no = rq.get("number", i+1)
+                try:
+                    q_no = int(raw_no)
+                except (ValueError, TypeError):
+                    q_no = i + 1
                 questions.append(Question(
-                    question_id=qid,
-                    question_number=cq["question_number"],
-                    question_text=cq["question_text"],
-                    bbox=cq["bbox"],
-                    visual_description=None,
-                    status=QuestionStatus.completed,
-                    student_answer=None,
+                    question_id=qid, question_number=q_no, question_text=q_text,
+                    bbox=[0, 0, 0, 0], visual_description=shared_vd,
+                    status=QuestionStatus.completed, student_answer=student_ans,
+                    section_title=section_title, section_index=section_index, sub_index=sub_index,
                 ))
-                _db.create_question_item(qid, aid, page_id, cq["question_number"], cq["question_text"], cq["bbox"])
-            info(f"[BG] OCR+Cut: {len(extracted['blocks'])} blocks → {len(questions)} questions")
+                _db.create_question_item(qid, aid, page_id, q_no, q_text, [0, 0, 0, 0], shared_vd[:200],
+                                          source_call_id=qwen_parse_call_id, parse_cost_allocated_cny=parse_cost_per_q)
+        else:
+            error(f"[BG] Qwen-VL failed: {qwen_result.get('error', 'no questions')}")
 
-        # Stage: vision_reviewing - Qwen-VL 逐题复审（仅 OCR 回落路径）
+        # ── OCR fallback: use pre-fetched blocks (already obtained in parallel) ──
         if not use_qwen_vl:
-            _jobs[jid]["job"].status = JobStatus.vision_reviewing
-            MAX_SCHEMA_RETRIES = 2
-            MAX_NETWORK_RETRIES = 3
-            qwen_vl = QwenVLClient()
-            for qi, q in enumerate(questions):
-                schema_retries = 0
-                network_retries = 0
-                while True:
-                    try:
-                        t_vs = time.time()
-                        vl_result = qwen_vl.analyze_question(
-                            image_bytes=contents if not oss_signed_url else None,
-                            image_url=oss_signed_url,
-                            bbox=q.bbox or [0, 0, 0, 0],
-                            question_text=q.question_text,
-                        )
-                        vl_ms = int((time.time() - t_vs) * 1000)
-                        q.visual_description = vl_result["visual_description"]
-                        if vl_result.get("student_answer"):
-                            q.student_answer = vl_result["student_answer"]
-                        q.status = QuestionStatus.completed
-                        _db.create_question_item(q.question_id, aid, page_id, q.question_number, q.question_text, q.bbox or [], q.visual_description or "")
+            _jobs[jid]["job"].status = JobStatus.cutting
+            # Log OCR call
+            _ocr_log = make_log_entry(
+                task_id=jid, provider_name="aliyun_ocr", model_name="ocr_general",
+                feature_code="ocr_general",
+                trace_id=trace_id, latency_ms=ocr_latency,
+                success=len(ocr_blocks) > 0,
+                parent_user_id=parent_id, child_id=child_id,
+                billing_status="free_tier", blocks_count=len(ocr_blocks),
+            )
+            _model_calls.append(_ocr_log)
+            _db.save_model_call(_ocr_log)
 
-                        _vlog = make_log_entry(
-                            task_id=jid,
-                            question_id=q.question_id,
-                            job_id=jid,
-                            provider_name="aliyun_dashscope",
-                            model_name="qwen-vl-max",
-                            feature_code="qwen_vl_parse_homework",
-                            trace_id=trace_id,
-                            sub_stage="question_cutting",
-                            latency_ms=vl_ms,
-                            success=vl_result["success"],
-                            parent_user_id=parent_id,
-                            child_id=child_id,
-                            error_code=vl_result.get("error"),
-                            billing_status="free_tier" if vl_result["success"] else "failed",
-                            prompt_name="qwen_vl_analyze",
-                            retry_count=schema_retries + network_retries,
-                        )
-                        _model_calls.append(_vlog)
-                        _db.save_model_call(_vlog)
-                        info(f"[BG] Vision #{qi}: {vl_ms}ms success={vl_result['success']} retries={schema_retries + network_retries}")
-                        break
-                    except Exception as ve:
-                        err_str = str(ve).lower()
-                        if "429" in err_str or "rate_limit" in err_str or "too many requests" in err_str:
-                            network_retries += 1
-                            if network_retries > MAX_NETWORK_RETRIES:
-                                warning(f"[BG] Vision #{qi} RATE LIMITED after {MAX_NETWORK_RETRIES} retries: {ve}")
-                                q.status = QuestionStatus.failed
+            if ocr_blocks:
+                # 适配 question_cutter 格式：补充 pos 字段
+                _pos_blocks = [{"text": b["text"], "pos": [b.get("x", 0), b.get("y", 0), b.get("w", 0), b.get("h", 0)]} for b in ocr_blocks]
+                extracted = {"blocks": ocr_blocks, "text": ocr_raw.get("text", ""), "block_count": len(ocr_blocks)}
+                cut_results = cut_to_questions(_pos_blocks)
+                questions = []
+                for i, cq in enumerate(cut_results):
+                    qid = f"{jid}-{cq['question_number']}-{i}"
+                    questions.append(Question(
+                        question_id=qid, question_number=cq["question_number"],
+                        question_text=cq["question_text"], bbox=cq["bbox"],
+                        visual_description=None, status=QuestionStatus.completed,
+                        student_answer=None,
+                    ))
+                    _db.create_question_item(qid, aid, page_id, cq["question_number"], cq["question_text"], cq["bbox"])
+                info(f"[BG] OCR+Cut: {len(ocr_blocks)} blocks → {len(questions)} questions")
+            else:
+                info(f"[BG] OCR returned 0 blocks, no questions produced")
+                questions = []
+
+        # Stage: vision_reviewing - Qwen-VL 逐题复审（默认禁用，env 控制）
+        if not use_qwen_vl:
+            if DISABLE_PER_Q_VISION:
+                info(f"[BG] Per-question Vision DISABLED (10s SLA), OCR as-is for {jid}")
+            else:
+                _jobs[jid]["job"].status = JobStatus.vision_reviewing
+                MAX_SCHEMA_RETRIES = 2
+                MAX_NETWORK_RETRIES = 3
+                qwen_vl = QwenVLClient()
+                for qi, q in enumerate(questions):
+                    schema_retries = 0
+                    network_retries = 0
+                    while True:
+                        try:
+                            t_vs = time.time()
+                            vl_result = qwen_vl.analyze_question(
+                                image_bytes=contents if not oss_signed_url else None,
+                                image_url=oss_signed_url,
+                                bbox=q.bbox or [0, 0, 0, 0],
+                                question_text=q.question_text,
+                            )
+                            vl_ms = int((time.time() - t_vs) * 1000)
+                            q.visual_description = vl_result["visual_description"]
+                            if vl_result.get("student_answer"):
+                                q.student_answer = vl_result["student_answer"]
+                            q.status = QuestionStatus.completed
+                            _db.create_question_item(q.question_id, aid, page_id, q.question_number, q.question_text, q.bbox or [], q.visual_description or "")
+
+                            _vlog = make_log_entry(
+                                task_id=jid,
+                                question_id=q.question_id,
+                                job_id=jid,
+                                provider_name="aliyun_dashscope",
+                                model_name="qwen-vl-max",
+                                feature_code="qwen_vl_parse_homework",
+                                trace_id=trace_id,
+                                sub_stage="question_cutting",
+                                latency_ms=vl_ms,
+                                success=vl_result["success"],
+                                parent_user_id=parent_id,
+                                child_id=child_id,
+                                error_code=vl_result.get("error"),
+                                billing_status="free_tier" if vl_result["success"] else "failed",
+                                prompt_name="qwen_vl_analyze",
+                                retry_count=schema_retries + network_retries,
+                            )
+                            _model_calls.append(_vlog)
+                            _db.save_model_call(_vlog)
+                            info(f"[BG] Vision #{qi}: {vl_ms}ms success={vl_result['success']} retries={schema_retries + network_retries}")
+                            break
+                        except Exception as ve:
+                            err_str = str(ve).lower()
+                            if "429" in err_str or "rate_limit" in err_str or "too many requests" in err_str:
+                                network_retries += 1
+                                if network_retries > MAX_NETWORK_RETRIES:
+                                    warning(f"[BG] Vision #{qi} RATE LIMITED after {MAX_NETWORK_RETRIES} retries: {ve}")
+                                    q.status = QuestionStatus.failed
+                                    break
+                                delay = 2 ** network_retries
+                                _deferred_vision_tasks.append((qi, q, contents, jid, parent_id, child_id, aid, page_id, network_retries, delay))
+                                warning(f"[BG] Vision #{qi} RATE LIMITED, deferred for {delay}s: {ve}")
                                 break
-                            delay = 2 ** network_retries
-                            _deferred_vision_tasks.append((qi, q, contents, jid, parent_id, child_id, aid, page_id, network_retries, delay))
-                            warning(f"[BG] Vision #{qi} RATE LIMITED, deferred for {delay}s: {ve}")
-                            break  # 进延后队列，不阻塞其他题
-                        elif "timeout" in err_str or "connection" in err_str or "timed out" in err_str:
-                            network_retries += 1
-                            if network_retries > MAX_NETWORK_RETRIES:
-                                error(f"[BG] Vision #{qi} NETWORK FAILED after {MAX_NETWORK_RETRIES} retries: {ve}")
-                                q.status = QuestionStatus.failed
-                                break
-                            wait_s = 2 ** network_retries
-                            info(f"[BG] Vision #{qi} network retry {network_retries}/{MAX_NETWORK_RETRIES}, waiting {wait_s}s: {ve}")
-                            await asyncio.sleep(wait_s)
-                        else:
-                            schema_retries += 1
-                            if schema_retries > MAX_SCHEMA_RETRIES:
-                                error(f"[BG] Vision #{qi} SCHEMA FAILED after {MAX_SCHEMA_RETRIES} retries: {ve}")
-                                q.status = QuestionStatus.failed
-                                break
-                            info(f"[BG] Vision #{qi} schema retry {schema_retries}/{MAX_SCHEMA_RETRIES}: {ve}")
-                            await asyncio.sleep(1)
+                            elif "timeout" in err_str or "connection" in err_str or "timed out" in err_str:
+                                network_retries += 1
+                                if network_retries > MAX_NETWORK_RETRIES:
+                                    error(f"[BG] Vision #{qi} NETWORK FAILED after {MAX_NETWORK_RETRIES} retries: {ve}")
+                                    q.status = QuestionStatus.failed
+                                    break
+                                wait_s = 2 ** network_retries
+                                info(f"[BG] Vision #{qi} network retry {network_retries}/{MAX_NETWORK_RETRIES}, waiting {wait_s}s: {ve}")
+                                await asyncio.sleep(wait_s)
+                            else:
+                                schema_retries += 1
+                                if schema_retries > MAX_SCHEMA_RETRIES:
+                                    error(f"[BG] Vision #{qi} SCHEMA FAILED after {MAX_SCHEMA_RETRIES} retries: {ve}")
+                                    q.status = QuestionStatus.failed
+                                    break
+                                info(f"[BG] Vision #{qi} schema retry {schema_retries}/{MAX_SCHEMA_RETRIES}: {ve}")
+                                await asyncio.sleep(1)
+
+                # ── 延后队列处理 ──
+                if _deferred_vision_tasks:
+                    info(f"[BG] Processing {len(_deferred_vision_tasks)} deferred vision tasks...")
+                    MAX_DEFERRED_RETRIES = 3
+                    deferred_retry = 0
+                    while _deferred_vision_tasks and deferred_retry < MAX_DEFERRED_RETRIES:
+                        deferred_retry += 1
+                        pending = _deferred_vision_tasks[:]
+                        _deferred_vision_tasks.clear()
+                        for qi, q, contents, jid, parent_id, child_id, aid, page_id, n_retries, delay in pending:
+                            await asyncio.sleep(delay)
+                            try:
+                                t_vs = time.time()
+                                vl_result = qwen_vl.analyze_question(
+                                    image_bytes=contents if not oss_signed_url else None,
+                                    image_url=oss_signed_url,
+                                    bbox=q.bbox or [0, 0, 0, 0],
+                                    question_text=q.question_text,
+                                )
+                                vl_ms = int((time.time() - t_vs) * 1000)
+                                q.visual_description = vl_result["visual_description"]
+                                if vl_result.get("student_answer"):
+                                    q.student_answer = vl_result["student_answer"]
+                                q.status = QuestionStatus.completed
+                                _db.create_question_item(q.question_id, aid, page_id, q.question_number, q.question_text, q.bbox or [], q.visual_description or "")
+                                _vlog = make_log_entry(
+                                    task_id=jid, question_id=q.question_id, job_id=jid,
+                                    provider_name="aliyun_dashscope", model_name="qwen-vl-max",
+                                    feature_code="qwen_vl_parse_homework",
+                                    trace_id=trace_id, sub_stage="question_cutting",
+                                    latency_ms=vl_ms,
+                                    success=vl_result["success"], parent_user_id=parent_id,
+                                    child_id=child_id, error_code=vl_result.get("error"),
+                                    billing_status="free_tier" if vl_result["success"] else "failed",
+                                    prompt_name="qwen_vl_analyze", retry_count=n_retries,
+                                )
+                                _model_calls.append(_vlog)
+                                _db.save_model_call(_vlog)
+                                info(f"[BG] Deferred Vision #{qi} succeeded after {n_retries} retries: {vl_ms}ms")
+                            except Exception as ve:
+                                err_str = str(ve).lower()
+                                next_retries = n_retries + 1
+                                if next_retries > MAX_NETWORK_RETRIES:
+                                    error(f"[BG] Deferred Vision #{qi} FAILED after {n_retries} retries: {ve}")
+                                    q.status = QuestionStatus.failed
+                                elif "429" in err_str or "rate_limit" in err_str:
+                                    next_delay = 2 ** next_retries
+                                    _deferred_vision_tasks.append((qi, q, contents, jid, parent_id, child_id, aid, page_id, next_retries, next_delay))
+                                    info(f"[BG] Deferred Vision #{qi} RE-RATE-LIMITED, re-deferred {next_delay}s")
+                                else:
+                                    error(f"[BG] Deferred Vision #{qi} non-429 error: {ve}")
+                                    q.status = QuestionStatus.failed
+                    if _deferred_vision_tasks:
+                        error(f"[BG] {len(_deferred_vision_tasks)} deferred tasks abandoned after {MAX_DEFERRED_RETRIES} batch retries")
         else:
             info("[BG] Qwen-VL full-page mode: skipping per-question vision review")
 
-        # ── 延后队列处理（基准 §9/17 — 429 独立队列）────────
-        if _deferred_vision_tasks:
-            info(f"[BG] Processing {len(_deferred_vision_tasks)} deferred vision tasks...")
-            MAX_DEFERRED_RETRIES = 3
-            deferred_retry = 0
-            while _deferred_vision_tasks and deferred_retry < MAX_DEFERRED_RETRIES:
-                deferred_retry += 1
-                pending = _deferred_vision_tasks[:]
-                _deferred_vision_tasks.clear()
-                for qi, q, contents, jid, parent_id, child_id, aid, page_id, n_retries, delay in pending:
-                    await asyncio.sleep(delay)
-                    try:
-                        t_vs = time.time()
-                        vl_result = qwen_vl.analyze_question(
-                            image_bytes=contents if not oss_signed_url else None,
-                            image_url=oss_signed_url,
-                            bbox=q.bbox or [0, 0, 0, 0],
-                            question_text=q.question_text,
-                        )
-                        vl_ms = int((time.time() - t_vs) * 1000)
-                        q.visual_description = vl_result["visual_description"]
-                        if vl_result.get("student_answer"):
-                            q.student_answer = vl_result["student_answer"]
-                        q.status = QuestionStatus.completed
-                        _db.create_question_item(q.question_id, aid, page_id, q.question_number, q.question_text, q.bbox or [], q.visual_description or "")
-                        _vlog = make_log_entry(
-                            task_id=jid, question_id=q.question_id, job_id=jid,
-                            provider_name="aliyun_dashscope", model_name="qwen-vl-max",
-                            feature_code="qwen_vl_parse_homework",
-                            trace_id=trace_id, sub_stage="question_cutting",
-                            latency_ms=vl_ms,
-                            success=vl_result["success"], parent_user_id=parent_id,
-                            child_id=child_id, error_code=vl_result.get("error"),
-                            billing_status="free_tier" if vl_result["success"] else "failed",
-                            prompt_name="qwen_vl_analyze", retry_count=n_retries,
-                        )
-                        _model_calls.append(_vlog)
-                        _db.save_model_call(_vlog)
-                        info(f"[BG] Deferred Vision #{qi} succeeded after {n_retries} retries: {vl_ms}ms")
-                    except Exception as ve:
-                        err_str = str(ve).lower()
-                        next_retries = n_retries + 1
-                        if next_retries > MAX_NETWORK_RETRIES:
-                            error(f"[BG] Deferred Vision #{qi} FAILED after {n_retries} retries: {ve}")
-                            q.status = QuestionStatus.failed
-                        elif "429" in err_str or "rate_limit" in err_str:
-                            next_delay = 2 ** next_retries
-                            _deferred_vision_tasks.append((qi, q, contents, jid, parent_id, child_id, aid, page_id, next_retries, next_delay))
-                            info(f"[BG] Deferred Vision #{qi} RE-RATE-LIMITED, re-deferred {next_delay}s")
-                        else:
-                            error(f"[BG] Deferred Vision #{qi} non-429 error: {ve}")
-                            q.status = QuestionStatus.failed
-            if _deferred_vision_tasks:
-                error(f"[BG] {len(_deferred_vision_tasks)} deferred tasks abandoned after {MAX_DEFERRED_RETRIES} batch retries")
-
         # Stage: schema_validating — 基准 Table 21
         _jobs[jid]["job"].status = JobStatus.schema_validating
+        _ocr_only = not use_qwen_vl and DISABLE_PER_Q_VISION
         has_failures = False
         for q in questions:
             if q.status == QuestionStatus.failed:
                 has_failures = True
                 continue
-            # Phase 0 轻量校验：题目文本 + 视觉描述完整性
+            # Phase 0 轻量校验：题目文本完整性（OCR-only 不要求 visual_description）
             if not q.question_text or len(q.question_text.strip()) < 2:
                 q.status = QuestionStatus.failed
                 has_failures = True
-            elif q.visual_description is None:
+            elif not _ocr_only and q.visual_description is None:
                 q.status = QuestionStatus.failed
                 has_failures = True
 
-        final_status = JobStatus.needs_review if has_failures else JobStatus.completed
+        if has_failures or len(questions) == 0:
+            # 有真正失败或零题 → needs_review
+            final_status = JobStatus.needs_review
+        elif _ocr_only:
+            # OCR 成功切出题目 → 先过作业图预筛
+            if _is_homework_image(ocr_blocks):
+                final_status = JobStatus.low_confidence
+                info(f"[BG] OCR-only homework image → low_confidence for {jid}")
+            else:
+                final_status = JobStatus.needs_review
+                info(f"[BG] OCR-only non-homework image → needs_review for {jid}")
+        else:
+            final_status = JobStatus.completed
         # 存储解析元数据供 save_result 写入 parse_jobs
         _jobs[jid]["parse_mode"] = "qwen_vl"
         _jobs[jid]["parser_provider"] = "aliyun_dashscope"

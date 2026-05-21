@@ -20,9 +20,10 @@ class QwenVLClient:
     def _available(self) -> bool:
         return bool(self.api_key and len(self.api_key) > 10 and self.api_key.startswith("sk-"))
 
-    def _call(self, image_bytes: bytes = None, image_url: str = None, prompt: str = "", max_tokens: int = 2000) -> dict:
+    def _call(self, image_bytes: bytes = None, image_url: str = None, prompt: str = "", max_tokens: int = 2000, timeout: int = 30) -> dict:
         """底层调用，返回原始 API 响应。
         image_url 优先（OSS 签名 URL），否则 image_bytes → base64 data URL。
+        timeout: HTTP 超时秒数，默认 30s。
         """
         t_start = time.time()
         if not self._available():
@@ -70,7 +71,7 @@ class QwenVLClient:
             # 绕过全局 SOCKS5 代理（DashScope 国内直连）
             proxy_handler = request.ProxyHandler({})
             opener = request.build_opener(proxy_handler)
-            resp = opener.open(req, timeout=60)
+            resp = opener.open(req, timeout=timeout)
             data = json.loads(resp.read().decode())
             latency_ms = int((time.time() - t_start) * 1000)
             content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
@@ -98,10 +99,11 @@ class QwenVLClient:
                 "latency_ms": latency_ms,
             }
 
-    def extract_questions(self, image_bytes: bytes = None, image_url: str = None) -> dict:
+    def extract_questions(self, image_bytes: bytes = None, image_url: str = None, timeout: int = 30) -> dict:
         """
         全图识题：直接让 Qwen-VL 识别图片中所有题目。
         image_url 优先（OSS 签名 URL），否则 image_bytes → base64。
+        timeout: HTTP 超时秒数，默认 30s。
         返回 {"questions": [...], "success": bool, "latency_ms": int, "error": str}
         其中 questions 数组每项含 number, type, content。
         """
@@ -116,7 +118,7 @@ class QwenVLClient:
             "如果只有单一题型没有分组，section_title 填 null。"
             "只输出 JSON 数组，不要有其他文字。"
         )
-        r = self._call(image_bytes=image_bytes, image_url=image_url, prompt=prompt, max_tokens=3000)
+        r = self._call(image_bytes=image_bytes, image_url=image_url, prompt=prompt, max_tokens=3000, timeout=timeout)
         if not r["success"]:
             return {"questions": [], "success": False, "latency_ms": r["latency_ms"], "error": r.get("error", "unknown")}
 
