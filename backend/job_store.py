@@ -11,6 +11,7 @@ _model_calls: list[dict]
 _tutor_chats: dict[str, list[dict]]
 _credit_balances: dict[str, int]
 
+_db.init()  # 幂等建表，防止空 DB 时 load_all() 炸
 _jobs, _model_calls, _tutor_chats, _credit_balances = _db.load_all()
 
 # ── 429 延迟队列 ──────────────────────────────────────────────────
