@@ -135,6 +135,29 @@ def init():
             expired INTEGER DEFAULT 0
         );
 
+        -- ── 图片指纹（只写不读，为去重做准备）────────────
+        CREATE TABLE IF NOT EXISTS image_fingerprints (
+            id TEXT PRIMARY KEY,
+            parent_id TEXT NOT NULL,
+            child_id TEXT NOT NULL,
+            job_id TEXT NOT NULL,
+            original_sha256 TEXT,
+            ahash TEXT NOT NULL,
+            dhash TEXT,
+            width INTEGER,
+            height INTEGER,
+            aspect_ratio REAL,
+            file_size INTEGER,
+            created_at TEXT NOT NULL,
+            deleted_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_fp_lookup
+            ON image_fingerprints(parent_id, child_id, ahash);
+        CREATE INDEX IF NOT EXISTS idx_fp_job
+            ON image_fingerprints(job_id);
+        CREATE INDEX IF NOT EXISTS idx_fp_sha256
+            ON image_fingerprints(original_sha256);
+
         -- ── Phase 1 错题本 ───────────────────────────────
         CREATE TABLE IF NOT EXISTS mistake_book_item (
             id TEXT PRIMARY KEY,
@@ -1215,6 +1238,33 @@ def save_parse_history(child_id: str, job_id: str, data_json: str):
         "INSERT OR REPLACE INTO parse_history (child_id, job_id, data_json, updated_at) "
         "VALUES (?, ?, ?, datetime('now'))",
         (child_id, job_id, data_json),
+    )
+    c.commit()
+    c.close()
+
+
+def save_image_fingerprint(fp: dict):
+    """保存图片指纹（只写不读）。fp 必须包含 compute_fingerprints 返回的所有字段。"""
+    import uuid
+    c = _conn()
+    c.execute(
+        """INSERT OR REPLACE INTO image_fingerprints
+           (id, parent_id, child_id, job_id, original_sha256, ahash, dhash,
+            width, height, aspect_ratio, file_size, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
+        (
+            uuid.uuid4().hex[:12],
+            fp.get("parent_id", ""),
+            fp.get("child_id", ""),
+            fp.get("job_id", ""),
+            fp.get("original_sha256"),
+            fp.get("ahash"),
+            fp.get("dhash"),
+            fp.get("width"),
+            fp.get("height"),
+            fp.get("aspect_ratio"),
+            fp.get("file_size"),
+        ),
     )
     c.commit()
     c.close()

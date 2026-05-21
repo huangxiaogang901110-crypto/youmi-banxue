@@ -131,6 +131,17 @@ async def upload_to_job(
     t2 = time.time()
     _log_info(f"api_upload_done jid={job_id} elapsed_ms={int((t2-t0)*1000)}")
 
+    # ── 图片指纹写入（只写不读）──
+    try:
+        from image_fingerprint import compute_fingerprints
+        fp = compute_fingerprints(contents)
+        fp["parent_id"] = parent_id
+        fp["child_id"] = child_id
+        fp["job_id"] = job_id
+        _db.save_image_fingerprint(fp)
+    except Exception as e:
+        _log_warn(f"fp_write_fail jid={job_id} err={type(e).__name__}:{e}")
+
     return {"ok": True, "data": {"job_id": job_id, "status": "uploaded", "file_name": file.filename}, "request_id": uuid.uuid4().hex}
 
 # ─── 1. POST /api/parse-jobs ───────────────────────────────
@@ -216,6 +227,17 @@ async def create_parse_job(
         asyncio.create_task(worker_process_job(jid, contents, file, now, parent_id, child_id))
         t4 = time.time()
         _log_info(f"api_worker_started jid={jid} elapsed_ms={int((t4-t0)*1000)}")
+
+        # ── 图片指纹写入（只写不读，为去重做准备）──
+        try:
+            from image_fingerprint import compute_fingerprints
+            fp = compute_fingerprints(contents)
+            fp["parent_id"] = parent_id
+            fp["child_id"] = child_id
+            fp["job_id"] = jid
+            _db.save_image_fingerprint(fp)
+        except Exception as e:
+            _log_warn(f"fp_write_fail jid={jid} err={type(e).__name__}:{e}")
 
         # ── 返回 ──
         t5 = time.time()
