@@ -16,6 +16,7 @@ from db import get_active_pricing
 from deepseek_client import DeepSeekClient
 from vision_client import QwenVLClient
 from ocr_client import AliyunOCRClient
+from general_ocr_client import GeneralOCRClient
 from question_cutter import cut_to_questions
 import oss_client as _oss
 
@@ -359,6 +360,70 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
                 else:
                     use_qwen_vl = True
                 info(f"[BG] Qwen-VL extracted {question_count} questions in {qwen_latency}ms")
+
+                # ── 通用 OCR 坐标融合（灰度开关 YOMI_USE_GENERAL_OCR）──
+                _use_gen_ocr = _osp.getenv("YOMI_USE_GENERAL_OCR", "false").lower() == "true"
+                if _use_gen_ocr:
+                    try:
+                        gen_ocr = GeneralOCRClient()
+                        if gen_ocr._available():
+                            go_result = gen_ocr.recognize(contents)
+                            if go_result["success"] and go_result["blocks"]:
+                                ocr_blocks = go_result["blocks"]
+                                info(f"[BG] General OCR: {len(ocr_blocks)} blocks in {go_result['latency_ms']}ms")
+                                # ── Fusion: L1 text match → L2 section → L3 spatial ──
+                                import re as _re_fusion
+                                _NOISE_KW = set(["姓名","班级","年级","日期","打卡日期","建议用时","实际用时","老师改正","错题改正","得分","评语","批注","页码","页眉","页脚","练习册","课时","课间活动","附记","装订线","家长签字","检查人","学校","出版社","单元","册别","ISBN","直接写出得数","填一填","列竖式计算","注意划出","易混易错","照样子","任务一","任务二"])
+                                # 过滤噪声 blocks
+                                _valid_blocks = [b for b in ocr_blocks if not any(kw in b["text"] for kw in _NOISE_KW) and len(b["text"].strip()) > 1]
+                                _used = set()
+                                for _i, rq in enumerate(raw_questions):
+                                    _qt = rq.get("content", "") or ""
+                                    _cat = "meta" if any(kw in _qt for kw in _NOISE_KW) else "text"
+                                    if not _qt.strip() or _cat == "meta":
+                                        continue
+                                    _si = rq.get("section_index") or 1
+                                    _sub = rq.get("sub_index") or _i + 1
+                                    # L1: digit/char overlap
+                                    _best_s, _best_bi = 0.0, []
+                                    _n1 = set(_re_fusion.findall(r'\d+', _qt))
+                                    _e1 = set(_re_fusion.findall(r'[a-zA-Z]{2,}', _qt.lower()))
+                                    for _bi, _b in enumerate(_valid_blocks):
+                                        if _bi in _used: continue
+                                        _bt = _b["text"]
+                                        _ns = len(_n1 & set(_re_fusion.findall(r'\d+', _bt))) / len(_n1) if _n1 else 0
+                                        _es = len(_e1 & set(_re_fusion.findall(r'[a-zA-Z]{2,}', _bt.lower()))) / len(_e1) if _e1 else 0
+                                        _s = max(_ns, _es)
+                                        if _s > _best_s:
+                                            _best_s, _best_bi = _s, [_bi]
+                                    if _best_s >= 0.3 and _best_bi:
+                                        _bxs = [[_valid_blocks[bi]["x"],_valid_blocks[bi]["y"],_valid_blocks[bi]["w"],_valid_blocks[bi]["h"]] for bi in _best_bi]
+                                        _bx = [min(x[0] for x in _bxs), min(x[1] for x in _bxs), max(x[0]+x[2] for x in _bxs)-min(x[0] for x in _bxs), max(x[1]+x[3] for x in _bxs)-min(x[1] for x in _bxs)]
+                                        for bi in _best_bi: _used.add(bi)
+                                        rq["bbox"] = _bx
+                                        # answer_bbox: last block in matched set
+                                        _ab = _bxs[-1]
+                                        if _ab[2]*_ab[3] < 500000 and _ab[2] > 0 and _ab[3] > 0:
+                                            rq["answer_bbox"] = _ab[:]
+                                    # L2: section spatial fallback (for unmatched questions)
+                                    elif _si and _sub:
+                                        _sec_blocks = [_b for _bi,_b in enumerate(_valid_blocks) if _bi not in _used]
+                                        if _sec_blocks:
+                                            _ys = sorted(set(_b["y"] for _b in _sec_blocks))
+                                            _per = (_ys[-1]-_ys[0])/max(len(raw_questions),1) if len(_ys)>1 else 30
+                                            _y0 = _ys[0] + _per*(_sub-1)
+                                            _matched = [_b for _b in _sec_blocks if _y0 <= _b["y"] < _y0+_per]
+                                            if _matched:
+                                                _bxs = [[_b["x"],_b["y"],_b["w"],_b["h"]] for _b in _matched]
+                                                _bx = [min(x[0] for x in _bxs), min(x[1] for x in _bxs), max(x[0]+x[2] for x in _bxs)-min(x[0] for x in _bxs), max(x[1]+x[3] for x in _bxs)-min(x[1] for x in _bxs)]
+                                                rq["bbox"] = _bx
+                                info(f"[BG] General OCR fusion: {len(_used)}/{len(_valid_blocks)} blocks matched to {question_count} questions")
+                            else:
+                                warning(f"[BG] General OCR returned no blocks, using Qwen-VL zero bbox")
+                        else:
+                            warning(f"[BG] General OCR not available (no AK/SK), using Qwen-VL zero bbox")
+                    except Exception as _goe:
+                        error(f"[BG] General OCR exception: {_goe}, falling back to Qwen-VL zero bbox")
 
                 # 分组展示用：用 raw_content 作为视觉描述
                 shared_vd = qwen_result.get("raw_content", f"Qwen-VL 全图识别，共 {question_count} 题")
