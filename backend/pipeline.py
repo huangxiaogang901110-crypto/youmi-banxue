@@ -92,11 +92,33 @@ def save_result(jid: str, questions: list, now: str, file, status: JobStatus):
 async def grade_answers(jid: str, questions: list, trace_id: str, parent_id: str, child_id: str) -> float:
     """DeepSeek 批量判对错。返回 grading 总成本 CNY。
     失败时所有题 is_correct=null, grading_explanation='暂未判定'。
+    数学口算/加减乘除/比大小/填空优先规则判题，减少 DeepSeek 耗时。
     """
-    # 只对有 student_answer 的题判题
+    # ── Phase A: 数学规则快速判题 ──
+    from math_grader import _try_math_rule_grading
+    _rule_graded = 0
+    for q in questions:
+        _sa = q.student_answer if hasattr(q, "student_answer") else q.get("student_answer") if isinstance(q, dict) else None
+        _qt = q.question_text if hasattr(q, "question_text") else q.get("question_text", "") if isinstance(q, dict) else ""
+        if _sa and _qt:
+            _result = _try_math_rule_grading(_qt, str(_sa))
+            if _result is not None:
+                if hasattr(q, "is_correct"):
+                    q.is_correct = _result["is_correct"]
+                    q.grading_explanation = _result["explanation"]
+                else:
+                    q["is_correct"] = _result["is_correct"]
+                    q["grading_explanation"] = _result["explanation"]
+                _rule_graded += 1
+    if _rule_graded > 0:
+        info(f"[BG] Math rule graded {_rule_graded}/{len(questions)} questions for {jid}")
+
+    # 只对有 student_answer 且未被规则判题的题走 DeepSeek
     gradable = [(i, q) for i, q in enumerate(questions)
-                 if hasattr(q, "student_answer") and q.student_answer or
-                 isinstance(q, dict) and q.get("student_answer")]
+                 if (hasattr(q, "student_answer") and q.student_answer or
+                     isinstance(q, dict) and q.get("student_answer"))
+                 and (getattr(q, "is_correct", None) is None if hasattr(q, "is_correct") else
+                      (q.get("is_correct") is None if isinstance(q, dict) else True))]
     with open("/tmp/grade_diag.log", "a") as _f:
         _f.write(f"{_ts()} | grade_answers START jid={jid} total_q={len(questions)} gradable={len(gradable)}\n")
     if not gradable:
@@ -308,6 +330,8 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
                         _os_env.getenv("YOMI_GENERAL_OCR_TIMEOUT_SECONDS", "3")))
     DISABLE_PER_Q_VISION = _os_env.getenv("YOMI_DISABLE_SYNC_PER_QUESTION_VISION", "true").lower() in ("1", "true", "yes")
     PER_Q_VISION_LIMIT = int(_os_env.getenv("YOMI_PER_QUESTION_VISION_SYNC_LIMIT", "0"))
+    BPLUS_ENABLED = _os_env.getenv("YOMI_BPLUS_RECOGNITION", "false").lower() in ("1", "true", "yes")
+    BPLUSPLUS_ENABLED = _os_env.getenv("YOMI_BPLUSPLUS_RECOGNITION", "false").lower() in ("1", "true", "yes")
     import uuid as _uuid
     trace_id = _uuid.uuid4().hex
     _log_info(f"job_start jid={jid}", trace_id=trace_id, parent_id=parent_id, child_id=child_id)
@@ -361,6 +385,26 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
     total_parse_cost = 0.0  # 累计 Qwen-VL 解析成本
 
     try:
+        # ── Phase 0: 图片压缩预处理（加速 Qwen-VL）──
+        _img_bytes = contents
+        try:
+            from PIL import Image
+            import io as _io
+            _img_pil = Image.open(_io.BytesIO(contents))
+            _w, _h = _img_pil.size
+            _max_dim = max(_w, _h)
+            if _max_dim > 1024:
+                _ratio = 1024 / _max_dim
+                _new_size = (int(_w * _ratio), int(_h * _ratio))
+                _img_pil = _img_pil.resize(_new_size, Image.LANCZOS)
+                _buf = _io.BytesIO()
+                _img_pil.save(_buf, format="JPEG", quality=85)
+                _img_bytes = _buf.getvalue()
+                info(f"[BG] Image compressed: {_w}x{_h} -> {_new_size[0]}x{_new_size[1]} ({len(contents)}->{len(_img_bytes)} bytes)")
+            _img_pil.close()
+        except Exception as _ce:
+            info(f"[BG] Image compress skipped: {_ce}")
+
         # ── Phase 1: Qwen-VL 全图 + 通用 OCR 并行 ──
         _jobs[jid]["job"].status = JobStatus.ocr_running
         use_qwen_vl = False
@@ -374,11 +418,14 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
         info(f"[BG] Parallel Qwen(avail={qwen_available},to={QWEN_FULL_TIMEOUT_S}s) + OCR(to={OCR_TIMEOUT_S}s) for {jid}...")
 
         async def _run_qwen():
+            if BPLUSPLUS_ENABLED:
+                info(f"[BG] B++ gate active, skipping full-image Qwen for {jid}")
+                return {"success": False, "questions": [], "error": "bpp_skip", "latency_ms": 0, "usage": {}, "raw_content": ""}
             if not qwen_available:
                 return {"success": False, "questions": [], "error": "qwen_unavailable", "latency_ms": 0, "usage": {}, "raw_content": ""}
             return await asyncio.to_thread(
                 qwen_vl.extract_questions,
-                image_bytes=contents if not oss_signed_url else None,
+                image_bytes=_img_bytes if not oss_signed_url else None,
                 image_url=oss_signed_url,
                 timeout=QWEN_FULL_TIMEOUT_S,
             )
@@ -484,16 +531,140 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
                     q_no = int(raw_no)
                 except (ValueError, TypeError):
                     q_no = i + 1
+                # 解析 bbox 和 answer_bbox
+                _bbox = rq.get("bbox")
+                if isinstance(_bbox, list) and len(_bbox) == 4:
+                    _bbox = [float(v) for v in _bbox]
+                else:
+                    _bbox = [0, 0, 0, 0]
+                _ans_bbox = rq.get("answer_bbox")
+                if isinstance(_ans_bbox, list) and len(_ans_bbox) == 4:
+                    _ans_bbox = [float(v) for v in _ans_bbox]
+                else:
+                    _ans_bbox = None
                 questions.append(Question(
                     question_id=qid, question_number=q_no, question_text=q_text,
-                    bbox=[0, 0, 0, 0], visual_description=shared_vd,
+                    bbox=_bbox, visual_description=shared_vd,
                     status=QuestionStatus.completed, student_answer=student_ans,
                     section_title=section_title, section_index=section_index, sub_index=sub_index,
                 ))
-                _db.create_question_item(qid, aid, page_id, q_no, q_text, [0, 0, 0, 0], shared_vd[:200],
+                _db.create_question_item(qid, aid, page_id, q_no, q_text, _bbox, shared_vd[:200],
                                           source_call_id=qwen_parse_call_id, parse_cost_allocated_cny=parse_cost_per_q)
         else:
             error(f"[BG] Qwen-VL failed: {qwen_result.get('error', 'no questions')}")
+
+
+
+        # ── B++ 灰度链路：答案区优先识别 ──
+        if BPLUSPLUS_ENABLED and not use_qwen_vl and ocr_blocks:
+            info(f"[BG] B++ route: {len(ocr_blocks)} blocks")
+            # 质量检查: 过暗/模糊/半页
+            try:
+                from PIL import Image as _QImg, ImageStat as _QStat, ImageFilter as _QFlt
+                import io as _QIo
+                _qimg = _QImg.open(_QIo.BytesIO(contents)).convert("L")
+                _qstat = _QStat.Stat(_qimg)
+                _bright = _qstat.mean[0]
+                _qlap = _qimg.filter(_QFlt.Kernel((3,3),[-1,-1,-1,-1,8,-1,-1,-1,-1],1,128))
+                _qvar = _QStat.Stat(_qlap).var[0]
+                _qimg.close()
+                _qfail = ""
+                if _bright < 80: _qfail = "too_dark"
+                elif _qvar < 50: _qfail = "too_blurry"
+                if _qfail:
+                    info(f"[BG] B++ quality reject: {_qfail}")
+                    _jobs[jid]["job"].status = JobStatus.needs_review
+                    _jobs[jid]["job"].questions_count = 0
+                    _jobs[jid]["questions"] = []
+                    return
+            except Exception as _qe:
+                info(f"[BG] B++ quality check skipped: {_qe}")
+
+            # OCR质量: 乱码>50% -> needs_review
+            _garbled = sum(1 for b in ocr_blocks if len(b["text"].strip()) < 2 and not b["text"].strip().isdigit())
+            if _garbled > len(ocr_blocks) * 0.5:
+                info(f"[BG] B++ OCR garbled: {_garbled}/{len(ocr_blocks)} -> needs_review")
+                _jobs[jid]["job"].status = JobStatus.needs_review
+                _jobs[jid]["job"].questions_count = 0
+                _jobs[jid]["questions"] = []
+                return
+
+            if _is_homework_image(ocr_blocks):
+                # 答案区定位
+                _qpat = __import__("re").compile(r'^\s*(\d{1,3})[.、．)）\s]')
+                _bs = sorted(ocr_blocks, key=lambda b: (b["y"], b["x"]))
+                _markers = []
+                for _bi, _b in enumerate(_bs):
+                    _m = _qpat.match(_b["text"].strip())
+                    if _m:
+                        _markers.append({"num":int(_m.group(1)),"y":_b["y"],"x":_b["x"],"h":_b["h"]})
+                try:
+                    from PIL import Image as _PImg
+                    _pi = _PImg.open(__import__("io").BytesIO(_img_bytes))
+                    _iw, _ih = _pi.size; _pi.close()
+                except:
+                    _iw, _ih = 800, 1200
+                # 题组3-5题/块
+                _GSIZE = 4; _regions = []
+                if len(_markers) >= 2:
+                    for _gs in range(0, len(_markers), _GSIZE):
+                        _ge = min(_gs+_GSIZE, len(_markers))
+                        _gm = _markers[_gs:_ge]
+                        _yt = max(0, _gm[0]["y"]-6)
+                        _yb = min(_ih, _markers[_ge]["y"]-6) if _ge < len(_markers) else min(_ih, _gm[-1]["y"]+_gm[-1]["h"]+100)
+                        _xl = max(0, min(b["x"] for b in _bs)-8)
+                        _xr = min(_iw, max(b["x"]+b.get("w",50) for b in _bs)+8)
+                        if _yb-_yt > 20 and _xr-_xl > 30:
+                            _regions.append((_xl, _yt, _xr-_xl, _yb-_yt))
+                if not _regions:
+                    _regions = [(0, 0, _iw, _ih)]
+                _regions = _regions[:5]  # 最多5块
+
+                # 并发Qwen
+                async def _bpp_qwen(_region):
+                    _rx, _ry, _rw, _rh = _region
+                    try:
+                        from PIL import Image as _P2
+                        _pi2 = _P2.open(__import__("io").BytesIO(_img_bytes))
+                        _crop = _pi2.crop((max(0,_rx),max(0,_ry),min(_iw,_rx+_rw),min(_ih,_ry+_rh)))
+                        _cb = __import__("io").BytesIO(); _crop.save(_cb,format="JPEG",quality=70)
+                        _pi2.close(); _crop_b = _cb.getvalue()
+                    except:
+                        _crop_b = _img_bytes
+                    _qp = ("图中每题一行: 题号|题目内容|孩子手写答案|"
+                           "题型(口算/竖式/选择/填空/连线/画图/其他)|置信度(0-1)。"
+                           "无答案填无。不要标题日期。不要解释。")
+                    return await asyncio.to_thread(
+                        lambda: qwen_vl._call(image_bytes=_crop_b, prompt=_qp, max_tokens=500, timeout=8))
+                _bppres = await asyncio.gather(*[_bpp_qwen(r) for r in _regions], return_exceptions=True)
+                _all_qs = []
+                for _br in _bppres:
+                    if isinstance(_br, Exception) or not _br.get("success"):
+                        continue
+                    for _l in _br.get("content","").strip().split("\n"):
+                        _parts = _l.split("|")
+                        if len(_parts) >= 3:
+                            _ans = _parts[2].strip()
+                            if _ans in ("无","null","none","","孩子未写","未写"):
+                                _ans = None
+                            _all_qs.append({"number":_parts[0].strip(),"content":_parts[1].strip(),
+                                             "student_answer":_ans,
+                                             "question_type":_parts[3].strip() if len(_parts)>3 else "其他"})
+                _ans_count = sum(1 for q in _all_qs if q.get("student_answer"))
+                if _all_qs and _ans_count > 0:
+                    use_qwen_vl = True
+                    raw_questions = _all_qs
+                    question_count = len(raw_questions)
+                    qwen_parse_call_id = f"bpp_{jid}"
+                    info(f"[BG] B++ extracted {question_count}q/{_ans_count}ans")
+                else:
+                    info(f"[BG] B++ quality gate: {len(_all_qs)}q/{_ans_count}ans -> rejected")
+            else:
+                info(f"[BG] B++ non-homework -> needs_review")
+                _jobs[jid]["job"].status = JobStatus.needs_review
+                _jobs[jid]["job"].questions_count = 0
+                _jobs[jid]["questions"] = []
+                return
 
         # ── OCR fallback: use pre-fetched blocks (already obtained in parallel) ──
         if not use_qwen_vl:
@@ -686,11 +857,12 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
         if has_failures or len(questions) == 0:
             # 有真正失败或零题 → needs_review
             final_status = JobStatus.needs_review
-        elif _ocr_only:
+        # ── Quality gate: OCR-only 路径缺少答案识别 → needs_review ──
+        if _ocr_only:
             # OCR 成功切出题目 → 先过作业图预筛
             if _is_homework_image(ocr_blocks):
-                final_status = JobStatus.low_confidence
-                info(f"[BG] OCR-only homework image → low_confidence for {jid}")
+                final_status = JobStatus.needs_review
+                info(f"[BG] OCR-only homework image (Qwen failed) → needs_review for {jid}")
             else:
                 final_status = JobStatus.needs_review
                 info(f"[BG] OCR-only non-homework image → needs_review for {jid}")
@@ -709,6 +881,12 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
         except Exception as _ge:
             error(f"[BG] Grading stage failed (non-blocking): {_ge}")
         total_parse_cost += grading_cost
+        # ── Post-grading quality gate: 有题但无可判定结果 → needs_review ──
+        _with_g = sum(1 for q in questions if (getattr(q, "is_correct", None) is not None) or (isinstance(q, dict) and q.get("is_correct") is not None))
+        _with_sa = sum(1 for q in questions if (getattr(q, "student_answer", None)) or (isinstance(q, dict) and q.get("student_answer")))
+        if len(questions) > 0 and _with_sa == 0 and _with_g == 0 and final_status != JobStatus.needs_review:
+            info(f"[BG] Quality gate: {len(questions)}q but 0 answers/0 graded -> needs_review for {jid}")
+            final_status = JobStatus.needs_review
         save_result(jid, questions, now, file, final_status)
         # 诊断：判对错保存统计
         _with_g = sum(1 for q in questions if (getattr(q, "is_correct", None) is not None) or (isinstance(q, dict) and q.get("is_correct") is not None))
