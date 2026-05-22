@@ -38,6 +38,7 @@ export enum JobStatus {
   VISION_REVIEWING = 'vision_reviewing',
   SCHEMA_VALIDATING = 'schema_validating',
   COMPLETED = 'completed',
+  LOW_CONFIDENCE = 'low_confidence',
   NEEDS_REVIEW = 'needs_review',
   FAILED = 'failed',
 }

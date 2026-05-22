@@ -26,6 +26,7 @@ const STATUS_TO_STAGE: Record<string, number> = {
   vision_reviewing: 4,
   schema_validating: 5,
   completed: 6,
+  low_confidence: 6,
   needs_review: 6,
 };
 

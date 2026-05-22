@@ -498,7 +498,7 @@ function WorkspaceContent() {
   const deletedIds = getDeletedJobIds();
   const localIds = new Set(history.map((h) => h.job_id));
   const apiOnly = apiRecent.filter((r) => !localIds.has(r.job_id) && !deletedIds.has(r.job_id));
-  const completedHistory = history.filter((h) => (h.status === "completed" || h.status === "uploaded") && !deletedIds.has(h.job_id));
+  const completedHistory = history.filter((h) => (h.status === "completed" || h.status === "low_confidence" || h.status === "uploaded") && !deletedIds.has(h.job_id));
   const allHistory = [...completedHistory.map(h => {
     // 如果 localStorage 里 q=0，从 API 补（异步时序导致 effect 漏写）
     if (h.questions_count === 0) {
@@ -519,7 +519,8 @@ function WorkspaceContent() {
   ).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
   // ── 处理中（恢复 / 上传 / 轮询）── 合并为单实例，避免 ProcessingStatus 卸载重挂载
-  if ((isRestoring || status === "loading" || status === "polling") && status !== "completed" && status !== "failed") {
+  const terminalSet = new Set(["completed", "failed", "low_confidence", "needs_review"]);
+  if ((isRestoring || status === "loading" || status === "polling") && !terminalSet.has(status)) {
     return (
       <div className={`space-y-4 ${isRestoring ? 'pb-4' : ''}`}>
         {showDebug && <DiagPanel events={diagEvents} expanded={diagExpanded} onToggle={() => setDiagExpanded(!diagExpanded)} />}
@@ -705,7 +706,45 @@ function WorkspaceContent() {
     );
   }
 
-  // ── completed ──
+  // ── needs_review ──
+  if (status === "needs_review") {
+    const jid = searchParams.get("job_id");
+    return (
+      <div className="space-y-4 pb-4">
+        {showDebug && <DiagPanel events={diagEvents} expanded={diagExpanded} onToggle={() => setDiagExpanded(!diagExpanded)} />}
+        <div className="bg-card rounded-2xl p-8 shadow-sm border border-border text-center space-y-4">
+          <div className="flex justify-center">
+            <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-amber-500" aria-hidden="true"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          </div>
+          <h2 className="text-lg font-semibold text-foreground">识别不确定</h2>
+          <p className="text-sm text-muted-foreground">{error || "这张图片可能不是作业，或图片质量不足以识别。请尝试重拍或上传更清晰的作业图片。"}</p>
+          <div className="flex gap-3 justify-center pt-2">
+            <button
+              onClick={() => {
+                if (jid && history.some(h => h.job_id === jid)) removeEntry(jid);
+                router.push("/workspace");
+                resetUpload();
+              }}
+              className="rounded-xl border border-border px-6 py-2.5 text-sm text-foreground hover:bg-muted transition"
+            >
+              返回工作台
+            </button>
+            <button
+              onClick={() => {
+                router.push("/workspace?action=camera");
+                resetUpload();
+              }}
+              className="rounded-xl bg-primary text-primary-foreground px-6 py-2.5 text-sm font-medium hover:opacity-90 transition"
+            >
+              重拍一张
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── completed / low_confidence ──
   const qs = questions || [];
   const groupSize = calcGroupSize(qs.length);
 
@@ -757,6 +796,12 @@ function WorkspaceContent() {
   return (
     <div className="space-y-4 pb-4">
       {showDebug && <DiagPanel events={diagEvents} expanded={diagExpanded} onToggle={() => setDiagExpanded(!diagExpanded)} />}
+      {status === "low_confidence" && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-800 flex items-center gap-2">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0" aria-hidden="true"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          <span>识别结果置信度较低，请核对题目是否准确</span>
+        </div>
+      )}
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-semibold text-foreground">
           共 {job?.questions_count || qs.length} 题
