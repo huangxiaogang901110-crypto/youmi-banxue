@@ -6,12 +6,43 @@ export interface Bbox {
   question_id: string;
   bbox: [number, number, number, number]; // [x, y, w, h] in original coords
   question_number: number;
+  is_correct?: boolean | null;
+  answer_bbox?: [number, number, number, number] | null;
 }
 
 interface Props {
   bboxes: Bbox[];
   activeIndex: number;
   imageUrl?: string;
+}
+
+/** Green check SVG — placed at bottom-right of question bbox */
+function GreenCheck({ left, top }: { left: string; top: string }) {
+  return (
+    <svg
+      className="absolute pointer-events-none z-20"
+      style={{ left, top, width: "24px", height: "24px", transform: "translate(-4px, -4px)" }}
+      viewBox="0 0 24 24"
+      fill="none"
+    >
+      <circle cx="12" cy="12" r="11" fill="#22c55e" stroke="white" strokeWidth="2" />
+      <path d="M7 13l3 3 7-7" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+/** Red circle SVG — placed at answer_bbox area */
+function RedCircle({ left, top, width, height }: { left: string; top: string; width: string; height: string }) {
+  return (
+    <svg
+      className="absolute pointer-events-none z-20"
+      style={{ left, top, width, height }}
+      viewBox="0 0 100 100"
+      fill="none"
+    >
+      <ellipse cx="50" cy="50" rx="46" ry="46" stroke="#ef4444" strokeWidth="4" fill="none" />
+    </svg>
+  );
 }
 
 export default function BboxOverlay({ bboxes, activeIndex, imageUrl }: Props) {
@@ -71,7 +102,30 @@ export default function BboxOverlay({ bboxes, activeIndex, imageUrl }: Props) {
         <div className="absolute inset-0 bg-black/20 rounded-xl pointer-events-none" />
       )}
 
-      {/* bbox rectangles */}
+      {/* Correct/incorrect indicators (show for ALL, not just active) */}
+      {bboxes.map((b) => {
+        // Green check: at bottom-right of question bbox
+        if (b.is_correct === true) {
+          const qPos = mapCoord(b.bbox);
+          return <GreenCheck key={`ok-${b.question_id}`} left={qPos.left} top={qPos.top} />;
+        }
+        // Red circle: at answer_bbox area
+        if (b.is_correct === false && b.answer_bbox && b.answer_bbox[2] > 0 && b.answer_bbox[3] > 0) {
+          const aPos = mapCoord(b.answer_bbox);
+          return (
+            <RedCircle
+              key={`err-${b.question_id}`}
+              left={aPos.left}
+              top={aPos.top}
+              width={aPos.width}
+              height={aPos.height}
+            />
+          );
+        }
+        return null;
+      })}
+
+      {/* bbox rectangles — active question highlight */}
       {bboxes.map((b, i) => {
         const pos = mapCoord(b.bbox);
         const active = i === activeIndex;

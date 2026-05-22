@@ -1,0 +1,5485 @@
+[
+  {
+    "job_id": "c38d4af26160",
+    "file_name": "悠米伴学前端ui视觉基准图.jpg",
+    "questions_count": 13,
+    "math_question_count": 7,
+    "image_path": "/tmp/yomi/c38d4af26160.jpg",
+    "questions": [
+      {
+        "id": "c38d4af26160-3",
+        "question_no": 4,
+        "question_text": "6.1709：15 40% 5比段大小 家长号 激适药豐录 √支习册、试卷、手写作业 查全邮知识点》 Demo 阳号 日单题辅导(讲解) 目单题辅导(追问) 日错题本 目解析中 题目列表 学习报告 小买了3本笔记本，每本4.5元， 第2题应用题 第2题应用题 错周题本 周报告 月报售 数学练习册第5页 < > 识到18道题 未订正 \\left(5.12-5.18\\right) 68% 因为先用类的，再加减法， 为什么先法再加法? 全邮18 这里先算“3本笔记本多少” 32 56 57% 又买了1支明笔9.6元。 第2题应用题 超目8数 他一共花了多少钱?",
+        "bbox_json": "[92.0, 379.0, 1366.0, 332.0]"
+      },
+      {
+        "id": "c38d4af26160-4",
+        "question_no": 5,
+        "question_text": "5.18/数学习册5 1题 计算题 正在解析中. 第5题计算题 第3题几何题 \\left.{400k}\\right) 应用题 题 Al讲解(Do eps",
+        "bbox_json": "[95.0, 602.0, 1009.0, 112.0]"
+      },
+      {
+        "id": "c38d4af26160-6",
+        "question_no": 7,
+        "question_text": "4.5×3=13.5",
+        "bbox_json": "[861.0, 670.0, 15.0, 93.0]"
+      },
+      {
+        "id": "c38d4af26160-7",
+        "question_no": 8,
+        "question_text": "13.5+9.5=23\\left(元\\right) 钢笔的的数， 文学识(OCR) (元)",
+        "bbox_json": "[44.0, 672.0, 818.0, 105.0]"
+      },
+      {
+        "id": "c38d4af26160-8",
+        "question_no": 9,
+        "question_text": "4.5×3=",
+        "bbox_json": "[520.0, 682.0, 49.0, 11.0]"
+      },
+      {
+        "id": "c38d4af26160-10",
+        "question_no": 11,
+        "question_text": "13.5+9.5=23 第3题应用题",
+        "bbox_json": "[853.0, 694.0, 203.0, 102.0]"
+      },
+      {
+        "id": "c38d4af26160-12",
+        "question_no": 13,
+        "question_text": "5.15/火练习12 第7题填空题 第6题 再讲一 正请率48% 3应用题(行理问) 完成店包退知思 埃上代新作业 告 8 工作 下一题 回 台 知识点 的 <上一题 状态与提示规范(示例) 设计规范 失状态 配色 宇体 加题中 识别异常 网络异常 数宇：DIN/Inter 别力加做中， 加 16px 中文：苹方/恩源黑体 无作业记 宣 去上第一份作吧 线性+面性结合",
+        "bbox_json": "[33.0, 744.0, 1445.0, 266.0]"
+      }
+    ],
+    "ocr_blocks": [
+      {
+        "text": "悠米伴学",
+        "x": 64,
+        "y": 25,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "工作台",
+        "x": 600,
+        "y": 35,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "上传作业",
+        "x": 1381,
+        "y": 37,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "AI家庭学习助手",
+        "x": 65,
+        "y": 48,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "OC",
+        "x": 320,
+        "y": 46,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "悠米伴学",
+        "x": 350,
+        "y": 43,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "当册子：",
+        "x": 992,
+        "y": 51,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "AI象段宇卫助手",
+        "x": 351,
+        "y": 58,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "下午好，家长",
+        "x": 741,
+        "y": 53,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "今天足S月18日，基期日",
+        "x": 740,
+        "y": 68,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "乐乐(小学三年战)",
+        "x": 993,
+        "y": 66,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "欢迎回来",
+        "x": 320,
+        "y": 92,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "工作台",
+        "x": 599,
+        "y": 86,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "拍一页作业，",
+        "x": 21,
+        "y": 102,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "登录后组缤学习之旅",
+        "x": 321,
+        "y": 112,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "今日待学习",
+        "x": 714,
+        "y": 113,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "本周学习报告",
+        "x": 1045,
+        "y": 113,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "较上周▲18%",
+        "x": 1192,
+        "y": 114,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "回作业记录",
+        "x": 581,
+        "y": 124,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "o",
+        "x": 1399,
+        "y": 115,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "整理成孩子能学的清单",
+        "x": 22,
+        "y": 138,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "验证师且录",
+        "x": 346,
+        "y": 147,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "密码登录",
+        "x": 449,
+        "y": 147,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "白",
+        "x": 717,
+        "y": 146,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "2",
+        "x": 740,
+        "y": 147,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "18",
+        "x": 815,
+        "y": 148,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "5",
+        "x": 890,
+        "y": 147,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "23分钟",
+        "x": 964,
+        "y": 149,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "拍照上传整页作业",
+        "x": 1362,
+        "y": 153,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "回错题本",
+        "x": 581,
+        "y": 163,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "待上传作业",
+        "x": 714,
+        "y": 173,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "得学习题目",
+        "x": 791,
+        "y": 173,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "错题未订正",
+        "x": 868,
+        "y": 174,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "今日学习时长",
+        "x": 940,
+        "y": 173,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "支持自动识别朗目",
+        "x": 1371,
+        "y": 173,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "从整页作业到单题辅导，AI助力孩子高效学习成长",
+        "x": 23,
+        "y": 180,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "口诱晰入手价号/邮格",
+        "x": 327,
+        "y": 192,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "自知识点",
+        "x": 581,
+        "y": 201,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "56",
+        "x": 1066,
+        "y": 209,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "32",
+        "x": 1136,
+        "y": 208,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "57%",
+        "x": 1204,
+        "y": 210,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "整页识别切题",
+        "x": 58,
+        "y": 218,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "白上传新作业",
+        "x": 815,
+        "y": 211,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "题自总效",
+        "x": 1056,
+        "y": 224,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "正调培效",
+        "x": 1128,
+        "y": 225,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "正确丰",
+        "x": 1205,
+        "y": 225,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "口请随入的这码",
+        "x": 325,
+        "y": 229,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "欧验证码",
+        "x": 465,
+        "y": 229,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "智能识别，一键生成期目清单",
+        "x": 59,
+        "y": 236,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "团学习报告",
+        "x": 581,
+        "y": 241,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "C我已网读井同息(用产价权)和《8私放架》",
+        "x": 320,
+        "y": 262,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "最近作业记录",
+        "x": 717,
+        "y": 274,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "薄弱知识点Top5",
+        "x": 1033,
+        "y": 274,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "相册逃择",
+        "x": 1340,
+        "y": 272,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "PDF导入",
+        "x": 1428,
+        "y": 273,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "中",
+        "x": 32,
+        "y": 282,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "单题AI辅导",
+        "x": 59,
+        "y": 279,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "品孩子管理",
+        "x": 581,
+        "y": 282,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "(PF",
+        "x": 1419,
+        "y": 287,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "DeepSeek 讲解，支持追问",
+        "x": 58,
+        "y": 297,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "录/进入工作台",
+        "x": 376,
+        "y": 300,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "数学练习册第5页",
+        "x": 765,
+        "y": 308,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "已克成",
+        "x": 872,
+        "y": 308,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "181",
+        "x": 911,
+        "y": 309,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "5.18 10：30",
+        "x": 951,
+        "y": 309,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "两位数束两位数",
+        "x": 1054,
+        "y": 305,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "68%",
+        "x": 1230,
+        "y": 306,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "@设置",
+        "x": 581,
+        "y": 321,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "2",
+        "x": 1037,
+        "y": 329,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "分效的加减法",
+        "x": 1054,
+        "y": 328,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "55%",
+        "x": 1233,
+        "y": 329,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "错通沉淀提升",
+        "x": 58,
+        "y": 339,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "其伦款豪方式",
+        "x": 392,
+        "y": 338,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "语文作业本第12页",
+        "x": 765,
+        "y": 345,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "已龙成",
+        "x": 869,
+        "y": 344,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "91",
+        "x": 912,
+        "y": 344,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "5.17 16：20",
+        "x": 951,
+        "y": 345,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "小贴士",
+        "x": 1336,
+        "y": 343,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "3",
+        "x": 1036,
+        "y": 352,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "图阳的周长",
+        "x": 1055,
+        "y": 351,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "48%",
+        "x": 1233,
+        "y": 352,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "错题本+知讯点搭，针对提升",
+        "x": 58,
+        "y": 357,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "√",
+        "x": 1323,
+        "y": 366,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "拍摄时保持页面完整、清晰",
+        "x": 1336,
+        "y": 366,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "4",
+        "x": 1036,
+        "y": 375,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "应用题(行程问题)",
+        "x": 1054,
+        "y": 373,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "45%",
+        "x": 1233,
+        "y": 375,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "5",
+        "x": 762,
+        "y": 382,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "英语休习册第8页",
+        "x": 765,
+        "y": 381,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "中",
+        "x": 892,
+        "y": 382,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "12",
+        "x": 911,
+        "y": 382,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "5.1709：15",
+        "x": 952,
+        "y": 382,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "/避免反光和期影，识创里准确",
+        "x": 1328,
+        "y": 384,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "微信登录",
+        "x": 334,
+        "y": 399,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "家长族号",
+        "x": 400,
+        "y": 399,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "款码录",
+        "x": 462,
+        "y": 399,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "5",
+        "x": 1037,
+        "y": 397,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "比较大小",
+        "x": 1053,
+        "y": 396,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "40%",
+        "x": 1230,
+        "y": 397,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "√支持练习册、试卷、手写作业",
+        "x": 1323,
+        "y": 403,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "查看全邮>",
+        "x": 717,
+        "y": 433,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "查看全部知识点>",
+        "x": 1035,
+        "y": 433,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "首次用可先体拉 Demo 限号",
+        "x": 330,
+        "y": 439,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "体视Demo",
+        "x": 465,
+        "y": 440,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "2",
+        "x": 93,
+        "y": 492,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "解析中",
+        "x": 107,
+        "y": 491,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "题目列表",
+        "x": 340,
+        "y": 491,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "4",
+        "x": 561,
+        "y": 492,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "单题辅导(讲解)",
+        "x": 574,
+        "y": 491,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "9",
+        "x": 807,
+        "y": 492,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "单题辅导(追问)",
+        "x": 820,
+        "y": 491,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "2",
+        "x": 1077,
+        "y": 492,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "错题本",
+        "x": 1091,
+        "y": 491,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "学习报告",
+        "x": 1342,
+        "y": 491,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "<",
+        "x": 264,
+        "y": 523,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "数学练习册第5页",
+        "x": 321,
+        "y": 522,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "第2题应用题",
+        "x": 567,
+        "y": 524,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "第2题应用题",
+        "x": 821,
+        "y": 525,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "<",
+        "x": 1000,
+        "y": 523,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "错日题本",
+        "x": 1091,
+        "y": 523,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "周报告",
+        "x": 1316,
+        "y": 523,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "月报告",
+        "x": 1397,
+        "y": 523,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "识别到18道题",
+        "x": 261,
+        "y": 550,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": ">",
+        "x": 448,
+        "y": 551,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "照目",
+        "x": 513,
+        "y": 548,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "全部",
+        "x": 1018,
+        "y": 551,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "未订正",
+        "x": 1080,
+        "y": 550,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "已订正",
+        "x": 1158,
+        "y": 550,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "(",
+        "x": 1339,
+        "y": 550,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "5.12-5.18",
+        "x": 1341,
+        "y": 550,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "68%",
+        "x": 101,
+        "y": 568,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "小们买了3本笔记本，每本4.5元，",
+        "x": 513,
+        "y": 568,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "为什么先束法再加法?",
+        "x": 840,
+        "y": 567,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "全邮18",
+        "x": 267,
+        "y": 575,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "计阿题8",
+        "x": 310,
+        "y": 574,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "应用期6",
+        "x": 362,
+        "y": 573,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "几何理4",
+        "x": 416,
+        "y": 573,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "又奖了1支明笔9.5元。",
+        "x": 513,
+        "y": 584,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "第2题应用题",
+        "x": 1014,
+        "y": 585,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "56",
+        "x": 1282,
+        "y": 581,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "32",
+        "x": 1359,
+        "y": 581,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "57%",
+        "x": 1431,
+        "y": 582,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "未订正",
+        "x": 1172,
+        "y": 591,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "地目8数",
+        "x": 1276,
+        "y": 597,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "正确印款",
+        "x": 1353,
+        "y": 597,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "正询率",
+        "x": 1432,
+        "y": 597,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "他一共花了多少钱?",
+        "x": 513,
+        "y": 600,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "@听题",
+        "x": 670,
+        "y": 605,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "5.18/数学S习册期S页",
+        "x": 1016,
+        "y": 601,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "第1题",
+        "x": 266,
+        "y": 611,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "计算题",
+        "x": 314,
+        "y": 611,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "第",
+        "x": 436,
+        "y": 611,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "正在解析中...",
+        "x": 94,
+        "y": 618,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "因为先降用炎的，再算加减法，",
+        "x": 798,
+        "y": 620,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "计正编20秒",
+        "x": 94,
+        "y": 633,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "第5题计算题",
+        "x": 1014,
+        "y": 633,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "第2题",
+        "x": 267,
+        "y": 641,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "应用题",
+        "x": 315,
+        "y": 640,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "Al 讲解 (DoepSeek)",
+        "x": 519,
+        "y": 641,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "这里先算“3本笔记本多少钱”，",
+        "x": 798,
+        "y": 639,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "未订正",
+        "x": 1172,
+        "y": 638,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "5.18/数学练习第5页",
+        "x": 1014,
+        "y": 648,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "图",
+        "x": 45,
+        "y": 656,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "已露成",
+        "x": 179,
+        "y": 655,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "属于同类(御是钱)，然后再加上",
+        "x": 798,
+        "y": 656,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "先算3本笔记本的总价：",
+        "x": 518,
+        "y": 663,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "第3题",
+        "x": 266,
+        "y": 669,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "几何题",
+        "x": 316,
+        "y": 670,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "中码",
+        "x": 424,
+        "y": 669,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "用一",
+        "x": 1263,
+        "y": 672,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "期二",
+        "x": 1294,
+        "y": 671,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "简三",
+        "x": 1324,
+        "y": 671,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "I",
+        "x": 1392,
+        "y": 671,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "周云",
+        "x": 1395,
+        "y": 672,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "两六",
+        "x": 1427,
+        "y": 671,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "用日",
+        "x": 1462,
+        "y": 672,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "文学识网(OCR)",
+        "x": 45,
+        "y": 678,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "已克皮",
+        "x": 180,
+        "y": 679,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "钢笔的的超效。",
+        "x": 798,
+        "y": 674,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "4.5×3=13.5(元)",
+        "x": 518,
+        "y": 680,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "第10题几何题",
+        "x": 1014,
+        "y": 680,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "已T正",
+        "x": 1172,
+        "y": 686,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "第4题",
+        "x": 267,
+        "y": 698,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "计算题",
+        "x": 316,
+        "y": 698,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "用单",
+        "x": 422,
+        "y": 697,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "再加上钢笔的价格：",
+        "x": 519,
+        "y": 700,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "5.17/数宇络习册丽4页",
+        "x": 1014,
+        "y": 695,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "识别题目区城(切地)",
+        "x": 45,
+        "y": 701,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "进行中",
+        "x": 179,
+        "y": 702,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "薄弱知识点Top3",
+        "x": 1263,
+        "y": 701,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "4.5×3=13.5",
+        "x": 820,
+        "y": 709,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "13.5+9.5=23(元)",
+        "x": 519,
+        "y": 717,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "题目搭钩化",
+        "x": 45,
+        "y": 725,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "等特中",
+        "x": 180,
+        "y": 726,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "第5题",
+        "x": 267,
+        "y": 727,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "应用题",
+        "x": 315,
+        "y": 727,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "图模",
+        "x": 424,
+        "y": 726,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "第3题应用题",
+        "x": 1014,
+        "y": 727,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "1",
+        "x": 1264,
+        "y": 722,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "分数的加减法",
+        "x": 1269,
+        "y": 722,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "正确率55%",
+        "x": 1425,
+        "y": 722,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "答：他一共花了23元。",
+        "x": 519,
+        "y": 737,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "13.5+9.5=23",
+        "x": 808,
+        "y": 738,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "来订正",
+        "x": 1172,
+        "y": 732,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "5.15/诣火练习落12页",
+        "x": 1014,
+        "y": 742,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "2两位束两位数",
+        "x": 1263,
+        "y": 743,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "正确率52%",
+        "x": 1425,
+        "y": 743,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "o",
+        "x": 29,
+        "y": 749,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "生成题目列表",
+        "x": 45,
+        "y": 749,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "等持中",
+        "x": 180,
+        "y": 750,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "第6题",
+        "x": 266,
+        "y": 755,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "商单",
+        "x": 422,
+        "y": 755,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "◎再讲一",
+        "x": 645,
+        "y": 760,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "3",
+        "x": 1263,
+        "y": 765,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "应用题(行程问题)",
+        "x": 1276,
+        "y": 764,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "正确率48%",
+        "x": 1425,
+        "y": 764,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "第7题",
+        "x": 265,
+        "y": 784,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "填空题",
+        "x": 315,
+        "y": 784,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "商品",
+        "x": 423,
+        "y": 784,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "查看究整报告>",
+        "x": 1336,
+        "y": 793,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "开此页不影的解析",
+        "x": 69,
+        "y": 800,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "0",
+        "x": 760,
+        "y": 798,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "还有两超?时问我...",
+        "x": 780,
+        "y": 799,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "A",
+        "x": 1015,
+        "y": 806,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "完底后食退如您",
+        "x": 68,
+        "y": 813,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "维续上传新作业",
+        "x": 320,
+        "y": 820,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "<上一期",
+        "x": 515,
+        "y": 829,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "下一题",
+        "x": 673,
+        "y": 828,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "回",
+        "x": 883,
+        "y": 826,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "工作台",
+        "x": 1011,
+        "y": 825,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "招题本",
+        "x": 1067,
+        "y": 826,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "知识点",
+        "x": 1126,
+        "y": 824,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "我的",
+        "x": 1186,
+        "y": 824,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "状态与提示规范(示例)",
+        "x": 33,
+        "y": 879,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "设计规范",
+        "x": 879,
+        "y": 884,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "配色",
+        "x": 877,
+        "y": 914,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "圆角",
+        "x": 1029,
+        "y": 914,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "字体",
+        "x": 1113,
+        "y": 915,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "失败状态",
+        "x": 395,
+        "y": 921,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "识刖异常",
+        "x": 570,
+        "y": 921,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "网络异常",
+        "x": 738,
+        "y": 922,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "空状态",
+        "x": 93,
+        "y": 932,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "加酸中",
+        "x": 251,
+        "y": 932,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "解失取，调蚀度图片足吾清晰，",
+        "x": 395,
+        "y": 939,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "未识时母区成，",
+        "x": 573,
+        "y": 938,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "当的同格不轮定，",
+        "x": 741,
+        "y": 939,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "16px",
+        "x": 1036,
+        "y": 938,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "中文：莱方/恩源黑体",
+        "x": 1112,
+        "y": 937,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "箱无作业记录",
+        "x": 93,
+        "y": 948,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "易力加就中...",
+        "x": 251,
+        "y": 948,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "或切角用粗折组照，",
+        "x": 395,
+        "y": 953,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "请思试推路上传威于动佩购。",
+        "x": 573,
+        "y": 953,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "请校网班后重试，",
+        "x": 741,
+        "y": 953,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "去上传第一份作业吧",
+        "x": 93,
+        "y": 962,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "数字： DIN / Inter",
+        "x": 1110,
+        "y": 960,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "圆标",
+        "x": 1029,
+        "y": 967,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "塑新上传",
+        "x": 404,
+        "y": 973,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "昕上的",
+        "x": 577,
+        "y": 972,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "线性+面性结合",
+        "x": 1029,
+        "y": 988,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      }
+    ],
+    "ocr_elapsed_ms": 5610,
+    "result": {
+      "per_question": {
+        "c38d4af26160-3": {
+          "matched": true,
+          "score": 0.633,
+          "reason": "qno=0.5 sub=0.01 jac=0.06 digits=3",
+          "question_text": "6.1709：15 40% 5比段大小 家长号 激适药豐录 √支习册、试卷、手写作业 查全邮知识点》 Demo 阳号 日",
+          "question_bbox": {
+            "x": 518,
+            "y": 680,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": []
+        },
+        "c38d4af26160-4": {
+          "matched": true,
+          "score": 0.714,
+          "reason": "qno=0.5 sub=0.11 jac=0.21 digits=2",
+          "question_text": "5.18/数学习册5 1题 计算题 正在解析中. 第5题计算题 第3题几何题 \\left.{400k}\\right) 应",
+          "question_bbox": {
+            "x": 1016,
+            "y": 601,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": []
+        },
+        "c38d4af26160-6": {
+          "matched": true,
+          "score": 0.7,
+          "reason": "qno=0.0 sub=1.00 jac=1.00 digits=4",
+          "question_text": "4.5×3=13.5",
+          "question_bbox": {
+            "x": 820,
+            "y": 709,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": []
+        },
+        "c38d4af26160-7": {
+          "matched": true,
+          "score": 0.352,
+          "reason": "qno=0.0 sub=0.26 jac=0.37 digits=4",
+          "question_text": "13.5+9.5=23\\left(元\\right) 钢笔的的数， 文学识(OCR) (元)",
+          "question_bbox": {
+            "x": 519,
+            "y": 717,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": []
+        },
+        "c38d4af26160-8": {
+          "matched": true,
+          "score": 0.526,
+          "reason": "qno=0.0 sub=0.60 jac=0.86 digits=3",
+          "question_text": "4.5×3=",
+          "question_bbox": {
+            "x": 820,
+            "y": 709,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": []
+        },
+        "c38d4af26160-10": {
+          "matched": true,
+          "score": 0.507,
+          "reason": "qno=0.0 sub=0.65 jac=0.67 digits=4",
+          "question_text": "13.5+9.5=23 第3题应用题",
+          "question_bbox": {
+            "x": 808,
+            "y": 738,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": []
+        },
+        "c38d4af26160-12": {
+          "matched": true,
+          "score": 0.625,
+          "reason": "qno=0.5 sub=0.01 jac=0.07 digits=1",
+          "question_text": "5.15/火练习12 第7题填空题 第6题 再讲一 正请率48% 3应用题(行理问) 完成店包退知思 埃上代新作业 告 ",
+          "question_bbox": {
+            "x": 519,
+            "y": 717,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": []
+        }
+      },
+      "matched_count": 7,
+      "answer_candidate_count": 0,
+      "low_confidence_skip": 0,
+      "meta_filtered": 26,
+      "suspicious_large": 0,
+      "total_questions": 7
+    }
+  },
+  {
+    "job_id": "95d1b03f7ca8",
+    "file_name": "83a071178d0f.jpg",
+    "questions_count": 20,
+    "math_question_count": 20,
+    "image_path": "/tmp/yomi/95d1b03f7ca8.jpg",
+    "questions": [
+      {
+        "id": "95d1b03f7ca8-0",
+        "question_no": 1,
+        "question_text": "4 + 7 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "95d1b03f7ca8-1",
+        "question_no": 2,
+        "question_text": "8 + 8 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "95d1b03f7ca8-2",
+        "question_no": 3,
+        "question_text": "9 + 6 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "95d1b03f7ca8-3",
+        "question_no": 4,
+        "question_text": "9 + 2 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "95d1b03f7ca8-4",
+        "question_no": 5,
+        "question_text": "7 + 7 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "95d1b03f7ca8-5",
+        "question_no": 6,
+        "question_text": "8 + 4 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "95d1b03f7ca8-6",
+        "question_no": 7,
+        "question_text": "5 + 8 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "95d1b03f7ca8-7",
+        "question_no": 8,
+        "question_text": "7 + 5 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "95d1b03f7ca8-8",
+        "question_no": 9,
+        "question_text": "9 + 4 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "95d1b03f7ca8-9",
+        "question_no": 10,
+        "question_text": "3 + 9 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "95d1b03f7ca8-10",
+        "question_no": 11,
+        "question_text": "7 + 8 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "95d1b03f7ca8-11",
+        "question_no": 12,
+        "question_text": "7 + 6 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "95d1b03f7ca8-12",
+        "question_no": 13,
+        "question_text": "6 + 7 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "95d1b03f7ca8-13",
+        "question_no": 14,
+        "question_text": "6 + 8 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "95d1b03f7ca8-14",
+        "question_no": 15,
+        "question_text": "9 + 9 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "95d1b03f7ca8-15",
+        "question_no": 16,
+        "question_text": "9 + 5 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "95d1b03f7ca8-16",
+        "question_no": 17,
+        "question_text": "4 + 9 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "95d1b03f7ca8-17",
+        "question_no": 18,
+        "question_text": "5 + 9 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "95d1b03f7ca8-18",
+        "question_no": 19,
+        "question_text": "3 + 8 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "95d1b03f7ca8-19",
+        "question_no": 20,
+        "question_text": "4 + 8 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      }
+    ],
+    "ocr_blocks": [
+      {
+        "text": "4+7=√",
+        "x": 319,
+        "y": 265,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "8+8=",
+        "x": 621,
+        "y": 269,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "9+6=15",
+        "x": 319,
+        "y": 377,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "9+",
+        "x": 619,
+        "y": 381,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "2=",
+        "x": 668,
+        "y": 379,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "1",
+        "x": 746,
+        "y": 377,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "7+7=4",
+        "x": 316,
+        "y": 487,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "√",
+        "x": 489,
+        "y": 483,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "8+4=",
+        "x": 620,
+        "y": 487,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "5-",
+        "x": 318,
+        "y": 607,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "+8=/",
+        "x": 340,
+        "y": 604,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "7",
+        "x": 620,
+        "y": 607,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "+5=",
+        "x": 641,
+        "y": 605,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "回/",
+        "x": 737,
+        "y": 594,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "9+4=",
+        "x": 318,
+        "y": 721,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "/3",
+        "x": 444,
+        "y": 716,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "3+9=2",
+        "x": 621,
+        "y": 720,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "D7",
+        "x": 294,
+        "y": 839,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "7+8=",
+        "x": 316,
+        "y": 837,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "L5√",
+        "x": 443,
+        "y": 835,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "7+6=",
+        "x": 621,
+        "y": 837,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "6+7=",
+        "x": 316,
+        "y": 951,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "B",
+        "x": 440,
+        "y": 947,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "Jv",
+        "x": 491,
+        "y": 949,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "6+8=",
+        "x": 620,
+        "y": 953,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "14",
+        "x": 742,
+        "y": 947,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "9+9=",
+        "x": 318,
+        "y": 1069,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "08",
+        "x": 439,
+        "y": 1063,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "9",
+        "x": 621,
+        "y": 1072,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "+5=",
+        "x": 641,
+        "y": 1069,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "4",
+        "x": 741,
+        "y": 1068,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "4+9=",
+        "x": 317,
+        "y": 1185,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "13",
+        "x": 444,
+        "y": 1183,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "5+9=",
+        "x": 621,
+        "y": 1184,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "14",
+        "x": 743,
+        "y": 1181,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "3+8=",
+        "x": 318,
+        "y": 1302,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "0",
+        "x": 441,
+        "y": 1297,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "4+8=",
+        "x": 620,
+        "y": 1298,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "X",
+        "x": 1120,
+        "y": 1335,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "34",
+        "x": 537,
+        "y": 1395,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      }
+    ],
+    "ocr_elapsed_ms": 2108,
+    "result": {
+      "per_question": {
+        "95d1b03f7ca8-0": {
+          "matched": true,
+          "score": 0.5,
+          "reason": "qno=0.0 sub=0.80 jac=0.80 digits=2",
+          "question_text": "4 + 7 =",
+          "question_bbox": {
+            "x": 319,
+            "y": 265,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": [
+            {
+              "text": "9+",
+              "x": 619,
+              "y": 381,
+              "w": 0,
+              "h": 0
+            },
+            {
+              "text": "5-",
+              "x": 318,
+              "y": 607,
+              "w": 0,
+              "h": 0
+            }
+          ]
+        },
+        "95d1b03f7ca8-1": {
+          "matched": true,
+          "score": 0.6,
+          "reason": "qno=0.0 sub=1.00 jac=1.00 digits=1",
+          "question_text": "8 + 8 =",
+          "question_bbox": {
+            "x": 621,
+            "y": 269,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": [
+            {
+              "text": "9+",
+              "x": 619,
+              "y": 381,
+              "w": 0,
+              "h": 0
+            },
+            {
+              "text": "5-",
+              "x": 318,
+              "y": 607,
+              "w": 0,
+              "h": 0
+            }
+          ]
+        },
+        "95d1b03f7ca8-2": {
+          "matched": true,
+          "score": 0.4,
+          "reason": "qno=0.0 sub=0.67 jac=0.67 digits=2",
+          "question_text": "9 + 6 =",
+          "question_bbox": {
+            "x": 319,
+            "y": 377,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": [
+            {
+              "text": "9+",
+              "x": 619,
+              "y": 381,
+              "w": 0,
+              "h": 0
+            },
+            {
+              "text": "5-",
+              "x": 318,
+              "y": 607,
+              "w": 0,
+              "h": 0
+            }
+          ]
+        },
+        "95d1b03f7ca8-3": {
+          "matched": true,
+          "score": 0.35,
+          "reason": "qno=0.0 sub=0.50 jac=0.75 digits=1",
+          "question_text": "9 + 2 =",
+          "question_bbox": {
+            "x": 318,
+            "y": 1069,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": []
+        },
+        "95d1b03f7ca8-4": {
+          "matched": true,
+          "score": 0.44,
+          "reason": "qno=0.0 sub=0.80 jac=0.75 digits=1",
+          "question_text": "7 + 7 =",
+          "question_bbox": {
+            "x": 316,
+            "y": 487,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": [
+            {
+              "text": "5-",
+              "x": 318,
+              "y": 607,
+              "w": 0,
+              "h": 0
+            }
+          ]
+        },
+        "95d1b03f7ca8-5": {
+          "matched": true,
+          "score": 0.6,
+          "reason": "qno=0.0 sub=1.00 jac=1.00 digits=2",
+          "question_text": "8 + 4 =",
+          "question_bbox": {
+            "x": 620,
+            "y": 487,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": [
+            {
+              "text": "5-",
+              "x": 318,
+              "y": 607,
+              "w": 0,
+              "h": 0
+            }
+          ]
+        },
+        "95d1b03f7ca8-6": {
+          "matched": true,
+          "score": 0.425,
+          "reason": "qno=0.0 sub=0.75 jac=0.75 digits=1",
+          "question_text": "5 + 8 =",
+          "question_bbox": {
+            "x": 621,
+            "y": 269,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": [
+            {
+              "text": "9+",
+              "x": 619,
+              "y": 381,
+              "w": 0,
+              "h": 0
+            },
+            {
+              "text": "5-",
+              "x": 318,
+              "y": 607,
+              "w": 0,
+              "h": 0
+            }
+          ]
+        },
+        "95d1b03f7ca8-7": {
+          "matched": true,
+          "score": 0.425,
+          "reason": "qno=0.0 sub=0.75 jac=0.75 digits=1",
+          "question_text": "7 + 5 =",
+          "question_bbox": {
+            "x": 641,
+            "y": 605,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": [
+            {
+              "text": "5-",
+              "x": 318,
+              "y": 607,
+              "w": 0,
+              "h": 0
+            }
+          ]
+        },
+        "95d1b03f7ca8-8": {
+          "matched": true,
+          "score": 0.6,
+          "reason": "qno=0.0 sub=1.00 jac=1.00 digits=2",
+          "question_text": "9 + 4 =",
+          "question_bbox": {
+            "x": 318,
+            "y": 721,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": []
+        },
+        "95d1b03f7ca8-9": {
+          "matched": true,
+          "score": 0.467,
+          "reason": "qno=0.0 sub=0.80 jac=0.80 digits=2",
+          "question_text": "3 + 9 =",
+          "question_bbox": {
+            "x": 621,
+            "y": 720,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": []
+        },
+        "95d1b03f7ca8-10": {
+          "matched": true,
+          "score": 0.6,
+          "reason": "qno=0.0 sub=1.00 jac=1.00 digits=2",
+          "question_text": "7 + 8 =",
+          "question_bbox": {
+            "x": 316,
+            "y": 837,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": []
+        },
+        "95d1b03f7ca8-11": {
+          "matched": true,
+          "score": 0.6,
+          "reason": "qno=0.0 sub=1.00 jac=1.00 digits=2",
+          "question_text": "7 + 6 =",
+          "question_bbox": {
+            "x": 621,
+            "y": 837,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": []
+        },
+        "95d1b03f7ca8-12": {
+          "matched": true,
+          "score": 0.6,
+          "reason": "qno=0.0 sub=1.00 jac=1.00 digits=2",
+          "question_text": "6 + 7 =",
+          "question_bbox": {
+            "x": 316,
+            "y": 951,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": []
+        },
+        "95d1b03f7ca8-13": {
+          "matched": true,
+          "score": 0.6,
+          "reason": "qno=0.0 sub=1.00 jac=1.00 digits=2",
+          "question_text": "6 + 8 =",
+          "question_bbox": {
+            "x": 620,
+            "y": 953,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": []
+        },
+        "95d1b03f7ca8-14": {
+          "matched": true,
+          "score": 0.6,
+          "reason": "qno=0.0 sub=1.00 jac=1.00 digits=1",
+          "question_text": "9 + 9 =",
+          "question_bbox": {
+            "x": 318,
+            "y": 1069,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": []
+        },
+        "95d1b03f7ca8-15": {
+          "matched": true,
+          "score": 0.425,
+          "reason": "qno=0.0 sub=0.75 jac=0.75 digits=1",
+          "question_text": "9 + 5 =",
+          "question_bbox": {
+            "x": 641,
+            "y": 605,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": [
+            {
+              "text": "5-",
+              "x": 318,
+              "y": 607,
+              "w": 0,
+              "h": 0
+            }
+          ]
+        },
+        "95d1b03f7ca8-16": {
+          "matched": true,
+          "score": 0.6,
+          "reason": "qno=0.0 sub=1.00 jac=1.00 digits=2",
+          "question_text": "4 + 9 =",
+          "question_bbox": {
+            "x": 317,
+            "y": 1185,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": []
+        },
+        "95d1b03f7ca8-17": {
+          "matched": true,
+          "score": 0.6,
+          "reason": "qno=0.0 sub=1.00 jac=1.00 digits=2",
+          "question_text": "5 + 9 =",
+          "question_bbox": {
+            "x": 621,
+            "y": 1184,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": []
+        },
+        "95d1b03f7ca8-18": {
+          "matched": true,
+          "score": 0.6,
+          "reason": "qno=0.0 sub=1.00 jac=1.00 digits=2",
+          "question_text": "3 + 8 =",
+          "question_bbox": {
+            "x": 318,
+            "y": 1302,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": []
+        },
+        "95d1b03f7ca8-19": {
+          "matched": true,
+          "score": 0.6,
+          "reason": "qno=0.0 sub=1.00 jac=1.00 digits=2",
+          "question_text": "4 + 8 =",
+          "question_bbox": {
+            "x": 620,
+            "y": 1298,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": []
+        }
+      },
+      "matched_count": 20,
+      "answer_candidate_count": 8,
+      "low_confidence_skip": 0,
+      "meta_filtered": 13,
+      "suspicious_large": 0,
+      "total_questions": 20
+    }
+  },
+  {
+    "job_id": "2ce087a0bbd3",
+    "file_name": "83a071178d0f.jpg",
+    "questions_count": 20,
+    "math_question_count": 20,
+    "image_path": "/tmp/yomi/2ce087a0bbd3.jpg",
+    "questions": [
+      {
+        "id": "2ce087a0bbd3-0",
+        "question_no": 1,
+        "question_text": "4 + 7 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "2ce087a0bbd3-1",
+        "question_no": 2,
+        "question_text": "8 + 8 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "2ce087a0bbd3-2",
+        "question_no": 3,
+        "question_text": "9 + 6 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "2ce087a0bbd3-3",
+        "question_no": 4,
+        "question_text": "9 + 2 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "2ce087a0bbd3-4",
+        "question_no": 5,
+        "question_text": "7 + 7 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "2ce087a0bbd3-5",
+        "question_no": 6,
+        "question_text": "8 + 4 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "2ce087a0bbd3-6",
+        "question_no": 7,
+        "question_text": "5 + 8 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "2ce087a0bbd3-7",
+        "question_no": 8,
+        "question_text": "7 + 5 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "2ce087a0bbd3-8",
+        "question_no": 9,
+        "question_text": "9 + 4 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "2ce087a0bbd3-9",
+        "question_no": 10,
+        "question_text": "3 + 9 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "2ce087a0bbd3-10",
+        "question_no": 11,
+        "question_text": "7 + 8 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "2ce087a0bbd3-11",
+        "question_no": 12,
+        "question_text": "7 + 6 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "2ce087a0bbd3-12",
+        "question_no": 13,
+        "question_text": "6 + 7 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "2ce087a0bbd3-13",
+        "question_no": 14,
+        "question_text": "6 + 8 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "2ce087a0bbd3-14",
+        "question_no": 15,
+        "question_text": "9 + 9 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "2ce087a0bbd3-15",
+        "question_no": 16,
+        "question_text": "9 + 5 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "2ce087a0bbd3-16",
+        "question_no": 17,
+        "question_text": "4 + 9 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "2ce087a0bbd3-17",
+        "question_no": 18,
+        "question_text": "5 + 9 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "2ce087a0bbd3-18",
+        "question_no": 19,
+        "question_text": "3 + 8 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "2ce087a0bbd3-19",
+        "question_no": 20,
+        "question_text": "4 + 8 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      }
+    ],
+    "ocr_blocks": [
+      {
+        "text": "4+7=√",
+        "x": 319,
+        "y": 265,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "8+8=",
+        "x": 621,
+        "y": 269,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "9+6=15",
+        "x": 319,
+        "y": 377,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "9+",
+        "x": 619,
+        "y": 381,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "2=",
+        "x": 668,
+        "y": 379,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "1",
+        "x": 746,
+        "y": 377,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "7+7=4",
+        "x": 316,
+        "y": 487,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "√",
+        "x": 489,
+        "y": 483,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "8+4=",
+        "x": 620,
+        "y": 487,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "5-",
+        "x": 318,
+        "y": 607,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "+8=/",
+        "x": 340,
+        "y": 604,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "7",
+        "x": 620,
+        "y": 607,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "+5=",
+        "x": 641,
+        "y": 605,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "回/",
+        "x": 737,
+        "y": 594,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "9+4=",
+        "x": 318,
+        "y": 721,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "/3",
+        "x": 444,
+        "y": 716,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "3+9=2",
+        "x": 621,
+        "y": 720,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "D7",
+        "x": 294,
+        "y": 839,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "7+8=",
+        "x": 316,
+        "y": 837,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "L5√",
+        "x": 443,
+        "y": 835,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "7+6=",
+        "x": 621,
+        "y": 837,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "6+7=",
+        "x": 316,
+        "y": 951,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "B",
+        "x": 440,
+        "y": 947,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "Jv",
+        "x": 491,
+        "y": 949,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "6+8=",
+        "x": 620,
+        "y": 953,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "14",
+        "x": 742,
+        "y": 947,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "9+9=",
+        "x": 318,
+        "y": 1069,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "08",
+        "x": 439,
+        "y": 1063,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "9",
+        "x": 621,
+        "y": 1072,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "+5=",
+        "x": 641,
+        "y": 1069,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "4",
+        "x": 741,
+        "y": 1068,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "4+9=",
+        "x": 317,
+        "y": 1185,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "13",
+        "x": 444,
+        "y": 1183,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "5+9=",
+        "x": 621,
+        "y": 1184,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "14",
+        "x": 743,
+        "y": 1181,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "3+8=",
+        "x": 318,
+        "y": 1302,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "0",
+        "x": 441,
+        "y": 1297,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "4+8=",
+        "x": 620,
+        "y": 1298,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "X",
+        "x": 1120,
+        "y": 1335,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "34",
+        "x": 537,
+        "y": 1395,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      }
+    ],
+    "ocr_elapsed_ms": 2091,
+    "result": {
+      "per_question": {
+        "2ce087a0bbd3-0": {
+          "matched": true,
+          "score": 0.5,
+          "reason": "qno=0.0 sub=0.80 jac=0.80 digits=2",
+          "question_text": "4 + 7 =",
+          "question_bbox": {
+            "x": 319,
+            "y": 265,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": [
+            {
+              "text": "9+",
+              "x": 619,
+              "y": 381,
+              "w": 0,
+              "h": 0
+            },
+            {
+              "text": "5-",
+              "x": 318,
+              "y": 607,
+              "w": 0,
+              "h": 0
+            }
+          ]
+        },
+        "2ce087a0bbd3-1": {
+          "matched": true,
+          "score": 0.6,
+          "reason": "qno=0.0 sub=1.00 jac=1.00 digits=1",
+          "question_text": "8 + 8 =",
+          "question_bbox": {
+            "x": 621,
+            "y": 269,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": [
+            {
+              "text": "9+",
+              "x": 619,
+              "y": 381,
+              "w": 0,
+              "h": 0
+            },
+            {
+              "text": "5-",
+              "x": 318,
+              "y": 607,
+              "w": 0,
+              "h": 0
+            }
+          ]
+        },
+        "2ce087a0bbd3-2": {
+          "matched": true,
+          "score": 0.4,
+          "reason": "qno=0.0 sub=0.67 jac=0.67 digits=2",
+          "question_text": "9 + 6 =",
+          "question_bbox": {
+            "x": 319,
+            "y": 377,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": [
+            {
+              "text": "9+",
+              "x": 619,
+              "y": 381,
+              "w": 0,
+              "h": 0
+            },
+            {
+              "text": "5-",
+              "x": 318,
+              "y": 607,
+              "w": 0,
+              "h": 0
+            }
+          ]
+        },
+        "2ce087a0bbd3-3": {
+          "matched": true,
+          "score": 0.35,
+          "reason": "qno=0.0 sub=0.50 jac=0.75 digits=1",
+          "question_text": "9 + 2 =",
+          "question_bbox": {
+            "x": 318,
+            "y": 1069,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": []
+        },
+        "2ce087a0bbd3-4": {
+          "matched": true,
+          "score": 0.44,
+          "reason": "qno=0.0 sub=0.80 jac=0.75 digits=1",
+          "question_text": "7 + 7 =",
+          "question_bbox": {
+            "x": 316,
+            "y": 487,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": [
+            {
+              "text": "5-",
+              "x": 318,
+              "y": 607,
+              "w": 0,
+              "h": 0
+            }
+          ]
+        },
+        "2ce087a0bbd3-5": {
+          "matched": true,
+          "score": 0.6,
+          "reason": "qno=0.0 sub=1.00 jac=1.00 digits=2",
+          "question_text": "8 + 4 =",
+          "question_bbox": {
+            "x": 620,
+            "y": 487,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": [
+            {
+              "text": "5-",
+              "x": 318,
+              "y": 607,
+              "w": 0,
+              "h": 0
+            }
+          ]
+        },
+        "2ce087a0bbd3-6": {
+          "matched": true,
+          "score": 0.425,
+          "reason": "qno=0.0 sub=0.75 jac=0.75 digits=1",
+          "question_text": "5 + 8 =",
+          "question_bbox": {
+            "x": 621,
+            "y": 269,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": [
+            {
+              "text": "9+",
+              "x": 619,
+              "y": 381,
+              "w": 0,
+              "h": 0
+            },
+            {
+              "text": "5-",
+              "x": 318,
+              "y": 607,
+              "w": 0,
+              "h": 0
+            }
+          ]
+        },
+        "2ce087a0bbd3-7": {
+          "matched": true,
+          "score": 0.425,
+          "reason": "qno=0.0 sub=0.75 jac=0.75 digits=1",
+          "question_text": "7 + 5 =",
+          "question_bbox": {
+            "x": 641,
+            "y": 605,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": [
+            {
+              "text": "5-",
+              "x": 318,
+              "y": 607,
+              "w": 0,
+              "h": 0
+            }
+          ]
+        },
+        "2ce087a0bbd3-8": {
+          "matched": true,
+          "score": 0.6,
+          "reason": "qno=0.0 sub=1.00 jac=1.00 digits=2",
+          "question_text": "9 + 4 =",
+          "question_bbox": {
+            "x": 318,
+            "y": 721,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": []
+        },
+        "2ce087a0bbd3-9": {
+          "matched": true,
+          "score": 0.467,
+          "reason": "qno=0.0 sub=0.80 jac=0.80 digits=2",
+          "question_text": "3 + 9 =",
+          "question_bbox": {
+            "x": 621,
+            "y": 720,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": []
+        },
+        "2ce087a0bbd3-10": {
+          "matched": true,
+          "score": 0.6,
+          "reason": "qno=0.0 sub=1.00 jac=1.00 digits=2",
+          "question_text": "7 + 8 =",
+          "question_bbox": {
+            "x": 316,
+            "y": 837,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": []
+        },
+        "2ce087a0bbd3-11": {
+          "matched": true,
+          "score": 0.6,
+          "reason": "qno=0.0 sub=1.00 jac=1.00 digits=2",
+          "question_text": "7 + 6 =",
+          "question_bbox": {
+            "x": 621,
+            "y": 837,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": []
+        },
+        "2ce087a0bbd3-12": {
+          "matched": true,
+          "score": 0.6,
+          "reason": "qno=0.0 sub=1.00 jac=1.00 digits=2",
+          "question_text": "6 + 7 =",
+          "question_bbox": {
+            "x": 316,
+            "y": 951,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": []
+        },
+        "2ce087a0bbd3-13": {
+          "matched": true,
+          "score": 0.6,
+          "reason": "qno=0.0 sub=1.00 jac=1.00 digits=2",
+          "question_text": "6 + 8 =",
+          "question_bbox": {
+            "x": 620,
+            "y": 953,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": []
+        },
+        "2ce087a0bbd3-14": {
+          "matched": true,
+          "score": 0.6,
+          "reason": "qno=0.0 sub=1.00 jac=1.00 digits=1",
+          "question_text": "9 + 9 =",
+          "question_bbox": {
+            "x": 318,
+            "y": 1069,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": []
+        },
+        "2ce087a0bbd3-15": {
+          "matched": true,
+          "score": 0.425,
+          "reason": "qno=0.0 sub=0.75 jac=0.75 digits=1",
+          "question_text": "9 + 5 =",
+          "question_bbox": {
+            "x": 641,
+            "y": 605,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": [
+            {
+              "text": "5-",
+              "x": 318,
+              "y": 607,
+              "w": 0,
+              "h": 0
+            }
+          ]
+        },
+        "2ce087a0bbd3-16": {
+          "matched": true,
+          "score": 0.6,
+          "reason": "qno=0.0 sub=1.00 jac=1.00 digits=2",
+          "question_text": "4 + 9 =",
+          "question_bbox": {
+            "x": 317,
+            "y": 1185,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": []
+        },
+        "2ce087a0bbd3-17": {
+          "matched": true,
+          "score": 0.6,
+          "reason": "qno=0.0 sub=1.00 jac=1.00 digits=2",
+          "question_text": "5 + 9 =",
+          "question_bbox": {
+            "x": 621,
+            "y": 1184,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": []
+        },
+        "2ce087a0bbd3-18": {
+          "matched": true,
+          "score": 0.6,
+          "reason": "qno=0.0 sub=1.00 jac=1.00 digits=2",
+          "question_text": "3 + 8 =",
+          "question_bbox": {
+            "x": 318,
+            "y": 1302,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": []
+        },
+        "2ce087a0bbd3-19": {
+          "matched": true,
+          "score": 0.6,
+          "reason": "qno=0.0 sub=1.00 jac=1.00 digits=2",
+          "question_text": "4 + 8 =",
+          "question_bbox": {
+            "x": 620,
+            "y": 1298,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": []
+        }
+      },
+      "matched_count": 20,
+      "answer_candidate_count": 8,
+      "low_confidence_skip": 0,
+      "meta_filtered": 13,
+      "suspicious_large": 0,
+      "total_questions": 20
+    }
+  },
+  {
+    "job_id": "53dd3703623d",
+    "file_name": "83a071178d0f.jpg",
+    "questions_count": 20,
+    "math_question_count": 20,
+    "image_path": "/tmp/yomi/53dd3703623d.jpg",
+    "questions": [
+      {
+        "id": "53dd3703623d-0",
+        "question_no": 1,
+        "question_text": "4 + 7 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "53dd3703623d-1",
+        "question_no": 2,
+        "question_text": "8 + 8 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "53dd3703623d-2",
+        "question_no": 3,
+        "question_text": "9 + 6 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "53dd3703623d-3",
+        "question_no": 4,
+        "question_text": "9 + 2 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "53dd3703623d-4",
+        "question_no": 5,
+        "question_text": "7 + 7 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "53dd3703623d-5",
+        "question_no": 6,
+        "question_text": "8 + 4 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "53dd3703623d-6",
+        "question_no": 7,
+        "question_text": "5 + 8 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "53dd3703623d-7",
+        "question_no": 8,
+        "question_text": "7 + 5 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "53dd3703623d-8",
+        "question_no": 9,
+        "question_text": "9 + 4 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "53dd3703623d-9",
+        "question_no": 10,
+        "question_text": "3 + 9 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "53dd3703623d-10",
+        "question_no": 11,
+        "question_text": "7 + 8 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "53dd3703623d-11",
+        "question_no": 12,
+        "question_text": "7 + 6 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "53dd3703623d-12",
+        "question_no": 13,
+        "question_text": "6 + 7 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "53dd3703623d-13",
+        "question_no": 14,
+        "question_text": "6 + 8 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "53dd3703623d-14",
+        "question_no": 15,
+        "question_text": "9 + 9 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "53dd3703623d-15",
+        "question_no": 16,
+        "question_text": "9 + 5 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "53dd3703623d-16",
+        "question_no": 17,
+        "question_text": "4 + 9 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "53dd3703623d-17",
+        "question_no": 18,
+        "question_text": "5 + 9 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "53dd3703623d-18",
+        "question_no": 19,
+        "question_text": "3 + 8 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "53dd3703623d-19",
+        "question_no": 20,
+        "question_text": "4 + 8 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      }
+    ],
+    "ocr_blocks": [
+      {
+        "text": "4+7=√",
+        "x": 319,
+        "y": 265,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "8+8=",
+        "x": 621,
+        "y": 269,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "9+6=15",
+        "x": 319,
+        "y": 377,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "9+",
+        "x": 619,
+        "y": 381,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "2=",
+        "x": 668,
+        "y": 379,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "1",
+        "x": 746,
+        "y": 377,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "7+7=4",
+        "x": 316,
+        "y": 487,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "√",
+        "x": 489,
+        "y": 483,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "8+4=",
+        "x": 620,
+        "y": 487,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "5-",
+        "x": 318,
+        "y": 607,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "+8=/",
+        "x": 340,
+        "y": 604,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "7",
+        "x": 620,
+        "y": 607,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "+5=",
+        "x": 641,
+        "y": 605,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "回/",
+        "x": 737,
+        "y": 594,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "9+4=",
+        "x": 318,
+        "y": 721,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "/3",
+        "x": 444,
+        "y": 716,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "3+9=2",
+        "x": 621,
+        "y": 720,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "D7",
+        "x": 294,
+        "y": 839,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "7+8=",
+        "x": 316,
+        "y": 837,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "L5√",
+        "x": 443,
+        "y": 835,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "7+6=",
+        "x": 621,
+        "y": 837,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "6+7=",
+        "x": 316,
+        "y": 951,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "B",
+        "x": 440,
+        "y": 947,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "Jv",
+        "x": 491,
+        "y": 949,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "6+8=",
+        "x": 620,
+        "y": 953,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "14",
+        "x": 742,
+        "y": 947,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "9+9=",
+        "x": 318,
+        "y": 1069,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "08",
+        "x": 439,
+        "y": 1063,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "9",
+        "x": 621,
+        "y": 1072,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "+5=",
+        "x": 641,
+        "y": 1069,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "4",
+        "x": 741,
+        "y": 1068,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "4+9=",
+        "x": 317,
+        "y": 1185,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "13",
+        "x": 444,
+        "y": 1183,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "5+9=",
+        "x": 621,
+        "y": 1184,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "14",
+        "x": 743,
+        "y": 1181,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "3+8=",
+        "x": 318,
+        "y": 1302,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "0",
+        "x": 441,
+        "y": 1297,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "4+8=",
+        "x": 620,
+        "y": 1298,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "X",
+        "x": 1120,
+        "y": 1335,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "34",
+        "x": 537,
+        "y": 1395,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      }
+    ],
+    "ocr_elapsed_ms": 2540,
+    "result": {
+      "per_question": {
+        "53dd3703623d-0": {
+          "matched": true,
+          "score": 0.5,
+          "reason": "qno=0.0 sub=0.80 jac=0.80 digits=2",
+          "question_text": "4 + 7 =",
+          "question_bbox": {
+            "x": 319,
+            "y": 265,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": [
+            {
+              "text": "9+",
+              "x": 619,
+              "y": 381,
+              "w": 0,
+              "h": 0
+            },
+            {
+              "text": "5-",
+              "x": 318,
+              "y": 607,
+              "w": 0,
+              "h": 0
+            }
+          ]
+        },
+        "53dd3703623d-1": {
+          "matched": true,
+          "score": 0.6,
+          "reason": "qno=0.0 sub=1.00 jac=1.00 digits=1",
+          "question_text": "8 + 8 =",
+          "question_bbox": {
+            "x": 621,
+            "y": 269,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": [
+            {
+              "text": "9+",
+              "x": 619,
+              "y": 381,
+              "w": 0,
+              "h": 0
+            },
+            {
+              "text": "5-",
+              "x": 318,
+              "y": 607,
+              "w": 0,
+              "h": 0
+            }
+          ]
+        },
+        "53dd3703623d-2": {
+          "matched": true,
+          "score": 0.4,
+          "reason": "qno=0.0 sub=0.67 jac=0.67 digits=2",
+          "question_text": "9 + 6 =",
+          "question_bbox": {
+            "x": 319,
+            "y": 377,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": [
+            {
+              "text": "9+",
+              "x": 619,
+              "y": 381,
+              "w": 0,
+              "h": 0
+            },
+            {
+              "text": "5-",
+              "x": 318,
+              "y": 607,
+              "w": 0,
+              "h": 0
+            }
+          ]
+        },
+        "53dd3703623d-3": {
+          "matched": true,
+          "score": 0.35,
+          "reason": "qno=0.0 sub=0.50 jac=0.75 digits=1",
+          "question_text": "9 + 2 =",
+          "question_bbox": {
+            "x": 318,
+            "y": 1069,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": []
+        },
+        "53dd3703623d-4": {
+          "matched": true,
+          "score": 0.44,
+          "reason": "qno=0.0 sub=0.80 jac=0.75 digits=1",
+          "question_text": "7 + 7 =",
+          "question_bbox": {
+            "x": 316,
+            "y": 487,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": [
+            {
+              "text": "5-",
+              "x": 318,
+              "y": 607,
+              "w": 0,
+              "h": 0
+            }
+          ]
+        },
+        "53dd3703623d-5": {
+          "matched": true,
+          "score": 0.6,
+          "reason": "qno=0.0 sub=1.00 jac=1.00 digits=2",
+          "question_text": "8 + 4 =",
+          "question_bbox": {
+            "x": 620,
+            "y": 487,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": [
+            {
+              "text": "5-",
+              "x": 318,
+              "y": 607,
+              "w": 0,
+              "h": 0
+            }
+          ]
+        },
+        "53dd3703623d-6": {
+          "matched": true,
+          "score": 0.425,
+          "reason": "qno=0.0 sub=0.75 jac=0.75 digits=1",
+          "question_text": "5 + 8 =",
+          "question_bbox": {
+            "x": 621,
+            "y": 269,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": [
+            {
+              "text": "9+",
+              "x": 619,
+              "y": 381,
+              "w": 0,
+              "h": 0
+            },
+            {
+              "text": "5-",
+              "x": 318,
+              "y": 607,
+              "w": 0,
+              "h": 0
+            }
+          ]
+        },
+        "53dd3703623d-7": {
+          "matched": true,
+          "score": 0.425,
+          "reason": "qno=0.0 sub=0.75 jac=0.75 digits=1",
+          "question_text": "7 + 5 =",
+          "question_bbox": {
+            "x": 641,
+            "y": 605,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": [
+            {
+              "text": "5-",
+              "x": 318,
+              "y": 607,
+              "w": 0,
+              "h": 0
+            }
+          ]
+        },
+        "53dd3703623d-8": {
+          "matched": true,
+          "score": 0.6,
+          "reason": "qno=0.0 sub=1.00 jac=1.00 digits=2",
+          "question_text": "9 + 4 =",
+          "question_bbox": {
+            "x": 318,
+            "y": 721,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": []
+        },
+        "53dd3703623d-9": {
+          "matched": true,
+          "score": 0.467,
+          "reason": "qno=0.0 sub=0.80 jac=0.80 digits=2",
+          "question_text": "3 + 9 =",
+          "question_bbox": {
+            "x": 621,
+            "y": 720,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": []
+        },
+        "53dd3703623d-10": {
+          "matched": true,
+          "score": 0.6,
+          "reason": "qno=0.0 sub=1.00 jac=1.00 digits=2",
+          "question_text": "7 + 8 =",
+          "question_bbox": {
+            "x": 316,
+            "y": 837,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": []
+        },
+        "53dd3703623d-11": {
+          "matched": true,
+          "score": 0.6,
+          "reason": "qno=0.0 sub=1.00 jac=1.00 digits=2",
+          "question_text": "7 + 6 =",
+          "question_bbox": {
+            "x": 621,
+            "y": 837,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": []
+        },
+        "53dd3703623d-12": {
+          "matched": true,
+          "score": 0.6,
+          "reason": "qno=0.0 sub=1.00 jac=1.00 digits=2",
+          "question_text": "6 + 7 =",
+          "question_bbox": {
+            "x": 316,
+            "y": 951,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": []
+        },
+        "53dd3703623d-13": {
+          "matched": true,
+          "score": 0.6,
+          "reason": "qno=0.0 sub=1.00 jac=1.00 digits=2",
+          "question_text": "6 + 8 =",
+          "question_bbox": {
+            "x": 620,
+            "y": 953,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": []
+        },
+        "53dd3703623d-14": {
+          "matched": true,
+          "score": 0.6,
+          "reason": "qno=0.0 sub=1.00 jac=1.00 digits=1",
+          "question_text": "9 + 9 =",
+          "question_bbox": {
+            "x": 318,
+            "y": 1069,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": []
+        },
+        "53dd3703623d-15": {
+          "matched": true,
+          "score": 0.425,
+          "reason": "qno=0.0 sub=0.75 jac=0.75 digits=1",
+          "question_text": "9 + 5 =",
+          "question_bbox": {
+            "x": 641,
+            "y": 605,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": [
+            {
+              "text": "5-",
+              "x": 318,
+              "y": 607,
+              "w": 0,
+              "h": 0
+            }
+          ]
+        },
+        "53dd3703623d-16": {
+          "matched": true,
+          "score": 0.6,
+          "reason": "qno=0.0 sub=1.00 jac=1.00 digits=2",
+          "question_text": "4 + 9 =",
+          "question_bbox": {
+            "x": 317,
+            "y": 1185,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": []
+        },
+        "53dd3703623d-17": {
+          "matched": true,
+          "score": 0.6,
+          "reason": "qno=0.0 sub=1.00 jac=1.00 digits=2",
+          "question_text": "5 + 9 =",
+          "question_bbox": {
+            "x": 621,
+            "y": 1184,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": []
+        },
+        "53dd3703623d-18": {
+          "matched": true,
+          "score": 0.6,
+          "reason": "qno=0.0 sub=1.00 jac=1.00 digits=2",
+          "question_text": "3 + 8 =",
+          "question_bbox": {
+            "x": 318,
+            "y": 1302,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": []
+        },
+        "53dd3703623d-19": {
+          "matched": true,
+          "score": 0.6,
+          "reason": "qno=0.0 sub=1.00 jac=1.00 digits=2",
+          "question_text": "4 + 8 =",
+          "question_bbox": {
+            "x": 620,
+            "y": 1298,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": []
+        }
+      },
+      "matched_count": 20,
+      "answer_candidate_count": 8,
+      "low_confidence_skip": 0,
+      "meta_filtered": 13,
+      "suspicious_large": 0,
+      "total_questions": 20
+    }
+  },
+  {
+    "job_id": "83a071178d0f",
+    "file_name": "IMG_20260511_075220.jpg",
+    "questions_count": 20,
+    "math_question_count": 20,
+    "image_path": "/tmp/yomi/83a071178d0f.jpg",
+    "questions": [
+      {
+        "id": "83a071178d0f-0",
+        "question_no": 1,
+        "question_text": "4 + 7 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "83a071178d0f-1",
+        "question_no": 2,
+        "question_text": "8 + 8 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "83a071178d0f-2",
+        "question_no": 3,
+        "question_text": "9 + 6 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "83a071178d0f-3",
+        "question_no": 4,
+        "question_text": "9 + 2 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "83a071178d0f-4",
+        "question_no": 5,
+        "question_text": "7 + 7 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "83a071178d0f-5",
+        "question_no": 6,
+        "question_text": "8 + 4 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "83a071178d0f-6",
+        "question_no": 7,
+        "question_text": "5 + 8 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "83a071178d0f-7",
+        "question_no": 8,
+        "question_text": "7 + 5 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "83a071178d0f-8",
+        "question_no": 9,
+        "question_text": "9 + 4 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "83a071178d0f-9",
+        "question_no": 10,
+        "question_text": "3 + 9 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "83a071178d0f-10",
+        "question_no": 11,
+        "question_text": "7 + 8 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "83a071178d0f-11",
+        "question_no": 12,
+        "question_text": "7 + 6 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "83a071178d0f-12",
+        "question_no": 13,
+        "question_text": "6 + 7 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "83a071178d0f-13",
+        "question_no": 14,
+        "question_text": "6 + 8 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "83a071178d0f-14",
+        "question_no": 15,
+        "question_text": "9 + 9 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "83a071178d0f-15",
+        "question_no": 16,
+        "question_text": "9 + 5 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "83a071178d0f-16",
+        "question_no": 17,
+        "question_text": "4 + 9 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "83a071178d0f-17",
+        "question_no": 18,
+        "question_text": "5 + 9 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "83a071178d0f-18",
+        "question_no": 19,
+        "question_text": "3 + 8 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      },
+      {
+        "id": "83a071178d0f-19",
+        "question_no": 20,
+        "question_text": "4 + 8 =",
+        "bbox_json": "[0.0, 0.0, 0.0, 0.0]"
+      }
+    ],
+    "ocr_blocks": [
+      {
+        "text": "4+7=√",
+        "x": 319,
+        "y": 265,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "8+8=",
+        "x": 621,
+        "y": 269,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "9+6=15",
+        "x": 319,
+        "y": 377,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "9+",
+        "x": 619,
+        "y": 381,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "2=",
+        "x": 668,
+        "y": 379,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "1",
+        "x": 746,
+        "y": 377,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "7+7=4",
+        "x": 316,
+        "y": 487,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "√",
+        "x": 489,
+        "y": 483,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "8+4=",
+        "x": 620,
+        "y": 487,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "5-",
+        "x": 318,
+        "y": 607,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "+8=/",
+        "x": 340,
+        "y": 604,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "7",
+        "x": 620,
+        "y": 607,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "+5=",
+        "x": 641,
+        "y": 605,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "回/",
+        "x": 737,
+        "y": 594,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "9+4=",
+        "x": 318,
+        "y": 721,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "/3",
+        "x": 444,
+        "y": 716,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "3+9=2",
+        "x": 621,
+        "y": 720,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "D7",
+        "x": 294,
+        "y": 839,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "7+8=",
+        "x": 316,
+        "y": 837,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "L5√",
+        "x": 443,
+        "y": 835,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "7+6=",
+        "x": 621,
+        "y": 837,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "6+7=",
+        "x": 316,
+        "y": 951,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "B",
+        "x": 440,
+        "y": 947,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "Jv",
+        "x": 491,
+        "y": 949,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "6+8=",
+        "x": 620,
+        "y": 953,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "14",
+        "x": 742,
+        "y": 947,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "9+9=",
+        "x": 318,
+        "y": 1069,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "08",
+        "x": 439,
+        "y": 1063,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "9",
+        "x": 621,
+        "y": 1072,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "+5=",
+        "x": 641,
+        "y": 1069,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "4",
+        "x": 741,
+        "y": 1068,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "4+9=",
+        "x": 317,
+        "y": 1185,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "13",
+        "x": 444,
+        "y": 1183,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "5+9=",
+        "x": 621,
+        "y": 1184,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "14",
+        "x": 743,
+        "y": 1181,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "3+8=",
+        "x": 318,
+        "y": 1302,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "0",
+        "x": 441,
+        "y": 1297,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "4+8=",
+        "x": 620,
+        "y": 1298,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "X",
+        "x": 1120,
+        "y": 1335,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      },
+      {
+        "text": "34",
+        "x": 537,
+        "y": 1395,
+        "w": 0,
+        "h": 0,
+        "confidence": null
+      }
+    ],
+    "ocr_elapsed_ms": 2080,
+    "result": {
+      "per_question": {
+        "83a071178d0f-0": {
+          "matched": true,
+          "score": 0.5,
+          "reason": "qno=0.0 sub=0.80 jac=0.80 digits=2",
+          "question_text": "4 + 7 =",
+          "question_bbox": {
+            "x": 319,
+            "y": 265,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": [
+            {
+              "text": "9+",
+              "x": 619,
+              "y": 381,
+              "w": 0,
+              "h": 0
+            },
+            {
+              "text": "5-",
+              "x": 318,
+              "y": 607,
+              "w": 0,
+              "h": 0
+            }
+          ]
+        },
+        "83a071178d0f-1": {
+          "matched": true,
+          "score": 0.6,
+          "reason": "qno=0.0 sub=1.00 jac=1.00 digits=1",
+          "question_text": "8 + 8 =",
+          "question_bbox": {
+            "x": 621,
+            "y": 269,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": [
+            {
+              "text": "9+",
+              "x": 619,
+              "y": 381,
+              "w": 0,
+              "h": 0
+            },
+            {
+              "text": "5-",
+              "x": 318,
+              "y": 607,
+              "w": 0,
+              "h": 0
+            }
+          ]
+        },
+        "83a071178d0f-2": {
+          "matched": true,
+          "score": 0.4,
+          "reason": "qno=0.0 sub=0.67 jac=0.67 digits=2",
+          "question_text": "9 + 6 =",
+          "question_bbox": {
+            "x": 319,
+            "y": 377,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": [
+            {
+              "text": "9+",
+              "x": 619,
+              "y": 381,
+              "w": 0,
+              "h": 0
+            },
+            {
+              "text": "5-",
+              "x": 318,
+              "y": 607,
+              "w": 0,
+              "h": 0
+            }
+          ]
+        },
+        "83a071178d0f-3": {
+          "matched": true,
+          "score": 0.35,
+          "reason": "qno=0.0 sub=0.50 jac=0.75 digits=1",
+          "question_text": "9 + 2 =",
+          "question_bbox": {
+            "x": 318,
+            "y": 1069,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": []
+        },
+        "83a071178d0f-4": {
+          "matched": true,
+          "score": 0.44,
+          "reason": "qno=0.0 sub=0.80 jac=0.75 digits=1",
+          "question_text": "7 + 7 =",
+          "question_bbox": {
+            "x": 316,
+            "y": 487,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": [
+            {
+              "text": "5-",
+              "x": 318,
+              "y": 607,
+              "w": 0,
+              "h": 0
+            }
+          ]
+        },
+        "83a071178d0f-5": {
+          "matched": true,
+          "score": 0.6,
+          "reason": "qno=0.0 sub=1.00 jac=1.00 digits=2",
+          "question_text": "8 + 4 =",
+          "question_bbox": {
+            "x": 620,
+            "y": 487,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": [
+            {
+              "text": "5-",
+              "x": 318,
+              "y": 607,
+              "w": 0,
+              "h": 0
+            }
+          ]
+        },
+        "83a071178d0f-6": {
+          "matched": true,
+          "score": 0.425,
+          "reason": "qno=0.0 sub=0.75 jac=0.75 digits=1",
+          "question_text": "5 + 8 =",
+          "question_bbox": {
+            "x": 621,
+            "y": 269,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": [
+            {
+              "text": "9+",
+              "x": 619,
+              "y": 381,
+              "w": 0,
+              "h": 0
+            },
+            {
+              "text": "5-",
+              "x": 318,
+              "y": 607,
+              "w": 0,
+              "h": 0
+            }
+          ]
+        },
+        "83a071178d0f-7": {
+          "matched": true,
+          "score": 0.425,
+          "reason": "qno=0.0 sub=0.75 jac=0.75 digits=1",
+          "question_text": "7 + 5 =",
+          "question_bbox": {
+            "x": 641,
+            "y": 605,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": [
+            {
+              "text": "5-",
+              "x": 318,
+              "y": 607,
+              "w": 0,
+              "h": 0
+            }
+          ]
+        },
+        "83a071178d0f-8": {
+          "matched": true,
+          "score": 0.6,
+          "reason": "qno=0.0 sub=1.00 jac=1.00 digits=2",
+          "question_text": "9 + 4 =",
+          "question_bbox": {
+            "x": 318,
+            "y": 721,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": []
+        },
+        "83a071178d0f-9": {
+          "matched": true,
+          "score": 0.467,
+          "reason": "qno=0.0 sub=0.80 jac=0.80 digits=2",
+          "question_text": "3 + 9 =",
+          "question_bbox": {
+            "x": 621,
+            "y": 720,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": []
+        },
+        "83a071178d0f-10": {
+          "matched": true,
+          "score": 0.6,
+          "reason": "qno=0.0 sub=1.00 jac=1.00 digits=2",
+          "question_text": "7 + 8 =",
+          "question_bbox": {
+            "x": 316,
+            "y": 837,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": []
+        },
+        "83a071178d0f-11": {
+          "matched": true,
+          "score": 0.6,
+          "reason": "qno=0.0 sub=1.00 jac=1.00 digits=2",
+          "question_text": "7 + 6 =",
+          "question_bbox": {
+            "x": 621,
+            "y": 837,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": []
+        },
+        "83a071178d0f-12": {
+          "matched": true,
+          "score": 0.6,
+          "reason": "qno=0.0 sub=1.00 jac=1.00 digits=2",
+          "question_text": "6 + 7 =",
+          "question_bbox": {
+            "x": 316,
+            "y": 951,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": []
+        },
+        "83a071178d0f-13": {
+          "matched": true,
+          "score": 0.6,
+          "reason": "qno=0.0 sub=1.00 jac=1.00 digits=2",
+          "question_text": "6 + 8 =",
+          "question_bbox": {
+            "x": 620,
+            "y": 953,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": []
+        },
+        "83a071178d0f-14": {
+          "matched": true,
+          "score": 0.6,
+          "reason": "qno=0.0 sub=1.00 jac=1.00 digits=1",
+          "question_text": "9 + 9 =",
+          "question_bbox": {
+            "x": 318,
+            "y": 1069,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": []
+        },
+        "83a071178d0f-15": {
+          "matched": true,
+          "score": 0.425,
+          "reason": "qno=0.0 sub=0.75 jac=0.75 digits=1",
+          "question_text": "9 + 5 =",
+          "question_bbox": {
+            "x": 641,
+            "y": 605,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": [
+            {
+              "text": "5-",
+              "x": 318,
+              "y": 607,
+              "w": 0,
+              "h": 0
+            }
+          ]
+        },
+        "83a071178d0f-16": {
+          "matched": true,
+          "score": 0.6,
+          "reason": "qno=0.0 sub=1.00 jac=1.00 digits=2",
+          "question_text": "4 + 9 =",
+          "question_bbox": {
+            "x": 317,
+            "y": 1185,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": []
+        },
+        "83a071178d0f-17": {
+          "matched": true,
+          "score": 0.6,
+          "reason": "qno=0.0 sub=1.00 jac=1.00 digits=2",
+          "question_text": "5 + 9 =",
+          "question_bbox": {
+            "x": 621,
+            "y": 1184,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": []
+        },
+        "83a071178d0f-18": {
+          "matched": true,
+          "score": 0.6,
+          "reason": "qno=0.0 sub=1.00 jac=1.00 digits=2",
+          "question_text": "3 + 8 =",
+          "question_bbox": {
+            "x": 318,
+            "y": 1302,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": []
+        },
+        "83a071178d0f-19": {
+          "matched": true,
+          "score": 0.6,
+          "reason": "qno=0.0 sub=1.00 jac=1.00 digits=2",
+          "question_text": "4 + 8 =",
+          "question_bbox": {
+            "x": 620,
+            "y": 1298,
+            "w": 0,
+            "h": 0
+          },
+          "answer_candidates": []
+        }
+      },
+      "matched_count": 20,
+      "answer_candidate_count": 8,
+      "low_confidence_skip": 0,
+      "meta_filtered": 13,
+      "suspicious_large": 0,
+      "total_questions": 20
+    }
+  }
+]

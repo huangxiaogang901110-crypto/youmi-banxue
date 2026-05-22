@@ -1,0 +1,80 @@
+{
+  "generated_at": "2026-05-21T12:33:45.297773",
+  "db_path": "/srv/yomi/yomi.db",
+  "basic_stats": {
+    "jobs_count": 87,
+    "needs_review_count": 0,
+    "failed_count": 11,
+    "total_questions": 1823,
+    "questions_per_job": {
+      "min": 2,
+      "max": 27,
+      "avg": 19.6,
+      "median": 20
+    },
+    "bbox_analysis": {
+      "total_with_bbox": 1823,
+      "zero_or_missing_bbox": 1772,
+      "negative_bbox": 0,
+      "small_bbox_under_10px": 0,
+      "valid_bboxes": 51,
+      "nonzero_rate": 2.8
+    },
+    "text_analysis": {
+      "empty_text_count": 0,
+      "meta_suspect_count": 3
+    },
+    "grading_analysis": {
+      "attempt_total": 12,
+      "questions_with_attempts": 5,
+      "coverage_rate": 0.3,
+      "child_answer_missing": 12,
+      "correct_answer_missing": 12,
+      "is_correct_missing": 12,
+      "grading_done": 0
+    }
+  },
+  "image_quality": {
+    "images_found": 52,
+    "images_missing": 0,
+    "analyzed": 50,
+    "dimensions": {
+      "width_avg": 947.0,
+      "height_avg": 1563.0,
+      "aspect_ratio_avg": 0.615,
+      "file_size_avg_kb": 173.8
+    },
+    "quality_flags": {
+      "low_brightness_under_50": 0,
+      "high_brightness_over_230": 3,
+      "low_contrast_under_30": 20,
+      "small_under_500px": 0
+    },
+    "brightness": {
+      "avg": 160.4,
+      "min": 153.9,
+      "max": 242.5
+    },
+    "contrast": {
+      "avg": 35.4,
+      "min": 24.8,
+      "max": 60.6
+    },
+    "blur": {
+      "avg": 11.5,
+      "samples": 50
+    },
+    "fingerprint_coverage": "1/50"
+  },
+  "issues": {
+    "zero_bbox_qwen": 1772,
+    "valid_bbox": 51,
+    "no_attempt": 1818,
+    "no_grading": 12,
+    "no_child_answer": 12,
+    "needs_review_or_error": 11,
+    "jobs_zero_valid_bbox": 0,
+    "jobs_with_some_bbox": 87,
+    "low_confidence": 0
+  }
+}

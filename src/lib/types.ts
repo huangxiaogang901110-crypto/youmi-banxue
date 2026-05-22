@@ -66,6 +66,18 @@ export interface ParseJob {
   file_name?: string;
   /** 作业总页数 */
   pages_count?: number;
+  /** 拒绝/失败原因码 */
+  reason_code?: string;
+  /** 科目 */
+  subject?: string;
+  /** 大块数量 */
+  blocks_count?: number;
+  /** 有答案的题数 */
+  answer_count?: number;
+  /** 已判对错题数 */
+  graded_count?: number;
+  /** 整体置信度 */
+  confidence?: number;
 }
 
 /**
@@ -74,22 +86,38 @@ export interface ParseJob {
 export interface Question {
   /** 题目唯一标识 */
   question_id: string;
+  /** 所属大块ID */
+  block_id?: string;
   /** 题目在作业中的序号 */
   question_number: number;
   /** 题目文本内容 */
   question_text: string;
+  /** 孩子答案 */
+  child_answer?: string | null;
+  /** 标准答案 */
+  standard_answer?: string | null;
+  /** DeepSeek 判对错结果 */
+  is_correct?: boolean | null;
+  /** 科目 */
+  subject?: string;
+  /** 题型 */
+  question_type?: string;
   /** 边界框坐标，格式如 [x, y, width, height] */
   bbox?: number[];
+  /** 答案区边界框坐标 */
+  answer_bbox?: number[];
+  /** 识别置信度 */
+  confidence?: number;
+  /** 识别来源 */
+  source?: string;
   /** 题目区域截图URL */
   crop_url?: string;
   /** 题目视觉描述，用于辅助讲解 */
   visual_description?: string;
   /** 题目处理状态 */
   status: QuestionStatus;
-  /** 孩子手写/填写的答案（Qwen-VL 识别） */
+  /** @deprecated 孩子手写/填写的答案，使用 child_answer */
   student_answer?: string | null;
-  /** DeepSeek 判对错结果 */
-  is_correct?: boolean | null;
   /** DeepSeek 判题简短解释 */
   grading_explanation?: string | null;
   /** 大题/题组标题 */
@@ -98,6 +126,20 @@ export interface Question {
   section_index?: number | null;
   /** 大题内小题序号（从1开始） */
   sub_index?: number | null;
+}
+
+/**
+ * 大块接口
+ */
+export interface Block {
+  block_id: string;
+  job_id?: string;
+  title: string;
+  subject: string;
+  question_type: string;
+  bbox: number[];
+  question_ids: string[];
+  order: number;
 }
 
 /**

@@ -1,0 +1,130 @@
+{
+  "test_image": "/tmp/yomi/83a071178d0f.jpg",
+  "test_image_size": 310169,
+  "test_image_dims": [
+    1200,
+    1600
+  ],
+  "timestamp": "2026-05-21T10:50:47.833737",
+  "canonical_size": 768,
+  "variants": [
+    {
+      "name": "original_file",
+      "note": "原始文件 bytes",
+      "file_size": 310169,
+      "width": 1200,
+      "height": 1600,
+      "original_sha256": "20e119c8cce2507ed81fa17d65f46b26e4bea29c8e8b3aed8948129c9a19d042",
+      "canonical_pixel_hash": "40b1ad416176e23f89957b0dbc035d6fcae6f8bb768ed1e11825d1cf37039efe",
+      "ahash": "087c7c7c7c7c3c00",
+      "dhash": "0707060606260645",
+      "canonical_match": null,
+      "ahash_hamming": 0,
+      "dhash_hamming": 0
+    },
+    {
+      "name": "canonical_png",
+      "note": "规范化 → PNG bytes",
+      "file_size": 696312,
+      "width": 576,
+      "height": 768,
+      "original_sha256": "5ab3c09a05c8bcc57ae3860134d2af75ca23687a514a860ac425be8f53fd5ef1",
+      "canonical_pixel_hash": "40b1ad416176e23f89957b0dbc035d6fcae6f8bb768ed1e11825d1cf37039efe",
+      "ahash": "087c7c7c7c7c3c00",
+      "dhash": "0707060606260645",
+      "canonical_match": true,
+      "ahash_hamming": 0,
+      "dhash_hamming": 0
+    },
+    {
+      "name": "jpeg_q95",
+      "note": "去 EXIF → JPEG q95",
+      "file_size": 557972,
+      "width": 1200,
+      "height": 1600,
+      "original_sha256": "f7f285da8915f71890780b8b7ee800677a79b4ebbb01e2d04ab78c090d611f3c",
+      "canonical_pixel_hash": "2709e2944b6ca2e9a902a7ebebd2b96b12738adb1b4ab500858583342261a0eb",
+      "ahash": "087c7c7c7c7c3c00",
+      "dhash": "0707060606260645",
+      "canonical_match": false,
+      "ahash_hamming": 0,
+      "dhash_hamming": 0
+    },
+    {
+      "name": "jpeg_q75",
+      "note": "去 EXIF → JPEG q75",
+      "file_size": 298090,
+      "width": 1200,
+      "height": 1600,
+      "original_sha256": "06aeed57a4de31262712cb8aba25bb590e3389e72604fe6d512d19dbb5945ecd",
+      "canonical_pixel_hash": "f0ee70a7b31ed41e1c67e9e1417f2d9c01a482d7170344b3e331cf4e3999d84e",
+      "ahash": "087c7c7c7c7c3c00",
+      "dhash": "0707060606260645",
+      "canonical_match": false,
+      "ahash_hamming": 0,
+      "dhash_hamming": 0
+    },
+    {
+      "name": "jpeg_q60",
+      "note": "去 EXIF → JPEG q60",
+      "file_size": 240632,
+      "width": 1200,
+      "height": 1600,
+      "original_sha256": "7afa6914b3a536dbf08a8b1dcfaa5e84cd976493393a033f6017925e9dfe92a4",
+      "canonical_pixel_hash": "a4141793360ced168d607db7651dbb19b60e490697fa1af6228678be6bedd21a",
+      "ahash": "087c7c7c7c7c3c00",
+      "dhash": "0707060606260645",
+      "canonical_match": false,
+      "ahash_hamming": 0,
+      "dhash_hamming": 0
+    },
+    {
+      "name": "jpeg_q92_noexif",
+      "note": "去 EXIF → JPEG q92",
+      "file_size": 440856,
+      "width": 1200,
+      "height": 1600,
+      "original_sha256": "d59c49ddfc5aeec13b47675ccf942336a26e2d0ca4c3a2376060eb611413bcc6",
+      "canonical_pixel_hash": "91cd8c8fb248009cd6ce56440e4b4e7041f80b3ad07a452e155cb2440b5c2b71",
+      "ahash": "087c7c7c7c7c3c00",
+      "dhash": "0707060606260645",
+      "canonical_match": false,
+      "ahash_hamming": 0,
+      "dhash_hamming": 0
+    },
+    {
+      "name": "resize_90pct_q85",
+      "note": "resize 90% → JPEG q85",
+      "file_size": 308556,
+      "width": 1080,
+      "height": 1440,
+      "original_sha256": "fdf20c54c6f84ccc9e1db6089ff2d82e932ad11f76ffd4a5e65584b5385f766a",
+      "canonical_pixel_hash": "bb2366a6f52811ea6b71ea22fc864aab0411b023d5cda92eee35814716c9f381",
+      "ahash": "087c7c7c7c7c3c00",
+      "dhash": "0707060606260645",
+      "canonical_match": false,
+      "ahash_hamming": 0,
+      "dhash_hamming": 0
+    },
+    {
+      "name": "webp_q80",
+      "note": "去 EXIF → WebP q80",
+      "file_size": 225364,
+      "width": 1200,
+      "height": 1600,
+      "original_sha256": "4f63e7fd460bd8cd5d0bc5aafa0ed67cd843d489116b26671adca42b474f6fac",
+      "canonical_pixel_hash": "7f1ee3bf4df1077548d11eeb69b7aa76aeb88d544dcea9cdcfa7bdd82f4c3352",
+      "ahash": "087c7c7c7c3c3c00",
+      "dhash": "0706060626260645",
+      "canonical_match": false,
+      "ahash_hamming": 1,
+      "dhash_hamming": 2
+    }
+  ],
+  "summary": {
+    "total_variants": 8,
+    "canonical_match_count": 1,
+    "canonical_unique_hash": "40b1ad416176e23f89957b0dbc035d6fcae6f8bb768ed1e11825d1cf37039efe",
+    "all_identical_via_canonical": false
+  }
+}

@@ -6,7 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Upload, ArrowRight, Clock, Loader2, X, Image, Camera, FileText } from "lucide-react";
 import ProcessingStatus from "@/components/processing/ProcessingStatus";
 import BboxOverlay from "@/components/question-list/BboxOverlay";
-import QuestionGroup, { calcGroupSize, groupQuestions } from "@/components/question-list/QuestionGroup";
+import QuestionGroup, { calcGroupSize, groupQuestions, groupByBlocks } from "@/components/question-list/QuestionGroup";
 import { useParseJobPolling } from "@/hooks/useParseJobPolling";
 import { useJobHistory } from "@/hooks/useJobHistory";
 import ErrorDisplay from "@/components/common/ErrorDisplay";
@@ -54,7 +54,7 @@ function DiagPanel({ events, expanded, onToggle }: { events: DiagEvent[]; expand
 }
 
 function WorkspaceContent() {
-  const { job, questions, status, error } = useParseJobPolling();
+  const { job, questions, blocks, status, error } = useParseJobPolling();
   const searchParams = useSearchParams();
   const [activeIndex, setActiveIndex] = useState(-1);
   const router = useRouter();
@@ -709,6 +709,54 @@ function WorkspaceContent() {
   // ── needs_review ──
   if (status === "needs_review") {
     const jid = searchParams.get("job_id");
+    // 如果有 questions，展示部分结果 + 警告
+    if (questions && questions.length > 0) {
+      return (
+        <div className="space-y-4 pb-4">
+          {showDebug && <DiagPanel events={diagEvents} expanded={diagExpanded} onToggle={() => setDiagExpanded(!diagExpanded)} />}
+          <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-800 flex items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0" aria-hidden="true"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            <span>识别到题目但未识别到作答，请核对后重拍</span>
+          </div>
+          {/* 复用 completed 的题目展示 */}
+          {(() => {
+            const qs2 = questions;
+            const _wg2 = qs2.filter((q: any) => q.is_correct !== null && q.is_correct !== undefined).length;
+            const _wsa2 = qs2.filter((q: any) => q.student_answer).length;
+            const gs2 = calcGroupSize(qs2.length);
+            const groups2 = groupQuestions(qs2, gs2);
+            return (
+              <>
+                <div className="flex items-center justify-between">
+                  <h2 className="text-sm font-semibold text-foreground">
+                    共 {job?.questions_count || qs2.length} 题
+                    <span className="text-xs text-muted-foreground ml-2 font-normal">
+                      (判对错:{_wg2}/{qs2.length} 答案:{_wsa2}/{qs2.length})
+                    </span>
+                  </h2>
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => { resetUpload(); router.push("/workspace"); }} className="text-xs text-primary border border-primary rounded-lg px-3 py-1">新上传</button>
+                    <span className="text-xs text-muted-foreground">点击题目组展开查看</span>
+                  </div>
+                </div>
+                <BboxOverlay bboxes={qs2.filter((q: any) => q.bbox && q.bbox.length === 4).map((q: any) => ({ question_id: q.question_id, bbox: q.bbox, question_number: q.question_number }))} activeIndex={activeIndex} imageUrl={undefined} />
+                {groups2.map((g: any, gi: number) => (
+                  <QuestionGroup
+                    key={gi}
+                    groupIndex={gi}
+                    startNumber={gi * gs2 + 1}
+                    endNumber={gi * gs2 + g.length}
+                    questions={g}
+                    defaultOpen={gi === 0}
+                  />
+                ))}
+              </>
+            );
+          })()}
+        </div>
+      );
+    }
+    // 无 questions → 显示错误
     return (
       <div className="space-y-4 pb-4">
         {showDebug && <DiagPanel events={diagEvents} expanded={diagExpanded} onToggle={() => setDiagExpanded(!diagExpanded)} />}
@@ -752,8 +800,9 @@ function WorkspaceContent() {
   const _render_wg = qs.filter(q => q.is_correct !== null && q.is_correct !== undefined).length;
   const _render_wsa = qs.filter(q => q.student_answer).length;
 
-  // 按 section_title 预分组（如果有分组信息）
-  const hasSections = qs.some(q => q.section_title);
+  // 按 blocks 分组优先 → section_title 回退 → 等量分组兜底
+  const blockGroups = blocks && blocks.length > 0 ? groupByBlocks(qs, blocks) : null;
+  const hasSections = !blockGroups && qs.some(q => q.section_title);
   let sectionedGroups: { title: string; questions: Question[]; startNumber: number }[] = [];
   if (hasSections) {
     const sections = new Map<string, Question[]>();
@@ -771,7 +820,7 @@ function WorkspaceContent() {
 
   const groups = hasSections
     ? []  // 按 section 内部再分组
-    : groupQuestions(qs, groupSize);
+    : (blockGroups ? [] : groupQuestions(qs, groupSize));
 
   if (hasSections) {
     for (const sec of sectionedGroups) {
@@ -806,7 +855,7 @@ function WorkspaceContent() {
         <h2 className="text-sm font-semibold text-foreground">
           共 {job?.questions_count || qs.length} 题
           <span className="text-xs text-muted-foreground ml-2 font-normal">
-            (判对错:{_render_wg}/{qs.length} 答案:{_render_wsa}/{qs.length})
+            (判对错:{_render_wg}/{qs.length} 答案:{_render_wsa}/{qs.length} 大块:{blocks?.length || 0})
           </span>
         </h2>
         <div className="flex items-center gap-2">
@@ -822,39 +871,55 @@ function WorkspaceContent() {
         </div>
       </div>
 
-      <BboxOverlay bboxes={qs.filter((q) => q.bbox && q.bbox.length === 4).map((q) => ({
-        question_id: q.question_id,
-        bbox: q.bbox as [number, number, number, number],
-        question_number: q.question_number,
-      }))} activeIndex={activeIndex} imageUrl={undefined} />
+      <BboxOverlay
+        bboxes={qs.filter((q) => q.bbox && q.bbox.length === 4).map((q) => ({
+          question_id: q.question_id,
+          bbox: q.bbox as [number, number, number, number],
+          question_number: q.question_number,
+          is_correct: q.is_correct,
+          answer_bbox: q.answer_bbox as [number, number, number, number] | null | undefined,
+        }))}
+        activeIndex={activeIndex}
+        imageUrl={undefined}
+      />
 
       <div className="space-y-3">
-        {groups.map((g, gi) => {
-          let sectionLabel = "";
-          if (hasSections && g.length > 0) {
-            const firstQ = g[0];
-            if (firstQ.section_title) {
-              const prevFirstQ = gi > 0 ? groups[gi - 1]?.[0] : null;
-              if (!prevFirstQ || prevFirstQ.section_title !== firstQ.section_title) {
-                sectionLabel = firstQ.section_title;
-              }
-            }
-          }
-          return (
-            <div key={gi}>
-              {sectionLabel && (
-                <h3 className="text-sm font-semibold text-foreground mb-2 mt-4 first:mt-0">{sectionLabel}</h3>
-              )}
+        {(blockGroups && blockGroups.length > 0
+          ? blockGroups.map((bg, gi) => (
               <QuestionGroup
-                groupIndex={gi}
-                startNumber={gi * groupSize + 1}
-                endNumber={gi * groupSize + g.length}
-                questions={g}
+                key={bg.block.block_id}
+                block={bg.block}
+                questions={bg.questions}
                 defaultOpen={gi === 0}
               />
-            </div>
-          );
-        })}
+            ))
+          : groups.map((g, gi) => {
+              let sectionLabel = "";
+              if (hasSections && g.length > 0) {
+                const firstQ = g[0];
+                if (firstQ.section_title) {
+                  const prevFirstQ = gi > 0 ? groups[gi - 1]?.[0] : null;
+                  if (!prevFirstQ || prevFirstQ.section_title !== firstQ.section_title) {
+                    sectionLabel = firstQ.section_title;
+                  }
+                }
+              }
+              return (
+                <div key={gi}>
+                  {sectionLabel && (
+                    <h3 className="text-sm font-semibold text-foreground mb-2 mt-4 first:mt-0">{sectionLabel}</h3>
+                  )}
+                  <QuestionGroup
+                    groupIndex={gi}
+                    startNumber={gi * groupSize + 1}
+                    endNumber={gi * groupSize + g.length}
+                    questions={g}
+                    defaultOpen={gi === 0}
+                  />
+                </div>
+              );
+            })
+        )}
       </div>
 
       {/* 拍下一张作业 — 直接触发相机 */}
@@ -884,3 +949,4 @@ export default function WorkspacePage() {
     </Suspense>
   );
 }
+// cache-bust 2026-05-22-1435

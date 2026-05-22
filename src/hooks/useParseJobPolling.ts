@@ -4,13 +4,13 @@ import { useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useSearchParams } from "next/navigation";
 import { parseJobApi } from "@/lib/api";
-import type { ApiResponse, ParseJob, Question } from "@/lib/types";
+import type { ApiResponse, ParseJob, Question, Block } from "@/lib/types";
 
 /** 终态集合：停止轮询 */
 const TERMINAL_STATUSES = new Set(["completed", "failed", "low_confidence", "needs_review"]);
 
 /** 可展示结果的终态（有 questions 可读） */
-const RESULT_STATUSES = new Set(["completed", "low_confidence"]);
+const RESULT_STATUSES = new Set(["completed", "low_confidence", "needs_review"]);
 
 /** 前端轮询状态 */
 type PollStatus = "idle" | "loading" | "polling" | "completed" | "failed" | "low_confidence" | "needs_review";
@@ -18,6 +18,7 @@ type PollStatus = "idle" | "loading" | "polling" | "completed" | "failed" | "low
 interface PollingResult {
   job: ParseJob | null;
   questions: Question[] | null;
+  blocks: Block[] | null;
   status: PollStatus;
   error: string;
 }
@@ -64,38 +65,40 @@ export function useParseJobPolling(): PollingResult {
     retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 8000),
   });
 
-  if (!jobId) return { job: null, questions: null, status: "idle", error: "" };
+  if (!jobId) return { job: null, questions: null, blocks: null, status: "idle", error: "" };
 
-  if (jobQuery.isLoading) return { job: null, questions: null, status: "loading", error: "" };
-  if (jobQuery.isError) return { job: null, questions: null, status: "polling", error: "" };
+  if (jobQuery.isLoading) return { job: null, questions: null, blocks: null, status: "loading", error: "" };
+  if (jobQuery.isError) return { job: null, questions: null, blocks: null, status: "polling", error: "" };
 
   if (!jobQuery.data?.ok) {
-    return { job: null, questions: null, status: "polling", error: "" };
+    return { job: null, questions: null, blocks: null, status: "polling", error: "" };
   }
 
   const job = jobQuery.data?.ok ? (jobQuery.data.data ?? null) : null;
   const s = normalizeJobStatus(job?.status ?? "");
 
-  if (s === "failed") return { job, questions: null, status: "failed", error: "解析失败，请重新上传" };
+  if (s === "failed") return { job, questions: null, blocks: null, status: "failed", error: "解析失败，请重新上传" };
 
   if (RESULT_STATUSES.has(s)) {
-    const qs = questionsQuery.data?.ok ? (questionsQuery.data.data ?? null) : null;
+    const rawResp = questionsQuery.data as any;
+    const qs: Question[] | null = rawResp?.ok ? (rawResp.data ?? null) : null;
+    const blocks: Block[] | null = rawResp?.ok ? (rawResp.blocks ?? null) : null;
     // qcount=0 防护：后端可能先标 completed/low_confidence 后写 questions，继续轮询
     if (!qs || qs.length === 0) {
       emptyCompletedRef.current += 1;
       if (emptyCompletedRef.current < 5) {
-        return { job, questions: null, status: "polling", error: "" };
+        return { job, questions: null, blocks: null, status: "polling", error: "" };
       }
     } else {
       emptyCompletedRef.current = 0;
     }
     // low_confidence → 仍可展示结果，但带状态标记
-    return { job, questions: qs, status: s as PollStatus, error: "" };
+    return { job, questions: qs, blocks, status: s as PollStatus, error: "" };
   }
 
   if (s === "needs_review") {
-    return { job, questions: null, status: "needs_review", error: "识别不确定，请重拍或稍后重试" };
+    return { job, questions: null, blocks: null, status: "needs_review", error: "识别不确定，请重拍或稍后重试" };
   }
 
-  return { job, questions: null, status: "polling", error: "" };
+  return { job, questions: null, blocks: null, status: "polling", error: "" };
 }

@@ -450,11 +450,13 @@ async def get_parse_job_questions(job_id: str, request: Request, user: tuple = D
             qs = _jobs[job_id]["questions"]
             # 兼容 load_all 恢复的 dict 和运行时 Pydantic 对象
             data = [q.model_dump() if hasattr(q, "model_dump") else q for q in qs]
+            # 附加 blocks 数据（供前端按大块分组展示）
+            blocks_data = _jobs[job_id].get("blocks", [])
             # 诊断
             _with_g = sum(1 for d in data if d.get("is_correct") is not None)
             _with_sa = sum(1 for d in data if d.get("student_answer"))
             debug("[diag] questions_return jid={job_id} source=memory qcount={len(data)} with_grading={_with_g} with_child_answer={_with_sa}")
-            return {"ok": True, "data": data, "request_id": uuid.uuid4().hex}
+            return {"ok": True, "data": data, "blocks": blocks_data, "request_id": uuid.uuid4().hex}
         # 2) DB 回退（跨重启 / 历史记录）— data 列存的是 JSON dict，直接返回
         db_data = _db.get_job_data(job_id)
         if db_data and db_data.get("questions"):

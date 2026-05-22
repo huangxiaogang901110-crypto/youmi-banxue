@@ -28,8 +28,11 @@ class JobStatus(str, Enum):
     vision_reviewing = "vision_reviewing"
     schema_validating = "schema_validating"
     completed = "completed"
+    partial_recognition = "partial_recognition"
     needs_review = "needs_review"
+    no_answers = "no_answers"
     low_confidence = "low_confidence"
+    rejected = "rejected"
     failed = "failed"
 
 
@@ -61,22 +64,47 @@ class ParseJob(BaseModel):
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
     file_name: Optional[str] = None
+    reason_code: str = ""
+    subject: str = ""
+    blocks_count: int = 0
+    answer_count: int = 0
+    graded_count: int = 0
+    confidence: float = 0.0
 
 
 class Question(BaseModel):
     question_id: str
+    block_id: str = ""
     question_number: int
     question_text: str
+    child_answer: Optional[str] = None
+    standard_answer: Optional[str] = None
+    is_correct: Optional[bool] = None
+    subject: str = ""
+    question_type: str = ""
     bbox: Optional[List[float]] = None
+    answer_bbox: Optional[List[float]] = None
+    confidence: float = 0.0
+    source: str = "qwen_vl"
     crop_url: Optional[str] = None
     visual_description: Optional[str] = None
     status: QuestionStatus = QuestionStatus.pending
-    student_answer: Optional[str] = None
-    is_correct: Optional[bool] = None
+    student_answer: Optional[str] = None  # deprecated, use child_answer
     grading_explanation: Optional[str] = None
     section_title: Optional[str] = None
     section_index: Optional[int] = None
     sub_index: Optional[int] = None
+
+
+class Block(BaseModel):
+    block_id: str
+    job_id: str = ""
+    title: str = ""
+    subject: str = ""
+    question_type: str = ""
+    bbox: List[float] = []
+    question_ids: List[str] = []
+    order: int = 0
 
 
 class TutorRequest(BaseModel):
