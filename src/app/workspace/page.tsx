@@ -10,6 +10,7 @@ import QuestionGroup, { calcGroupSize, groupQuestions } from "@/components/quest
 import { useParseJobPolling } from "@/hooks/useParseJobPolling";
 import { useJobHistory } from "@/hooks/useJobHistory";
 import ErrorDisplay from "@/components/common/ErrorDisplay";
+import EmptyState from "@/components/common/EmptyState";
 import SwipeableCard from "@/components/common/SwipeableCard";
 import { compressImage } from "@/lib/imageCompress";
 import { uuidv4 } from "@/lib/uuid";
@@ -17,8 +18,7 @@ import { authApi, parseJobApi } from "@/lib/api";
 import { getToken } from "@/lib/api";
 import type { QuestionSnapshot } from "@/lib/localCache";
 import type { Bbox } from "@/components/question-list/BboxOverlay";
-import type { RecentJob } from "@/lib/types";
-import type { Question } from "@/lib/types";
+import type { DocumentClassification, ParseJob, Question, RecentJob } from "@/lib/types";
 
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp", "application/pdf"];
 
@@ -53,11 +53,119 @@ function DiagPanel({ events, expanded, onToggle }: { events: DiagEvent[]; expand
   );
 }
 
+const DOCUMENT_FAMILY_LABELS: Record<string, string> = {
+  math_arithmetic: "数学计算页",
+  math_word_problem: "数学应用题",
+  math_vertical: "数学竖式题",
+  math_comparison_logic: "数学比较/选择题",
+  math_visual_concept: "数学概念题",
+  chinese_language: "语文练习页",
+  english_language: "英语练习页",
+  unknown: "未识别题型",
+};
+
+const SUPPORT_LEVEL_LABELS: Record<NonNullable<DocumentClassification["support_level"]>, string> = {
+  full: "稳定支持",
+  partial: "部分支持",
+  unsupported: "暂不支持",
+};
+
+function getDocumentFamilyLabel(docFamily?: string | null): string {
+  if (!docFamily) return DOCUMENT_FAMILY_LABELS.unknown;
+  return DOCUMENT_FAMILY_LABELS[docFamily] || DOCUMENT_FAMILY_LABELS.unknown;
+}
+
+function getRecognitionHint(
+  currentStatus: string,
+  documentClassification?: DocumentClassification | null,
+  questionCount: number = 0,
+): { title: string; description: string } {
+  const label = getDocumentFamilyLabel(documentClassification?.doc_family);
+  const reason = documentClassification?.reason?.trim();
+  const supportLevel = documentClassification?.support_level;
+
+  if (supportLevel === "unsupported") {
+    return {
+      title: "当前页暂不支持自动批改",
+      description: reason || `检测到这页更像${label}，当前链路会尽量识别内容，但不保证稳定批改结果。`,
+    };
+  }
+
+  if (supportLevel === "partial") {
+    if (currentStatus === "needs_review") {
+      return {
+        title: "这页需要人工核对",
+        description: reason || `检测到这页更像${label}，当前只支持部分识别，建议结合原图人工复核。`,
+      };
+    }
+    if (currentStatus === "low_confidence") {
+      return {
+        title: "结果仅供参考",
+        description: reason || `检测到这页更像${label}，当前链路只能做部分识别，请逐题核对结果。`,
+      };
+    }
+  }
+
+  if (questionCount === 0) {
+    return {
+      title: "暂未识别出题目",
+      description: reason || "这次识别没有返回可展示的题目。请重拍一张更清晰、更完整的作业后再试。",
+    };
+  }
+
+  return {
+    title: "识别结果置信度较低",
+    description: reason || "请核对题目、答案和批改结果是否准确。",
+  };
+}
+
+function RecognitionHintCard({
+  status,
+  classification,
+  compact = false,
+  questionCount = 0,
+}: {
+  status: string;
+  classification?: DocumentClassification | null;
+  compact?: boolean;
+  questionCount?: number;
+}) {
+  if (!classification || !classification.doc_family || classification.doc_family === "unknown") {
+    return null;
+  }
+
+  const hint = getRecognitionHint(status, classification, questionCount);
+  const toneClass =
+    classification.support_level === "unsupported"
+      ? "bg-amber-50 border-amber-200 text-amber-900"
+      : classification.support_level === "partial"
+        ? "bg-sky-50 border-sky-200 text-sky-900"
+        : "bg-emerald-50 border-emerald-200 text-emerald-900";
+
+  return (
+    <div className={`rounded-xl border px-4 ${compact ? "py-3" : "py-4"} ${toneClass}`}>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-sm font-semibold">{hint.title}</span>
+        <span className="rounded-full bg-white/80 px-2.5 py-0.5 text-xs font-medium">
+          {getDocumentFamilyLabel(classification.doc_family)}
+        </span>
+        <span className="rounded-full bg-white/80 px-2.5 py-0.5 text-xs">
+          {SUPPORT_LEVEL_LABELS[classification.support_level]}
+        </span>
+      </div>
+      <p className={`mt-2 ${compact ? "text-xs" : "text-sm"} opacity-90`}>
+        {hint.description}
+      </p>
+    </div>
+  );
+}
+
 function WorkspaceContent() {
   const { job, questions, status, error } = useParseJobPolling();
   const searchParams = useSearchParams();
   const [activeIndex, setActiveIndex] = useState(-1);
   const router = useRouter();
+  const documentClassification = (job as ParseJob | null)?.document_classification || null;
 
   // ── 拍照上传状态 ──
   const [file, setFile] = useState<File | null>(null);
@@ -245,7 +353,7 @@ function WorkspaceContent() {
     };
   }, [phase, file, router, upsert]);
   useEffect(() => {
-    if (status === "polling" || status === "failed" || status === "completed") {
+    if (status === "polling" || status === "failed" || status === "completed" || status === "low_confidence" || status === "needs_review") {
       setIsRestoring(false);
     }
   }, [status]);
@@ -284,7 +392,7 @@ function WorkspaceContent() {
 
   // 任务完成 → 更新历史 + 诊断 grading 字段
   useEffect(() => {
-    if (status === "completed" && job?.job_id && questions) {
+    if ((status === "completed" || status === "low_confidence") && job?.job_id && questions) {
       // tombstone 检查：已删记录不复写 IndexedDB
       const deletedIds = getDeletedJobIds();
       if (deletedIds.has(job.job_id)) return;
@@ -295,7 +403,7 @@ function WorkspaceContent() {
         job_id: job.job_id,
         file_name: job.file_name || "",
         questions_count: questions.length,
-        status: "completed",
+        status,
         created_at: job.created_at || new Date().toISOString(),
         questions_snapshot: questions.map(q => ({
           question_id: q.question_id,
@@ -319,7 +427,7 @@ function WorkspaceContent() {
     setFile(f);
     setPhase("selected");
     // 如果在 completed 视图触发 → 导航到 idle 显示上传 UI
-    if (status === "completed") {
+    if (status === "completed" || status === "low_confidence") {
       router.push("/workspace");
     }
   }, [status, router]);
@@ -709,6 +817,7 @@ function WorkspaceContent() {
   // ── needs_review ──
   if (status === "needs_review") {
     const jid = searchParams.get("job_id");
+    const hint = getRecognitionHint(status, documentClassification, 0);
     return (
       <div className="space-y-4 pb-4">
         {showDebug && <DiagPanel events={diagEvents} expanded={diagExpanded} onToggle={() => setDiagExpanded(!diagExpanded)} />}
@@ -716,8 +825,11 @@ function WorkspaceContent() {
           <div className="flex justify-center">
             <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-amber-500" aria-hidden="true"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
           </div>
-          <h2 className="text-lg font-semibold text-foreground">识别不确定</h2>
-          <p className="text-sm text-muted-foreground">{error || "这张图片可能不是作业，或图片质量不足以识别。请尝试重拍或上传更清晰的作业图片。"}</p>
+          <h2 className="text-lg font-semibold text-foreground">{hint.title}</h2>
+          <p className="text-sm text-muted-foreground">
+            {documentClassification ? hint.description : (error || hint.description)}
+          </p>
+          <RecognitionHintCard status={status} classification={documentClassification} questionCount={0} />
           <div className="flex gap-3 justify-center pt-2">
             <button
               onClick={() => {
@@ -747,10 +859,70 @@ function WorkspaceContent() {
   // ── completed / low_confidence ──
   const qs = questions || [];
   const groupSize = calcGroupSize(qs.length);
+  const isRenderableBbox = (bbox?: number[] | null): bbox is [number, number, number, number] => {
+    if (!bbox || bbox.length !== 4) return false;
+    const [x, y, w, h] = bbox;
+    return [x, y, w, h].every((value) => Number.isFinite(value)) && w > 0 && h > 0;
+  };
+  const overlayImageUrl = job?.image_url || qs.find((q) => q.image_url)?.image_url || undefined;
+  const overlayBboxes: Bbox[] = qs
+    .filter((q) => (q.kind || "question") === "question")
+    .map((q) => {
+      const bbox = isRenderableBbox(q.answer_bbox) ? q.answer_bbox : isRenderableBbox(q.bbox) ? q.bbox : null;
+      if (!bbox) return null;
+      return {
+        question_id: q.question_id,
+        bbox,
+        question_number: q.question_number,
+      };
+    })
+    .filter((item): item is Bbox => item !== null);
 
   // 诊断：渲染前检查 grading 字段
   const _render_wg = qs.filter(q => q.is_correct !== null && q.is_correct !== undefined).length;
   const _render_wsa = qs.filter(q => q.student_answer).length;
+
+  if (qs.length === 0) {
+    const jid = searchParams.get("job_id");
+    const hint = getRecognitionHint(status, documentClassification, 0);
+    return (
+      <div className="space-y-4 pb-4">
+        {showDebug && <DiagPanel events={diagEvents} expanded={diagExpanded} onToggle={() => setDiagExpanded(!diagExpanded)} />}
+        <div className="bg-card rounded-2xl p-8 shadow-sm border border-border">
+          <EmptyState
+            title={hint.title}
+            description={hint.description}
+            action={
+              <div className="flex gap-3 pt-2">
+                <button
+                  onClick={() => {
+                    if (jid && history.some(h => h.job_id === jid)) removeEntry(jid);
+                    router.push("/workspace");
+                    resetUpload();
+                  }}
+                  className="rounded-xl border border-border px-5 py-2 text-sm text-foreground hover:bg-muted transition"
+                >
+                  返回工作台
+                </button>
+                <button
+                  onClick={() => {
+                    router.push("/workspace?action=camera");
+                    resetUpload();
+                  }}
+                  className="rounded-xl bg-primary text-primary-foreground px-5 py-2 text-sm font-medium hover:opacity-90 transition"
+                >
+                  重拍一张
+                </button>
+              </div>
+            }
+          />
+          <div className="mt-4">
+            <RecognitionHintCard status={status} classification={documentClassification} questionCount={0} />
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   // 按 section_title 预分组（如果有分组信息）
   const hasSections = qs.some(q => q.section_title);
@@ -797,10 +969,7 @@ function WorkspaceContent() {
     <div className="space-y-4 pb-4">
       {showDebug && <DiagPanel events={diagEvents} expanded={diagExpanded} onToggle={() => setDiagExpanded(!diagExpanded)} />}
       {status === "low_confidence" && (
-        <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-800 flex items-center gap-2">
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0" aria-hidden="true"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-          <span>识别结果置信度较低，请核对题目是否准确</span>
-        </div>
+        <RecognitionHintCard status={status} classification={documentClassification} compact questionCount={qs.length} />
       )}
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-semibold text-foreground">
@@ -822,11 +991,7 @@ function WorkspaceContent() {
         </div>
       </div>
 
-      <BboxOverlay bboxes={qs.filter((q) => q.bbox && q.bbox.length === 4).map((q) => ({
-        question_id: q.question_id,
-        bbox: q.bbox as [number, number, number, number],
-        question_number: q.question_number,
-      }))} activeIndex={activeIndex} imageUrl={undefined} />
+      <BboxOverlay bboxes={overlayBboxes} activeIndex={activeIndex} imageUrl={overlayImageUrl} />
 
       <div className="space-y-3">
         {groups.map((g, gi) => {

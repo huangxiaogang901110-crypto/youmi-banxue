@@ -87,6 +87,14 @@ const MOCK_JOB: ParseJob = {
   questions_count: 3,
   created_at: new Date().toISOString(),
   file_name: '数学作业.png',
+  image_url: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="720" height="960"><rect width="100%" height="100%" fill="%23f8fafc"/><rect x="60" y="70" width="600" height="120" rx="16" fill="%23ffffff" stroke="%23cbd5e1"/><rect x="60" y="240" width="600" height="120" rx="16" fill="%23ffffff" stroke="%23cbd5e1"/><rect x="60" y="410" width="600" height="120" rx="16" fill="%23ffffff" stroke="%23cbd5e1"/></svg>',
+  document_classification: {
+    doc_family: 'math_arithmetic',
+    subject: 'math',
+    support_level: 'full',
+    route_hint: 'math_rule_first',
+    reason: '模拟口算页',
+  },
 };
 
 const MOCK_QUESTIONS: Question[] = [
@@ -95,6 +103,8 @@ const MOCK_QUESTIONS: Question[] = [
     question_number: 1,
     question_text: '小明有12个苹果，吃了3个，又买了5个，还剩几个？',
     bbox: [120, 80, 400, 60],
+    answer_bbox: [420, 80, 100, 60],
+    kind: 'question',
     status: 'completed',
   },
   {
@@ -102,6 +112,8 @@ const MOCK_QUESTIONS: Question[] = [
     question_number: 2,
     question_text: '一个长方形的长是8cm，宽是5cm，求它的面积。',
     bbox: [120, 180, 400, 60],
+    answer_bbox: [470, 180, 80, 60],
+    kind: 'question',
     visual_description: '几何图形：长方形，标注长8cm宽5cm',
     status: 'completed',
   },
@@ -110,6 +122,8 @@ const MOCK_QUESTIONS: Question[] = [
     question_number: 3,
     question_text: '计算：36 ÷ (4 + 2) × 3 = ?',
     bbox: [120, 280, 400, 60],
+    answer_bbox: [460, 280, 90, 60],
+    kind: 'question',
     status: 'completed',
   },
 ];

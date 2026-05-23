@@ -18,6 +18,15 @@ from deepseek_client import DeepSeekClient
 from vision_client import QwenVLClient
 from ocr_client import AliyunOCRClient
 from question_cutter import cut_to_questions
+from document_classifier import DocumentClassification, classify_document
+from schemas.recognition import (
+    RecognitionImage,
+    RecognitionQuestionContract,
+    build_recognition_document,
+    normalize_bbox as _normalize_question_bbox,
+    normalize_confidence,
+    should_drop_question_payload as _should_drop_raw_question,
+)
 import oss_client as _oss
 
 
@@ -29,14 +38,58 @@ def enqueue_parse_job(jid: str, job_entry: dict):
     _db.save_job(jid, job_entry)
 
 
+def _build_recognition_snapshot(jid: str, questions: list, file, status: JobStatus):
+    result_image_url = _jobs[jid].get("image_url") or None
+    image_payload = _jobs[jid].get("recognition_image")
+    document_classification = _jobs[jid].get("document_classification") or {}
+    if not image_payload:
+        image_payload = RecognitionImage(
+            id=jid,
+            text=file.filename if file else jid,
+            source="upload",
+            kind="image",
+            status="completed",
+            file_path=result_image_url or f"/tmp/yomi/{jid}.jpg",
+        ).model_dump()
+    meta = {
+        "job_id": jid,
+        "status": status.value,
+        "image_url": result_image_url,
+        "parse_mode": _jobs[jid].get("parse_mode", ""),
+        "parser_provider": _jobs[jid].get("parser_provider", ""),
+        "parser_model": _jobs[jid].get("parser_model", ""),
+        "qwen_parse_call_id": _jobs[jid].get("qwen_parse_call_id", ""),
+        "total_parse_cost_cny": _jobs[jid].get("total_parse_cost_cny", 0.0),
+        "progress": _jobs[jid].get("progress", ""),
+        "error_code": _jobs[jid].get("error_code", ""),
+        "document_classification": document_classification,
+        "document_family": document_classification.get("doc_family", ""),
+        "subject": document_classification.get("subject", ""),
+        "support_level": document_classification.get("support_level", ""),
+        "route_hint": document_classification.get("route_hint", ""),
+    }
+    return build_recognition_document(
+        image=image_payload,
+        raw_questions=questions,
+        raw_blocks=_jobs[jid].get("ocr_blocks", []),
+        block_source=_jobs[jid].get("ocr_block_source", "ocr_unknown"),
+        meta=meta,
+    ).model_dump()
+
+
 def save_result(jid: str, questions: list, now: str, file, status: JobStatus):
     """保存任务最终结果 — SQLite 持久化。先写 questions 再标 completed，防 poll 读到 qcount=0。"""
     # ⚠️ 顺序：先写 questions 再设 status，防止 completed 和 questions 之间的竞态窗口
     _jobs[jid]["questions"] = questions
+    result_image_url = _jobs[jid].get("image_url") or None
+    document_classification = _jobs[jid].get("document_classification") or {}
+    recognition_snapshot = _build_recognition_snapshot(jid, questions, file, status)
+    _jobs[jid]["recognition"] = recognition_snapshot
     _jobs[jid]["job"] = ParseJob(
         job_id=jid, status=status,
         questions_count=len(questions),
         created_at=now, updated_at=_ts(), file_name=file.filename if file else "",
+        image_url=result_image_url,
     )
     # 确保 poll_count 存在（旧 save_result 调用后可能丢失）
     if "poll_count" not in _jobs[jid]:
@@ -49,7 +102,13 @@ def save_result(jid: str, questions: list, now: str, file, status: JobStatus):
         "created_at": now,
         "updated_at": _ts(),
         "file_name": file.filename if file else "",
+        "image_url": result_image_url,
         "questions": [q.model_dump() for q in questions],
+        "recognition": recognition_snapshot,
+        "document_classification": document_classification,
+        "preprocess_versions": _jobs[jid].get("preprocess_versions", []),
+        "ocr_blocks": _jobs[jid].get("ocr_blocks", []),
+        "ocr_block_source": _jobs[jid].get("ocr_block_source", "ocr_unknown"),
         "poll_count": _jobs[jid].get("poll_count", 0),
         "child_id": _jobs[jid].get("child_id", ""),
         "parent_id": _jobs[jid].get("parent_id", ""),
@@ -79,7 +138,13 @@ def save_result(jid: str, questions: list, now: str, file, status: JobStatus):
                         data_json=json.dumps({
                             "job_id": jid, "status": status.value, "questions_count": len(questions),
                             "created_at": now, "updated_at": _ts(), "file_name": file.filename if file else "",
+                            "image_url": result_image_url,
                             "questions": [q.model_dump() for q in questions],
+                            "recognition": recognition_snapshot,
+                            "document_classification": document_classification,
+                            "preprocess_versions": _jobs[jid].get("preprocess_versions", []),
+                            "ocr_blocks": _jobs[jid].get("ocr_blocks", []),
+                            "ocr_block_source": _jobs[jid].get("ocr_block_source", "ocr_unknown"),
                             "poll_count": _jobs[jid].get("poll_count", 0),
                             "child_id": child_id, "parent_id": parent_id,
                             "client_task_id": _jobs[jid].get("client_task_id", ""),
@@ -319,6 +384,151 @@ def _is_homework_image(ocr_blocks: list) -> bool:
     return False
 
 
+def _extract_question_texts(questions: list) -> list[str]:
+    question_texts: list[str] = []
+    for question in questions:
+        if hasattr(question, "question_text"):
+            text = question.question_text
+        elif isinstance(question, dict):
+            text = question.get("question_text", "")
+        else:
+            text = ""
+        text = str(text or "").strip()
+        if text:
+            question_texts.append(text)
+    return question_texts
+
+
+def _build_document_classification(ocr_blocks: list, questions: list) -> dict:
+    raw_text = "\n".join(
+        str(block.get("text", "")).strip()
+        for block in ocr_blocks
+        if isinstance(block, dict) and str(block.get("text", "")).strip()
+    )
+    return classify_document(
+        raw_text=raw_text,
+        question_texts=_extract_question_texts(questions),
+    ).model_dump()
+
+
+def _apply_document_support_gate(
+    final_status: JobStatus,
+    questions: list,
+    document_classification: dict | None,
+    grading_count: int,
+    student_answer_count: int,
+) -> JobStatus:
+    if final_status in (JobStatus.failed, JobStatus.needs_review, JobStatus.low_confidence):
+        return final_status
+    if not questions or not document_classification:
+        return final_status
+
+    support_level = str(document_classification.get("support_level", "partial")).strip().lower()
+    if support_level == "unsupported":
+        return JobStatus.low_confidence
+    if support_level != "full" and (grading_count == 0 or student_answer_count == 0):
+        return JobStatus.low_confidence
+    return final_status
+
+
+def _decide_final_status(questions: list, has_failures: bool, ocr_only: bool) -> JobStatus:
+    if has_failures or len(questions) == 0:
+        return JobStatus.needs_review
+    if ocr_only:
+        return JobStatus.needs_review
+    return JobStatus.completed
+
+
+def _build_test_mode_questions(jid: str) -> list[Question]:
+    return [
+        Question(
+            question_id=f"{jid}-1-0",
+            question_number=1,
+            question_text="12 + 34 = ?",
+            kind="question",
+            bbox=[10.0, 10.0, 120.0, 30.0],
+            answer_bbox=[70.0, 10.0, 60.0, 30.0],
+            visual_description="本地测试模式生成的算术题",
+            status=QuestionStatus.completed,
+            student_answer="46",
+            source="test_fake",
+            confidence=1.0,
+        )
+    ]
+
+
+def _build_questions_from_raw(
+    jid: str,
+    raw_questions: list[dict],
+    shared_vd: str,
+    aid: str,
+    page_id: str,
+    source_call_id: str,
+    parse_cost_per_q: float,
+    source: str,
+    image_url: str | None,
+) -> list[Question]:
+    questions: list[Question] = []
+    for raw_index, rq in enumerate(raw_questions):
+        if _should_drop_raw_question(rq):
+            info(f"[BG] Skip non-question item #{raw_index} for {jid}: {str(rq.get('content', ''))[:80]}")
+            continue
+
+        qid = f"{jid}-{rq.get('number', raw_index + 1)}-{raw_index}"
+        q_text = rq.get("content", f"第{rq.get('number', raw_index + 1)}题")
+        student_ans = rq.get("student_answer")
+        if student_ans is None or (isinstance(student_ans, str) and not student_ans.strip()):
+            student_ans = None
+
+        section_title = rq.get("section_title")
+        if section_title and isinstance(section_title, str) and not section_title.strip():
+            section_title = None
+
+        section_index = rq.get("section_index")
+        try:
+            section_index = int(section_index) if section_index is not None else None
+        except (ValueError, TypeError):
+            section_index = None
+
+        sub_index = rq.get("sub_index")
+        try:
+            sub_index = int(sub_index) if sub_index is not None else None
+        except (ValueError, TypeError):
+            sub_index = None
+
+        raw_no = rq.get("number", raw_index + 1)
+        try:
+            q_no = int(raw_no)
+        except (ValueError, TypeError):
+            q_no = raw_index + 1
+
+        payload = RecognitionQuestionContract(
+            question_id=qid,
+            question_number=q_no,
+            question_text=q_text,
+            kind="question",
+            bbox=_normalize_question_bbox(rq.get("bbox")),
+            answer_bbox=_normalize_question_bbox(rq.get("answer_bbox")),
+            image_url=image_url or None,
+            visual_description=shared_vd,
+            status=QuestionStatus.completed.value,
+            student_answer=student_ans,
+            section_title=section_title,
+            section_index=section_index,
+            sub_index=sub_index,
+            source=source,
+            confidence=normalize_confidence(rq.get("confidence")),
+            error_code=None,
+        )
+        question = Question(**payload.model_dump())
+        questions.append(question)
+        _db.create_question_item(
+            qid, aid, page_id, q_no, q_text, question.bbox or [], shared_vd[:200],
+            source_call_id=source_call_id, parse_cost_allocated_cny=parse_cost_per_q
+        )
+    return questions
+
+
 async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_id: str, child_id: str):
     """后台异步执行：Qwen-VL 全图识题优先 → OCR+切题回落 → Schema 校验 → 保存"""
     import os as _os_env
@@ -332,6 +542,7 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
     PER_Q_VISION_LIMIT = int(_os_env.getenv("YOMI_PER_QUESTION_VISION_SYNC_LIMIT", "0"))
     BPLUS_ENABLED = _os_env.getenv("YOMI_BPLUS_RECOGNITION", "false").lower() in ("1", "true", "yes")
     BPLUSPLUS_ENABLED = _os_env.getenv("YOMI_BPLUSPLUS_RECOGNITION", "false").lower() in ("1", "true", "yes")
+    TEST_FAKE_RECOGNITION = _os_env.getenv("YOMI_TEST_FAKE_RECOGNITION", "false").lower() in ("1", "true", "yes")
     import uuid as _uuid
     trace_id = _uuid.uuid4().hex
     _log_info(f"job_start jid={jid}", trace_id=trace_id, parent_id=parent_id, child_id=child_id)
@@ -342,6 +553,21 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
     _osp.makedirs("/tmp/yomi", exist_ok=True)
     with open(f"/tmp/yomi/{jid}.jpg", "wb") as _pf:
         _pf.write(contents)
+    try:
+        from preprocessor import generate_preprocess_bundle
+
+        recognition_image, _ = generate_preprocess_bundle(
+            contents,
+            jid,
+            source_path=f"/tmp/yomi/{jid}.jpg",
+            output_dir=f"/tmp/yomi/preprocess/{jid}",
+        )
+        _jobs[jid]["recognition_image"] = recognition_image.model_dump()
+        _jobs[jid]["preprocess_versions"] = [
+            version.model_dump() for version in recognition_image.preprocess_versions
+        ]
+    except Exception as _pe:
+        info(f"[BG] Sidecar preprocess skipped: {_pe}")
 
     try:
         # 上传到 OSS（异步，不阻塞主流程）
@@ -366,6 +592,13 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
         oss_signed_url = None
         info("[BG] OSS unavailable, using local only")
 
+    result_image_url = oss_signed_url or ""
+    if TEST_FAKE_RECOGNITION and not result_image_url:
+        import base64 as _base64
+        mime_type = getattr(file, "content_type", None) or "image/jpeg"
+        result_image_url = f"data:{mime_type};base64,{_base64.b64encode(contents).decode('ascii')}"
+    _jobs[jid]["image_url"] = result_image_url
+
     # ── 创建 assignment + page（基准 Table 12）──
     import uuid as _uuid
     aid = _uuid.uuid4().hex[:12]
@@ -385,6 +618,38 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
     total_parse_cost = 0.0  # 累计 Qwen-VL 解析成本
 
     try:
+        if TEST_FAKE_RECOGNITION:
+            info(f"[BG] Test fake recognition enabled for {jid}")
+            questions = _build_test_mode_questions(jid)
+            _jobs[jid]["document_classification"] = DocumentClassification(
+                doc_family="math_arithmetic",
+                subject="math",
+                support_level="full",
+                route_hint="math_rule_first",
+                reason="本地测试模式固定生成数学口算题。",
+            ).model_dump()
+            for q in questions:
+                q.image_url = result_image_url or None
+                _db.create_question_item(
+                    q.question_id, aid, page_id, q.question_number, q.question_text, q.bbox or [],
+                    q.visual_description or ""
+                )
+            _jobs[jid]["job"].status = JobStatus.schema_validating
+            _jobs[jid]["parse_mode"] = "test_fake"
+            _jobs[jid]["parser_provider"] = "local"
+            _jobs[jid]["parser_model"] = "fake-recognition"
+            _jobs[jid]["qwen_parse_call_id"] = ""
+            _jobs[jid]["total_parse_cost_cny"] = 0.0
+            grading_cost = 0.0
+            try:
+                grading_cost = await grade_answers(jid, questions, trace_id, parent_id, child_id)
+            except Exception as _ge:
+                error(f"[BG] Fake recognition grading skipped (non-blocking): {_ge}")
+            total_parse_cost += grading_cost
+            save_result(jid, questions, now, file, JobStatus.completed)
+            debug("[diag] worker_completed jid={jid} status=completed qcount={len(questions)} cost_cny={total_parse_cost:.4f}")
+            return
+
         # ── Phase 0: 图片压缩预处理（加速 Qwen-VL）──
         _img_bytes = contents
         try:
@@ -465,6 +730,8 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
         qwen_latency = qwen_result.get("latency_ms", 0)
         ocr_latency = ocr_raw.get("latency_ms", 0)
         ocr_blocks = ocr_raw.get("blocks", [])
+        _jobs[jid]["ocr_blocks"] = ocr_blocks
+        _jobs[jid]["ocr_block_source"] = "aliyun_general_ocr"
         info(f"[BG] Parallel done: Qwen={'OK' if qwen_result.get('success') else 'FAIL'}({qwen_latency}ms) OCR={len(ocr_blocks)}blocks({ocr_latency}ms)")
         usage = qwen_result.get("usage", {}) if qwen_result.get("success") else {}
         input_tokens = usage.get("prompt_tokens", 0) if isinstance(usage, dict) else 0
@@ -499,57 +766,23 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
 
         if qwen_result["success"] and qwen_result["questions"]:
             raw_questions = qwen_result["questions"]
-            question_count = len(raw_questions)
+            shared_vd = qwen_result.get("raw_content", "Qwen-VL 全图识别结果")
+            parse_cost_per_q = total_parse_cost / len(raw_questions) if raw_questions else 0.0
+            questions = _build_questions_from_raw(
+                jid=jid,
+                raw_questions=raw_questions,
+                shared_vd=shared_vd,
+                aid=aid,
+                page_id=page_id,
+                source_call_id=qwen_parse_call_id,
+                parse_cost_per_q=parse_cost_per_q,
+                source="qwen_vl",
+                image_url=result_image_url,
+            )
+            question_count = len(questions)
             if question_count >= 5:
                 use_qwen_vl = True
             info(f"[BG] Qwen-VL extracted {question_count} questions in {qwen_latency}ms")
-
-            shared_vd = qwen_result.get("raw_content", f"Qwen-VL 全图识别，共 {question_count} 题")
-            parse_cost_per_q = total_parse_cost / question_count if question_count > 0 else 0.0
-
-            for i, rq in enumerate(raw_questions):
-                qid = f"{jid}-{rq.get('number', i+1)}-{i}"
-                q_text = rq.get("content", f"第{rq.get('number', i+1)}题")
-                student_ans = rq.get("student_answer")
-                if student_ans is None or (isinstance(student_ans, str) and not student_ans.strip()):
-                    student_ans = None
-                section_title = rq.get("section_title")
-                if section_title and isinstance(section_title, str) and not section_title.strip():
-                    section_title = None
-                section_index = rq.get("section_index")
-                try:
-                    section_index = int(section_index) if section_index is not None else None
-                except (ValueError, TypeError):
-                    section_index = None
-                sub_index = rq.get("sub_index")
-                try:
-                    sub_index = int(sub_index) if sub_index is not None else None
-                except (ValueError, TypeError):
-                    sub_index = None
-                raw_no = rq.get("number", i+1)
-                try:
-                    q_no = int(raw_no)
-                except (ValueError, TypeError):
-                    q_no = i + 1
-                # 解析 bbox 和 answer_bbox
-                _bbox = rq.get("bbox")
-                if isinstance(_bbox, list) and len(_bbox) == 4:
-                    _bbox = [float(v) for v in _bbox]
-                else:
-                    _bbox = [0, 0, 0, 0]
-                _ans_bbox = rq.get("answer_bbox")
-                if isinstance(_ans_bbox, list) and len(_ans_bbox) == 4:
-                    _ans_bbox = [float(v) for v in _ans_bbox]
-                else:
-                    _ans_bbox = None
-                questions.append(Question(
-                    question_id=qid, question_number=q_no, question_text=q_text,
-                    bbox=_bbox, visual_description=shared_vd,
-                    status=QuestionStatus.completed, student_answer=student_ans,
-                    section_title=section_title, section_index=section_index, sub_index=sub_index,
-                ))
-                _db.create_question_item(qid, aid, page_id, q_no, q_text, _bbox, shared_vd[:200],
-                                          source_call_id=qwen_parse_call_id, parse_cost_allocated_cny=parse_cost_per_q)
         else:
             error(f"[BG] Qwen-VL failed: {qwen_result.get('error', 'no questions')}")
 
@@ -653,8 +886,18 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
                 _ans_count = sum(1 for q in _all_qs if q.get("student_answer"))
                 if _all_qs and _ans_count > 0:
                     use_qwen_vl = True
-                    raw_questions = _all_qs
-                    question_count = len(raw_questions)
+                    questions = _build_questions_from_raw(
+                        jid=jid,
+                        raw_questions=_all_qs,
+                        shared_vd="B++ 局部识别结果",
+                        aid=aid,
+                        page_id=page_id,
+                        source_call_id=f"bpp_{jid}",
+                        parse_cost_per_q=0.0,
+                        source="bplusplus_qwen",
+                        image_url=result_image_url,
+                    )
+                    question_count = len(questions)
                     qwen_parse_call_id = f"bpp_{jid}"
                     info(f"[BG] B++ extracted {question_count}q/{_ans_count}ans")
                 else:
@@ -689,13 +932,24 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
                 questions = []
                 for i, cq in enumerate(cut_results):
                     qid = f"{jid}-{cq['question_number']}-{i}"
-                    questions.append(Question(
-                        question_id=qid, question_number=cq["question_number"],
-                        question_text=cq["question_text"], bbox=cq["bbox"],
-                        visual_description=None, status=QuestionStatus.completed,
+                    q_bbox = _normalize_question_bbox(cq.get("bbox"))
+                    payload = RecognitionQuestionContract(
+                        question_id=qid,
+                        question_number=cq["question_number"],
+                        question_text=cq["question_text"],
+                        kind="question",
+                        bbox=q_bbox,
+                        answer_bbox=None,
+                        image_url=result_image_url or None,
+                        visual_description=None,
+                        status=QuestionStatus.completed.value,
                         student_answer=None,
-                    ))
-                    _db.create_question_item(qid, aid, page_id, cq["question_number"], cq["question_text"], cq["bbox"])
+                        source="ocr_cut",
+                        confidence=None,
+                        error_code=None,
+                    )
+                    questions.append(Question(**payload.model_dump()))
+                    _db.create_question_item(qid, aid, page_id, cq["question_number"], cq["question_text"], q_bbox or [])
                 info(f"[BG] OCR+Cut: {len(ocr_blocks)} blocks → {len(questions)} questions")
             else:
                 info(f"[BG] OCR returned 0 blocks, no questions produced")
@@ -854,20 +1108,17 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
                 q.status = QuestionStatus.failed
                 has_failures = True
 
-        if has_failures or len(questions) == 0:
-            # 有真正失败或零题 → needs_review
-            final_status = JobStatus.needs_review
+        document_classification = _build_document_classification(ocr_blocks, questions)
+        _jobs[jid]["document_classification"] = document_classification
+
+        final_status = _decide_final_status(questions, has_failures, _ocr_only)
         # ── Quality gate: OCR-only 路径缺少答案识别 → needs_review ──
         if _ocr_only:
             # OCR 成功切出题目 → 先过作业图预筛
             if _is_homework_image(ocr_blocks):
-                final_status = JobStatus.needs_review
                 info(f"[BG] OCR-only homework image (Qwen failed) → needs_review for {jid}")
             else:
-                final_status = JobStatus.needs_review
                 info(f"[BG] OCR-only non-homework image → needs_review for {jid}")
-        else:
-            final_status = JobStatus.completed
         # 存储解析元数据供 save_result 写入 parse_jobs
         _jobs[jid]["parse_mode"] = "qwen_vl"
         _jobs[jid]["parser_provider"] = "aliyun_dashscope"
@@ -884,9 +1135,29 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
         # ── Post-grading quality gate: 有题但无可判定结果 → needs_review ──
         _with_g = sum(1 for q in questions if (getattr(q, "is_correct", None) is not None) or (isinstance(q, dict) and q.get("is_correct") is not None))
         _with_sa = sum(1 for q in questions if (getattr(q, "student_answer", None)) or (isinstance(q, dict) and q.get("student_answer")))
-        if len(questions) > 0 and _with_sa == 0 and _with_g == 0 and final_status != JobStatus.needs_review:
-            info(f"[BG] Quality gate: {len(questions)}q but 0 answers/0 graded -> needs_review for {jid}")
-            final_status = JobStatus.needs_review
+        if len(questions) > 0 and _with_sa == 0 and _with_g == 0 and final_status not in (JobStatus.needs_review, JobStatus.low_confidence):
+            if document_classification.get("support_level") == "full":
+                info(f"[BG] Quality gate: {len(questions)}q but 0 answers/0 graded -> needs_review for {jid}")
+                final_status = JobStatus.needs_review
+            else:
+                info(
+                    f"[BG] Quality gate: {len(questions)}q but 0 answers/0 graded on "
+                    f"{document_classification.get('doc_family', 'unknown')} -> low_confidence for {jid}"
+                )
+                final_status = JobStatus.low_confidence
+        gated_status = _apply_document_support_gate(
+            final_status,
+            questions,
+            document_classification,
+            grading_count=_with_g,
+            student_answer_count=_with_sa,
+        )
+        if gated_status != final_status:
+            info(
+                f"[BG] Document gate: {document_classification.get('doc_family', 'unknown')} "
+                f"({document_classification.get('support_level', 'partial')}) -> {gated_status.value} for {jid}"
+            )
+            final_status = gated_status
         save_result(jid, questions, now, file, final_status)
         # 诊断：判对错保存统计
         _with_g = sum(1 for q in questions if (getattr(q, "is_correct", None) is not None) or (isinstance(q, dict) and q.get("is_correct") is not None))

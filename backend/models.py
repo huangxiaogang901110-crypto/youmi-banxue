@@ -61,13 +61,17 @@ class ParseJob(BaseModel):
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
     file_name: Optional[str] = None
+    image_url: Optional[str] = None
 
 
 class Question(BaseModel):
     question_id: str
     question_number: int
     question_text: str
+    kind: str = "question"
     bbox: Optional[List[float]] = None
+    answer_bbox: Optional[List[float]] = None
+    image_url: Optional[str] = None
     crop_url: Optional[str] = None
     visual_description: Optional[str] = None
     status: QuestionStatus = QuestionStatus.pending
@@ -77,6 +81,9 @@ class Question(BaseModel):
     section_title: Optional[str] = None
     section_index: Optional[int] = None
     sub_index: Optional[int] = None
+    source: Optional[str] = None
+    confidence: Optional[float] = None
+    error_code: Optional[str] = None
 
 
 class TutorRequest(BaseModel):

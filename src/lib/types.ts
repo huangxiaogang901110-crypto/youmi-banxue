@@ -48,6 +48,14 @@ export enum JobStatus {
  */
 export type QuestionStatus = 'pending' | 'completed' | 'failed';
 
+export interface DocumentClassification {
+  doc_family: string;
+  subject: string;
+  support_level: 'full' | 'partial' | 'unsupported';
+  route_hint: string;
+  reason: string;
+}
+
 /**
  * 作业解析任务接口
  */
@@ -64,6 +72,10 @@ export interface ParseJob {
   updated_at?: string;
   /** 原始作业文件名 */
   file_name?: string;
+  /** 原图或可展示的签名图地址 */
+  image_url?: string | null;
+  /** 页型识别结果，用于前端状态说明 */
+  document_classification?: DocumentClassification | null;
   /** 作业总页数 */
   pages_count?: number;
 }
@@ -78,8 +90,14 @@ export interface Question {
   question_number: number;
   /** 题目文本内容 */
   question_text: string;
+  /** 识别结果类型，默认 question */
+  kind?: string;
   /** 边界框坐标，格式如 [x, y, width, height] */
   bbox?: number[];
+  /** 答案区域边界框，格式如 [x, y, width, height] */
+  answer_bbox?: number[] | null;
+  /** 原图或可展示的签名图地址 */
+  image_url?: string | null;
   /** 题目区域截图URL */
   crop_url?: string;
   /** 题目视觉描述，用于辅助讲解 */
@@ -98,6 +116,12 @@ export interface Question {
   section_index?: number | null;
   /** 大题内小题序号（从1开始） */
   sub_index?: number | null;
+  /** 识别来源 */
+  source?: string | null;
+  /** 识别置信度，0-1 */
+  confidence?: number | null;
+  /** 识别错误码 */
+  error_code?: string | null;
 }
 
 /**
