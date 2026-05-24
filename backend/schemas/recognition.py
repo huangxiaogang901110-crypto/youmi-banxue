@@ -134,6 +134,10 @@ class RecognitionQuestionContract(BaseModel):
     question_number: int
     question_text: str
     kind: str = Field(default="question")
+    question_role: Optional[str] = None
+    context_text: Optional[str] = None
+    options: Optional[list[str]] = None
+    blank_count: Optional[int] = None
     bbox: Optional[list[float]] = None
     answer_bbox: Optional[list[float]] = None
     image_url: Optional[str] = None
@@ -456,6 +460,10 @@ def build_recognition_document(
             question_number=payload.get("question_number", 0),
             question_text=payload.get("question_text", ""),
             kind=payload.get("kind", "question"),
+            question_role=payload.get("question_role"),
+            context_text=payload.get("context_text"),
+            options=payload.get("options"),
+            blank_count=payload.get("blank_count"),
             bbox=payload.get("bbox"),
             answer_bbox=payload.get("answer_bbox"),
             image_url=payload.get("image_url"),

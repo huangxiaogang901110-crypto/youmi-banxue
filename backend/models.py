@@ -69,6 +69,10 @@ class Question(BaseModel):
     question_number: int
     question_text: str
     kind: str = "question"
+    question_role: Optional[str] = None
+    context_text: Optional[str] = None
+    options: Optional[List[str]] = None
+    blank_count: Optional[int] = None
     bbox: Optional[List[float]] = None
     answer_bbox: Optional[List[float]] = None
     image_url: Optional[str] = None

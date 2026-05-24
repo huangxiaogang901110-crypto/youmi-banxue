@@ -23,9 +23,11 @@ from document_classifier import (
     assign_question_sections,
     classify_document,
     clean_question_text,
+    extract_structured_questions_from_ocr,
     filter_ocr_blocks_for_question_region,
     should_drop_candidate_question,
     should_extract_questions,
+    should_extract_structural_questions,
     summarize_question_alignment,
 )
 from schemas.recognition import (
@@ -477,6 +479,20 @@ def _apply_document_support_gate(
     return final_status
 
 
+def _drop_questions_for_conservative_page_type(
+    questions: list,
+    document_classification: dict | None,
+) -> list:
+    if not questions or not document_classification:
+        return questions
+    page_type = str(document_classification.get("page_type", "unknown")).strip().lower()
+    if page_type not in {"cover_or_instruction_page", "non_homework", "unknown"}:
+        return questions
+    if not document_classification.get("major_failure_reason"):
+        document_classification["major_failure_reason"] = f"{page_type}_suppressed"
+    return []
+
+
 def _decide_final_status(questions: list, has_failures: bool, ocr_only: bool) -> JobStatus:
     if has_failures or len(questions) == 0:
         return JobStatus.needs_review
@@ -559,6 +575,10 @@ def _build_questions_from_raw(
             question_number=q_no,
             question_text=q_text,
             kind="question",
+            question_role=rq.get("question_role"),
+            context_text=rq.get("context_text"),
+            options=rq.get("options"),
+            blank_count=rq.get("blank_count"),
             bbox=_normalize_question_bbox(rq.get("bbox")),
             answer_bbox=_normalize_question_bbox(rq.get("answer_bbox")),
             image_url=image_url or None,
@@ -581,6 +601,45 @@ def _build_questions_from_raw(
             qid, aid, page_id, q_no, q_text, question.bbox or [], shared_vd[:200],
             source_call_id=source_call_id, parse_cost_allocated_cny=parse_cost_per_q
         )
+    return assign_question_sections(questions, document_classification)
+
+
+def _build_questions_from_structured(
+    jid: str,
+    raw_questions: list[dict],
+    document_classification: dict | None,
+    source: str,
+    image_url: str | None,
+) -> list[Question]:
+    questions: list[Question] = []
+    for raw_index, rq in enumerate(raw_questions):
+        qid = f"{jid}-struct-{rq.get('question_number', raw_index + 1)}-{raw_index}"
+        question_text = clean_question_text(rq.get("question_text", ""), document_classification)
+        bbox = _normalize_question_bbox(rq.get("bbox"))
+        if should_drop_candidate_question(question_text, bbox, document_classification):
+            continue
+        payload = RecognitionQuestionContract(
+            question_id=qid,
+            question_number=int(rq.get("question_number") or (raw_index + 1)),
+            question_text=question_text,
+            kind=rq.get("kind", "question"),
+            question_role=rq.get("question_role"),
+            context_text=rq.get("context_text"),
+            options=rq.get("options"),
+            blank_count=rq.get("blank_count"),
+            bbox=bbox,
+            answer_bbox=None,
+            image_url=image_url or None,
+            status=QuestionStatus.completed.value,
+            student_answer=None,
+            section_title=rq.get("section_title"),
+            section_index=rq.get("section_index"),
+            sub_index=rq.get("sub_index"),
+            source=source,
+            confidence=normalize_confidence(rq.get("confidence")),
+            error_code=None,
+        )
+        questions.append(Question(**payload.model_dump()))
     return assign_question_sections(questions, document_classification)
 
 
@@ -992,13 +1051,7 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
             _db.save_model_call(_ocr_log)
 
             if ocr_blocks:
-                if not should_extract_questions(document_classification):
-                    info(
-                        f"[BG] OCR+Cut skipped for {jid}: "
-                        f"page_type={document_classification.get('page_type', 'unknown')}"
-                    )
-                    questions = []
-                else:
+                if should_extract_questions(document_classification):
                     filtered_blocks = filter_ocr_blocks_for_question_region(ocr_blocks, document_classification)
                     _pos_blocks = [
                         {"text": b["text"], "pos": [b.get("x", 0), b.get("y", 0), b.get("w", 0), b.get("h", 0)]}
@@ -1034,6 +1087,30 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
                         f"[BG] OCR+Cut: {len(ocr_blocks)} blocks → "
                         f"{len(filtered_blocks)} filtered blocks → {len(questions)} questions"
                     )
+                elif should_extract_structural_questions(document_classification):
+                    structured_questions = extract_structured_questions_from_ocr(
+                        ocr_blocks,
+                        document_classification,
+                        image_width=image_width,
+                        image_height=image_height,
+                    )
+                    questions = _build_questions_from_structured(
+                        jid,
+                        structured_questions,
+                        document_classification,
+                        source="ocr_structured",
+                        image_url=result_image_url,
+                    )
+                    info(
+                        f"[BG] OCR+Structured: {len(ocr_blocks)} blocks → "
+                        f"{len(structured_questions)} structured payloads → {len(questions)} questions"
+                    )
+                else:
+                    info(
+                        f"[BG] OCR+Cut skipped for {jid}: "
+                        f"page_type={document_classification.get('page_type', 'unknown')}"
+                    )
+                    questions = []
             else:
                 info(f"[BG] OCR returned 0 blocks, no questions produced")
                 questions = []
@@ -1198,6 +1275,13 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
             image_width=image_width,
             image_height=image_height,
         )
+        document_classification = _update_document_classification_stats(
+            document_classification,
+            questions,
+            image_width=image_width,
+            image_height=image_height,
+        )
+        questions = _drop_questions_for_conservative_page_type(questions, document_classification)
         document_classification = _update_document_classification_stats(
             document_classification,
             questions,

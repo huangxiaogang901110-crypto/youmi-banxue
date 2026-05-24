@@ -12,7 +12,7 @@ ARITHMETIC_EXPR = re.compile(r"\d+\s*[+\-×xX*/÷]\s*\d+")
 QUESTION_NUMBER = re.compile(
     r"^\s*(?:\(?\d{1,3}\)?[.、．)]|[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳]|[一二三四五六七八九十]+[、．.])"
 )
-SECTION_HEADER = re.compile(r"^\s*[一二三四五六七八九十]+[、．.]")
+SECTION_HEADER = re.compile(r"^\s*[★☆]?\s*[一二三四五六七八九十]+[、．.)）]")
 ENGLISH_TOKEN = re.compile(r"\b[A-Za-z]{3,}\b")
 PINYIN_TOKEN = re.compile(r"\b[a-z]{1,6}\b")
 META_FIELDS = re.compile(r"(日期|班级|姓名|学号|老师|家长签字|用时|得分|总分|分数)")
@@ -37,6 +37,14 @@ ENGLISH_KEYWORDS = re.compile(
     r"(listen|read|write|match|english|fill in the blanks|look and choose|circle the|order the)"
 )
 ANSWER_CUES = re.compile(r"(答[:：]|答案|写出|填空|括号|田字格|横线)")
+
+SECTION_KEYWORDS = re.compile(
+    r"(拼音|读音|组词|造句|同音字|近义词|反义词|阅读|课文|判断|选择|填空|写词语|仿写|连线|看图|应用题|计算|口算|竖式|比大小|写句子|补全|改错)"
+)
+PASSAGE_HINTS = re.compile(r"(阅读|短文|材料|根据课文|根据短文|看图|照样子|例[:：])")
+BLANK_HINTS = re.compile(r"(?:_{2,}|（\s*）|\(\s*\)|□|○|横线)")
+OPTION_HINTS = re.compile(r"(?:^[A-DＡ-Ｄ][.．、)]\s*|[（(][A-DＡ-Ｄ][)）])")
+CJK_CHAR = re.compile(r"[\u4e00-\u9fff]")
 
 
 @dataclass
@@ -132,6 +140,77 @@ def _union_bboxes(bboxes: Iterable[list[float] | None]) -> list[float] | None:
     return [round(x1, 2), round(y1, 2), round(x2 - x1, 2), round(y2 - y1, 2)]
 
 
+def _clamp_bbox(bbox: list[float] | None, width: float, height: float) -> list[float] | None:
+    normalized = _normalize_bbox(bbox)
+    if not normalized:
+        return None
+    x, y, w, h = normalized
+    x = min(max(0.0, x), max(width - 1.0, 0.0))
+    y = min(max(0.0, y), max(height - 1.0, 0.0))
+    max_w = max(width - x, 1.0)
+    max_h = max(height - y, 1.0)
+    w = min(max(w, 1.0), max_w)
+    h = min(max(h, 1.0), max_h)
+    return [round(x, 2), round(y, 2), round(w, 2), round(h, 2)]
+
+
+def _count_blanks(text: str) -> int:
+    stripped = str(text or "")
+    underscores = len(re.findall(r"_{2,}", stripped))
+    empty_parens = len(re.findall(r"(?:（\s*）|\(\s*\)|\[\s*\])", stripped))
+    boxes = stripped.count("□") + stripped.count("○")
+    return underscores + empty_parens + boxes
+
+
+def _count_cjk(text: str) -> int:
+    return len(CJK_CHAR.findall(str(text or "")))
+
+
+def _extract_options(text_lines: list[str]) -> list[str]:
+    options = [line.strip() for line in text_lines if OPTION_HINTS.search(line.strip())]
+    deduped: list[str] = []
+    for option in options:
+        if option and option not in deduped:
+            deduped.append(option[:80])
+    return deduped
+
+
+def _is_marker_only(text: str) -> bool:
+    stripped = str(text or "").strip()
+    if not stripped:
+        return True
+    without_marker = QUESTION_NUMBER.sub("", stripped, count=1).strip()
+    return not without_marker
+
+
+def _has_structural_signal(text: str, page_type: str) -> bool:
+    stripped = str(text or "").strip()
+    if not stripped:
+        return False
+    if _is_meta_like(stripped) or _is_footer_like(stripped):
+        return False
+    if BLANK_HINTS.search(stripped) or OPTION_HINTS.search(stripped):
+        return True
+    if PASSAGE_HINTS.search(stripped):
+        return True
+    if page_type == "chinese_homework":
+        return _count_cjk(stripped) >= 6
+    if page_type == "english_homework":
+        english_tokens = ENGLISH_TOKEN.findall(stripped)
+        return len(english_tokens) >= 3
+    return len(stripped) >= 12
+
+
+def _pick_structural_lines(lines: list[str], page_type: str) -> list[str]:
+    picked: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or _is_marker_only(stripped):
+            continue
+        if _has_structural_signal(stripped, page_type):
+            picked.append(stripped)
+    return picked
+
 def _is_question_like(text: str) -> bool:
     stripped = text.strip()
     if not stripped:
@@ -151,6 +230,8 @@ def _is_title_like(text: str) -> bool:
         return False
     if TITLE_KEYWORDS.search(stripped):
         return True
+    if SECTION_HEADER.match(stripped) and SECTION_KEYWORDS.search(stripped):
+        return True
     if len(stripped) <= 24 and "《" in stripped:
         return True
     return False
@@ -161,6 +242,8 @@ def _is_instruction_like(text: str) -> bool:
     if not stripped:
         return False
     if INSTRUCTION_KEYWORDS.search(stripped):
+        return True
+    if PASSAGE_HINTS.search(stripped) and not QUESTION_NUMBER.match(stripped):
         return True
     return False
 
@@ -174,6 +257,8 @@ def _is_meta_like(text: str) -> bool:
     if not stripped:
         return False
     if META_FIELDS.search(stripped):
+        return True
+    if stripped.startswith("第") and "页" in stripped:
         return True
     if TITLE_KEYWORDS.search(stripped) and len(stripped) <= 36:
         return True
@@ -251,7 +336,7 @@ def _collect_section_headers(blocks: list[BlockInfo]) -> list[SectionHeaderHint]
         text = block.text.strip()
         if not text:
             continue
-        if SECTION_HEADER.match(text):
+        if SECTION_HEADER.match(text) and SECTION_KEYWORDS.search(text):
             seq += 1
             hints.append(
                 SectionHeaderHint(
@@ -261,7 +346,7 @@ def _collect_section_headers(blocks: list[BlockInfo]) -> list[SectionHeaderHint]
                     block_indices=[block.index],
                 )
             )
-        elif block.is_title and block.is_question_like:
+        elif block.is_title and (block.is_question_like or SECTION_KEYWORDS.search(text)):
             seq += 1
             hints.append(
                 SectionHeaderHint(
@@ -471,6 +556,290 @@ def should_extract_questions(document_classification: dict[str, Any] | DocumentC
         else str(document_classification.get("page_type", "unknown"))
     )
     return page_type == "math_homework"
+
+
+def should_extract_structural_questions(
+    document_classification: dict[str, Any] | DocumentClassification | None,
+) -> bool:
+    if not document_classification:
+        return False
+    page_type = (
+        document_classification.page_type
+        if isinstance(document_classification, DocumentClassification)
+        else str(document_classification.get("page_type", "unknown"))
+    )
+    return page_type in {"chinese_homework", "english_homework"}
+
+
+def _get_region_bbox(
+    document_classification: dict[str, Any] | DocumentClassification | None,
+    label: str,
+) -> list[float] | None:
+    if not document_classification:
+        return None
+    regions = (
+        document_classification.layout_regions
+        if isinstance(document_classification, DocumentClassification)
+        else document_classification.get("layout_regions", [])
+    ) or []
+    return next((_normalize_bbox(region.get("bbox")) for region in regions if region.get("label") == label), None)
+
+
+def _build_structural_candidate_blocks(
+    raw_blocks: list[dict[str, Any]],
+    document_classification: dict[str, Any] | DocumentClassification | None,
+    *,
+    image_width: int | None,
+    image_height: int | None,
+) -> list[BlockInfo]:
+    blocks = _build_blocks(raw_blocks, image_width=image_width, image_height=image_height)
+    if not blocks:
+        return []
+    question_region = _get_region_bbox(document_classification, "question_region")
+    answer_region = _get_region_bbox(document_classification, "answer_region")
+    unknown_region = _get_region_bbox(document_classification, "unknown_region")
+    header_region = _get_region_bbox(document_classification, "header")
+    instruction_region = _get_region_bbox(document_classification, "instruction")
+    footer_region = _get_region_bbox(document_classification, "footer")
+    page_type = (
+        document_classification.page_type
+        if isinstance(document_classification, DocumentClassification)
+        else str((document_classification or {}).get("page_type", "unknown"))
+    )
+    meta_indices = set(
+        document_classification.meta_block_indices
+        if isinstance(document_classification, DocumentClassification)
+        else (document_classification or {}).get("meta_block_indices", [])
+    )
+
+    def _collect(region_labels: set[str] | None = None) -> list[BlockInfo]:
+        collected: list[BlockInfo] = []
+        for block in blocks:
+            if block.index in meta_indices:
+                continue
+            if _bbox_overlaps_region(block.bbox, header_region) or _bbox_overlaps_region(block.bbox, instruction_region) or _bbox_overlaps_region(block.bbox, footer_region):
+                continue
+            if block.is_footer:
+                continue
+            if region_labels:
+                in_question = "question_region" in region_labels and _bbox_overlaps_region(block.bbox, question_region)
+                in_answer = "answer_region" in region_labels and _bbox_overlaps_region(block.bbox, answer_region)
+                in_unknown = "unknown_region" in region_labels and _bbox_overlaps_region(block.bbox, unknown_region)
+                if not (in_question or in_answer or in_unknown):
+                    continue
+            collected.append(block)
+        collected.sort(key=lambda item: (item.center_y, item.center_x))
+        return collected
+
+    primary_regions = {"question_region", "answer_region"} if (question_region or answer_region) else None
+    candidates = _collect(primary_regions)
+    candidate_char_count = sum(len(block.text.strip()) for block in candidates)
+    meaningful_count = sum(1 for block in candidates if _has_structural_signal(block.text, page_type))
+    region_too_tight = len(candidates) < 3 or candidate_char_count < 32 or meaningful_count == 0
+    if region_too_tight and unknown_region:
+        widened = _collect({"question_region", "answer_region", "unknown_region"})
+        widened_char_count = sum(len(block.text.strip()) for block in widened)
+        widened_meaningful = sum(1 for block in widened if _has_structural_signal(block.text, page_type))
+        if len(widened) > len(candidates) and (widened_char_count > candidate_char_count or widened_meaningful > meaningful_count):
+            candidates = widened
+            candidate_char_count = widened_char_count
+            meaningful_count = widened_meaningful
+    if (len(candidates) < 3 or candidate_char_count < 32 or meaningful_count == 0) and page_type in {"chinese_homework", "english_homework"}:
+        candidates = _collect(None)
+    return candidates
+
+
+def _split_structural_sections(
+    candidate_blocks: list[BlockInfo],
+    section_headers: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    if not candidate_blocks:
+        return []
+    normalized_headers: list[dict[str, Any]] = []
+    for raw_header in section_headers or []:
+        bbox = _normalize_bbox(raw_header.get("bbox"))
+        if not bbox:
+            continue
+        normalized_headers.append(
+            {
+                "section_title": str(raw_header.get("section_title") or "").strip(),
+                "section_index": raw_header.get("section_index"),
+                "block_indices": set(raw_header.get("block_indices") or []),
+                "top": bbox[1],
+            }
+        )
+    normalized_headers.sort(key=lambda header: header["top"])
+    if not normalized_headers:
+        return [{
+            "section_title": None,
+            "section_index": 1,
+            "blocks": candidate_blocks,
+            "header_block_indices": set(),
+        }]
+
+    sections: list[dict[str, Any]] = []
+    for index, header in enumerate(normalized_headers):
+        top = header["top"]
+        next_top = normalized_headers[index + 1]["top"] if index + 1 < len(normalized_headers) else float("inf")
+        section_blocks = [
+            block
+            for block in candidate_blocks
+            if block.center_y >= top and block.center_y < next_top and block.index not in header["block_indices"]
+        ]
+        if not section_blocks:
+            continue
+        sections.append(
+            {
+                "section_title": header["section_title"] or None,
+                "section_index": header["section_index"] or (index + 1),
+                "blocks": section_blocks,
+                "header_block_indices": header["block_indices"],
+            }
+        )
+
+    if sections:
+        return sections
+    return [{
+        "section_title": None,
+        "section_index": 1,
+        "blocks": candidate_blocks,
+        "header_block_indices": set(),
+    }]
+
+
+def _extract_passage_text(lines: list[str], page_type: str) -> str | None:
+    passage_lines = []
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or QUESTION_NUMBER.match(stripped):
+            continue
+        if PASSAGE_HINTS.search(stripped) or (_has_structural_signal(stripped, page_type) and len(stripped) >= 14):
+            passage_lines.append(stripped)
+    if not passage_lines:
+        return None
+    return "\n".join(passage_lines[:4])[:240]
+
+
+def extract_structured_questions_from_ocr(
+    raw_blocks: list[dict[str, Any]],
+    document_classification: dict[str, Any] | DocumentClassification | None,
+    *,
+    image_width: int | None = None,
+    image_height: int | None = None,
+) -> list[dict[str, Any]]:
+    if not should_extract_structural_questions(document_classification):
+        return []
+    candidate_blocks = _build_structural_candidate_blocks(
+        raw_blocks,
+        document_classification,
+        image_width=image_width,
+        image_height=image_height,
+    )
+    if not candidate_blocks:
+        return []
+    section_headers = (
+        document_classification.section_headers
+        if isinstance(document_classification, DocumentClassification)
+        else (document_classification or {}).get("section_headers", [])
+    ) or []
+    sections = _split_structural_sections(candidate_blocks, section_headers)
+    page_type = (
+        document_classification.page_type
+        if isinstance(document_classification, DocumentClassification)
+        else str((document_classification or {}).get("page_type", "unknown"))
+    )
+    width = float(image_width or 1000.0)
+    height = float(image_height or 1400.0)
+    results: list[dict[str, Any]] = []
+    running_number = 1
+
+    for section in sections:
+        section_title = section.get("section_title")
+        section_index = section.get("section_index")
+        section_blocks: list[BlockInfo] = section.get("blocks") or []
+        if not section_blocks:
+            continue
+        if section_title and (_is_meta_like(section_title) or _is_instruction_like(section_title) or _is_footer_like(section_title)):
+            continue
+        marker_indices = [
+            idx
+            for idx, block in enumerate(section_blocks)
+            if QUESTION_NUMBER.match(block.text.strip()) and not SECTION_HEADER.match(block.text.strip())
+        ]
+        section_lines = [block.text.strip() for block in section_blocks if block.text.strip()]
+        context_text = _extract_passage_text(section_lines, page_type)
+
+        if marker_indices:
+            boundaries = marker_indices + [len(section_blocks)]
+            for boundary_index, marker_idx in enumerate(marker_indices):
+                next_idx = boundaries[boundary_index + 1]
+                span_blocks = section_blocks[marker_idx:next_idx]
+                span_lines = [block.text.strip() for block in span_blocks if block.text.strip()]
+                prompt_lines = _pick_structural_lines(span_lines, page_type)
+                if section_title and prompt_lines and prompt_lines[0] == section_title:
+                    prompt_lines = prompt_lines[1:]
+                question_text = clean_question_text("\n".join(prompt_lines), document_classification)
+                bbox = _clamp_bbox(_union_bboxes(block.bbox for block in span_blocks), width, height)
+                if _is_marker_only(question_text):
+                    continue
+                if not question_text:
+                    continue
+                if should_drop_candidate_question(question_text, bbox, document_classification):
+                    continue
+                options = _extract_options(span_lines)
+                context_for_question = context_text
+                if prompt_lines and context_text and prompt_lines[0] == context_text:
+                    context_for_question = None
+                results.append(
+                    {
+                        "question_number": running_number,
+                        "question_text": question_text[:240],
+                        "question_role": "subquestion",
+                        "context_text": context_for_question,
+                        "options": options or None,
+                        "blank_count": _count_blanks(question_text),
+                        "bbox": bbox,
+                        "section_title": section_title,
+                        "section_index": section_index,
+                        "sub_index": boundary_index + 1,
+                    }
+                )
+                running_number += 1
+            if results:
+                continue
+
+        content_lines = _pick_structural_lines(section_lines, page_type)
+        if section_title and content_lines and content_lines[0] == section_title:
+            content_lines = content_lines[1:]
+        question_text = clean_question_text("\n".join(content_lines), document_classification)
+        if not question_text and section_title and SECTION_KEYWORDS.search(section_title):
+            question_text = section_title
+        if not question_text:
+            continue
+        bbox = _clamp_bbox(_union_bboxes(block.bbox for block in section_blocks), width, height)
+        if _is_marker_only(question_text):
+            continue
+        if should_drop_candidate_question(question_text, bbox, document_classification):
+            continue
+        options = _extract_options(content_lines)
+        results.append(
+            {
+                "question_number": running_number,
+                "question_text": question_text[:240],
+                "question_role": "section_prompt",
+                "context_text": context_text,
+                "options": options or None,
+                "blank_count": _count_blanks(question_text),
+                "bbox": bbox,
+                "section_title": section_title,
+                "section_index": section_index,
+                "sub_index": 1 if section_index is not None else None,
+            }
+        )
+        running_number += 1
+
+    return results
+
 
 
 def filter_ocr_blocks_for_question_region(

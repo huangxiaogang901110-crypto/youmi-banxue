@@ -98,6 +98,14 @@ export interface Question {
   question_text: string;
   /** 识别结果类型，默认 question */
   kind?: string;
+  /** 结构角色：section_prompt / subquestion / grouped_question 等 */
+  question_role?: string | null;
+  /** 题目前置材料或阅读上下文 */
+  context_text?: string | null;
+  /** 选项列表 */
+  options?: string[] | null;
+  /** 题目中的空格/填空数量 */
+  blank_count?: number | null;
   /** 边界框坐标，格式如 [x, y, width, height] */
   bbox?: number[];
   /** 答案区域边界框，格式如 [x, y, width, height] */

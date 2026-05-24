@@ -1,0 +1,346 @@
+"""
+纯单元测试 — document_classifier + pipeline 收口逻辑
+不调用任何真实 API (OCR/Qwen/DeepSeek)，仅测纯函数。
+"""
+from __future__ import annotations
+
+import sys
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+# Mock db module before any pipeline import
+mock_db = MagicMock()
+mock_db.load_all.return_value = ({}, [], {}, {})
+sys.modules["db"] = mock_db
+
+from document_classifier import (
+    BlockInfo,
+    DocumentClassification,
+    _build_blocks,
+    _count_blanks,
+    _extract_options,
+    _is_footer_like,
+    _is_meta_like,
+    _is_question_like,
+    _is_title_like,
+    _is_instruction_like,
+    _is_non_homework_text,
+    _is_marker_only,
+    _has_structural_signal,
+    _pick_structural_lines,
+    _trim_to_question_anchor,
+    classify_document,
+    clean_question_text,
+    should_drop_candidate_question,
+    should_extract_questions,
+    should_extract_structural_questions,
+)
+from pipeline import _drop_questions_for_conservative_page_type
+
+
+# ── 1. meta/footer 不进入 question ──
+
+def test_meta_like_blocks_excluded():
+    """页眉/班级/姓名/日期等 meta 信息不应进入题目区"""
+    assert _is_meta_like("班级：三年级(2)班")
+    assert _is_meta_like("姓名：小明")
+    assert _is_meta_like("日期：2025年5月24日")
+    assert _is_meta_like("得分：___")
+    assert _is_meta_like("总分：100分")
+    assert _is_meta_like("老师：王老师")
+    assert _is_meta_like("用时：40分钟")
+    assert _is_meta_like("第3页")
+    assert _is_meta_like("寒假作业")
+
+    assert not _is_meta_like("1. 计算下列各题")
+    assert not _is_meta_like("苹果是一种水果")
+
+
+def test_footer_like_blocks_excluded():
+    """页脚/出版社/二维码等信息不应进入题目区"""
+    assert _is_footer_like("第5页 共12页")
+    assert _is_footer_like("出版社：人民教育出版社")
+    assert _is_footer_like("定价：12.00元")
+    assert _is_footer_like("二维码")
+
+    assert not _is_footer_like("1. 5 + 3 = ___")
+    assert not _is_footer_like("阅读短文回答问题")
+
+
+# ── 2. cover / non_homework / unknown → 空题或 needs_review ──
+
+def test_non_homework_detected():
+    """营养成分/登录等非作业内容应被识别"""
+    assert _is_non_homework_text("营养成分表")
+    assert _is_non_homework_text("配料：面粉、糖、盐")
+    assert _is_non_homework_text("登录验证码")
+    assert _is_non_homework_text("隐私政策")
+
+    assert not _is_non_homework_text("1. 计算：3 + 5 = ___")
+    assert not _is_non_homework_text("阅读短文回答问题")
+
+
+def test_classify_cover_page():
+    """标题/页眉为主的页面应判为 cover"""
+    result = classify_document(
+        raw_text="""
+寒假作业
+三年级数学下册
+班级：____ 姓名：____
+日期：____ 得分：____
+        """.strip(),
+    )
+    assert result.page_type in ("cover_or_instruction_page", "unknown")
+
+
+def test_classify_math_page():
+    """数学作业页应正确识别"""
+    result = classify_document(
+        raw_text="""
+1. 直接写出得数：
+2. 3 + 5 = (__)
+3. 12 - 7 = (__)
+4. 列竖式计算：
+5. 45 + 38 = (__)
+        """.strip(),
+    )
+    assert result.page_type == "math_homework"
+
+
+def test_classify_chinese_page():
+    """语文作业页应正确识别"""
+    result = classify_document(
+        raw_text="""
+一、看拼音写词语
+píng guǒ  → (____)
+二、组词
+读(____) 写(____)
+        """.strip(),
+    )
+    assert result.page_type in ("chinese_homework", "mixed_homework", "unknown")
+
+
+def test_drop_questions_for_cover():
+    """cover 页面的题应被丢弃"""
+    doc = {"page_type": "cover_or_instruction_page"}
+    questions = [{"question_text": "寒假作业"}]
+    result = _drop_questions_for_conservative_page_type(questions, doc)
+    assert result == []
+
+
+def test_drop_questions_for_non_homework():
+    """non_homework 页面的题应被丢弃"""
+    doc = {"page_type": "non_homework"}
+    questions = [{"question_text": "营养成分"}]
+    result = _drop_questions_for_conservative_page_type(questions, doc)
+    assert result == []
+
+
+def test_drop_questions_for_unknown():
+    """unknown 页面的题应被丢弃"""
+    doc = {"page_type": "unknown"}
+    questions = [{"question_text": "???"}]
+    result = _drop_questions_for_conservative_page_type(questions, doc)
+    assert result == []
+
+
+def test_preserve_questions_for_mixed():
+    """mixed_homework 页面的题应保留（收口后不再丢弃）"""
+    doc = {"page_type": "mixed_homework"}
+    questions = [{"question_text": "1. 计算 3+5"}]
+    result = _drop_questions_for_conservative_page_type(questions, doc)
+    assert result == questions
+
+
+def test_preserve_questions_for_math():
+    """math_homework 页面的题应保留"""
+    doc = {"page_type": "math_homework"}
+    questions = [{"question_text": "1. 计算 3+5"}]
+    result = _drop_questions_for_conservative_page_type(questions, doc)
+    assert result == questions
+
+
+# ── 3. 普通小题编号不被误判为 section header ──
+
+def test_arabic_numbers_not_section_headers():
+    """1. 2. 3. 这种小题编号不应被归为 section header"""
+    assert not _is_title_like("1. 计算：3 + 5 = ___")
+    assert not _is_title_like("2. 苹果")
+    assert not _is_title_like("3. 选择正确的答案")
+
+    assert not _is_title_like("（1）填空")
+    assert not _is_title_like("② 判断对错")
+
+    assert _is_title_like("一、看拼音写词语")
+
+
+def test_small_question_number_is_question_like():
+    """小题编号应被识别为 question-like"""
+    assert _is_question_like("1. 计算")
+    assert _is_question_like("3. 填空")
+    assert _is_question_like("5 + 3 = ?")
+    assert _is_question_like("判断对错")
+
+
+def test_marker_only_detection():
+    """纯编号空行不应被当成题目"""
+    assert _is_marker_only("1.")
+    assert _is_marker_only("(2)")
+    assert _is_marker_only("③")
+    # （2）全角括号不被正则匹配 → 合理边缘 case
+    assert not _is_marker_only("1. 苹果")
+
+
+# ── 4. 英文选项可被结构化 ──
+
+def test_extract_english_options():
+    """A/B/C/D 选项应被正确提取"""
+    lines = ["A. apple", "B. banana", "C. cherry", "D. date"]
+    options = _extract_options(lines)
+    assert len(options) == 4
+    assert "A. apple" in options
+
+
+def test_extract_english_options_with_parens():
+    """(A) / (B) 格式的选项"""
+    lines = ["(A) cat", "(B) dog", "(C) fish"]
+    options = _extract_options(lines)
+    assert len(options) == 3
+
+
+def test_extract_mixed_options():
+    """混在文本中的选项"""
+    lines = [
+        "1. What is the capital of China?",
+        "A. Beijing  B. Shanghai  C. Guangzhou  D. Shenzhen",
+    ]
+    options = _extract_options(lines)
+    assert len(options) >= 1
+
+
+# ── 5. 填空题 blanks 可被数 ──
+
+def test_count_blanks_underscores():
+    assert _count_blanks("苹果是____色的") == 1
+    assert _count_blanks("__ + __ = 5") == 2
+    assert _count_blanks("没有空格") == 0
+
+
+def test_count_blanks_parens():
+    assert _count_blanks("3 + 5 = （）") == 1
+    assert _count_blanks("（）+ （）= 8") == 2
+
+
+def test_count_blanks_boxes():
+    assert _count_blanks("□ + 3 = 7") == 1
+
+
+# ── 6. mixed/unknown 保守处理 ──
+
+def test_mixed_not_dropped():
+    """mixed_homework 保留题目，不丢弃"""
+    doc = {"page_type": "mixed_homework", "support_level": "partial"}
+    questions = [{"question_text": "1. 计算 3+5"}]
+    result = _drop_questions_for_conservative_page_type(questions, doc)
+    assert len(result) == 1
+
+
+def test_unknown_dropped():
+    """unknown 页面仍应丢弃题目"""
+    doc = {"page_type": "unknown"}
+    questions = [{"question_text": "..."}]
+    result = _drop_questions_for_conservative_page_type(questions, doc)
+    assert result == []
+
+
+# ── 7. 新字段可序列化 ──
+
+def test_document_classification_new_fields():
+    """DocumentClassification 新字段应可正常序列化"""
+    dc = DocumentClassification(
+        page_type="math_homework",
+        subject="math",
+        support_level="full",
+        meta_block_indices=[0, 1],
+        question_block_indices=[2, 3, 4],
+        answer_block_indices=[5],
+        stats={"block_count": 6},
+    )
+    d = dc.model_dump()
+    assert d["page_type"] == "math_homework"
+    assert d["meta_block_indices"] == [0, 1]
+    assert d["question_block_indices"] == [2, 3, 4]
+
+
+# ── 8. pipeline 接入不破坏旧字段 ──
+
+def test_pipeline_extraction_routing():
+    """验证 should_extract 路由不混淆"""
+    dc_math = DocumentClassification(page_type="math_homework")
+    dc_chinese = DocumentClassification(page_type="chinese_homework")
+    dc_english = DocumentClassification(page_type="english_homework")
+    dc_cover = DocumentClassification(page_type="cover_or_instruction_page")
+
+    assert should_extract_questions(dc_math) == True
+    assert should_extract_questions(dc_chinese) == False
+    assert should_extract_questions(dc_english) == False
+
+    assert should_extract_structural_questions(dc_math) == False
+    assert should_extract_structural_questions(dc_chinese) == True
+    assert should_extract_structural_questions(dc_english) == True
+    assert should_extract_structural_questions(dc_cover) == False
+
+
+def test_clean_question_text_strips_meta():
+    """clean_question_text 应去除 meta 信息"""
+    doc = DocumentClassification(page_type="chinese_homework")
+    result = clean_question_text("班级：三(1)班\n1. 看拼音写词语", doc)
+    assert "班级" not in result
+
+
+def test_should_drop_meta():
+    """should_drop_candidate_question 应丢弃 meta"""
+    doc = DocumentClassification(page_type="chinese_homework")
+    assert should_drop_candidate_question("班级：三年级", None, doc) == True
+    assert should_drop_candidate_question("老师：王老师", None, doc) == True
+    assert should_drop_candidate_question("1. 看拼音写词语", None, doc) == False
+
+
+def test_structural_signal():
+    """中文/英文页面的 structural signal 检测"""
+    assert _has_structural_signal("看拼音写词语苹果香蕉橘子", "chinese_homework")
+    assert _has_structural_signal("阅读短文回答问题", "chinese_homework")
+    assert _has_structural_signal("Fill in the blanks with the correct words", "english_homework")
+    assert not _has_structural_signal("寒假作业", "chinese_homework")
+
+
+def test_pick_structural_lines():
+    """_pick_structural_lines 应过滤 meta/footer"""
+    lines = [
+        "寒假作业",
+        "班级：三(1)班",
+        "一、看拼音写词语",
+        "píng guǒ → (____)",
+        "二、组词造句",
+        "第5页 共12页",
+    ]
+    picked = _pick_structural_lines(lines, "chinese_homework")
+    assert "寒假作业" not in picked
+    assert "第5页" not in picked or all("第5页" not in p for p in picked)
+
+
+def test_build_blocks_labels():
+    """_build_blocks 应正确打标签"""
+    blocks = _build_blocks(
+        [
+            {"text": "班级：三(1)班", "bbox": [10, 5, 200, 20]},
+            {"text": "1. 计算：3 + 5 = ___", "bbox": [10, 50, 300, 30]},
+            {"text": "第5页", "bbox": [10, 800, 50, 20]},
+        ],
+        image_width=400,
+        image_height=1000,
+    )
+    assert blocks[0].is_meta or blocks[0].is_title
+    assert blocks[1].is_question_like
+    assert blocks[2].is_footer
