@@ -380,7 +380,11 @@ def build_grading(questions: list[RecognitionQuestionContract]) -> list[Recognit
     return gradings
 
 
-def build_regions(image_id: str, questions: list[RecognitionQuestionContract]) -> list[RecognitionRegion]:
+def build_regions(
+    image_id: str,
+    questions: list[RecognitionQuestionContract],
+    layout_regions: list[dict[str, Any]] | None = None,
+) -> list[RecognitionRegion]:
     question_bbox = _union_bboxes([
         question.bbox for question in questions if question.bbox is not None
     ])
@@ -388,6 +392,22 @@ def build_regions(image_id: str, questions: list[RecognitionQuestionContract]) -
         question.answer_bbox for question in questions if question.answer_bbox is not None
     ])
     regions: list[RecognitionRegion] = []
+    for index, region in enumerate(layout_regions or []):
+        label = str(region.get("label") or "unknown_region")
+        bbox = normalize_bbox(region.get("bbox"))
+        if bbox is None:
+            continue
+        regions.append(RecognitionRegion(
+            id=region.get("id") or f"{image_id}-region-{label}-{index}",
+            text=label,
+            bbox=bbox,
+            confidence=normalize_confidence(region.get("confidence")),
+            source=region.get("source", "layout"),
+            kind="region",
+            parent_id=image_id,
+            status=region.get("status", "completed"),
+            label=label,
+        ))
     if question_bbox is not None:
         regions.append(RecognitionRegion(
             id=f"{image_id}-region-question-area",
@@ -421,6 +441,7 @@ def build_recognition_document(
     raw_questions: list[Any],
     raw_blocks: list[dict[str, Any]] | None = None,
     block_source: str = "ocr_unknown",
+    layout_regions: list[dict[str, Any]] | None = None,
     meta: dict[str, Any] | None = None,
 ) -> RecognitionDocument:
     image_model = image if isinstance(image, RecognitionImage) else RecognitionImage(**image)
@@ -457,7 +478,7 @@ def build_recognition_document(
     return RecognitionDocument(
         image=image_model,
         blocks=build_blocks_from_ocr_blocks(image_model.id, raw_blocks or [], source=block_source),
-        regions=build_regions(image_model.id, questions),
+        regions=build_regions(image_model.id, questions, layout_regions=layout_regions),
         question_groups=build_question_groups(questions),
         questions=questions,
         answers=build_answers(questions),

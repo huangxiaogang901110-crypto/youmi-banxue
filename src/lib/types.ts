@@ -50,10 +50,16 @@ export type QuestionStatus = 'pending' | 'completed' | 'failed';
 
 export interface DocumentClassification {
   doc_family: string;
+  page_type?: string;
   subject: string;
   support_level: 'full' | 'partial' | 'unsupported';
   route_hint: string;
+  confidence?: number;
   reason: string;
+  layout_regions?: Array<Record<string, unknown>>;
+  section_headers?: Array<Record<string, unknown>>;
+  stats?: Record<string, unknown>;
+  major_failure_reason?: string;
 }
 
 /**

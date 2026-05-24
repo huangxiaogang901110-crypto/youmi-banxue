@@ -18,7 +18,16 @@ from deepseek_client import DeepSeekClient
 from vision_client import QwenVLClient
 from ocr_client import AliyunOCRClient
 from question_cutter import cut_to_questions
-from document_classifier import DocumentClassification, classify_document
+from document_classifier import (
+    DocumentClassification,
+    assign_question_sections,
+    classify_document,
+    clean_question_text,
+    filter_ocr_blocks_for_question_region,
+    should_drop_candidate_question,
+    should_extract_questions,
+    summarize_question_alignment,
+)
 from schemas.recognition import (
     RecognitionImage,
     RecognitionQuestionContract,
@@ -63,16 +72,20 @@ def _build_recognition_snapshot(jid: str, questions: list, file, status: JobStat
         "progress": _jobs[jid].get("progress", ""),
         "error_code": _jobs[jid].get("error_code", ""),
         "document_classification": document_classification,
+        "page_type": document_classification.get("page_type", ""),
         "document_family": document_classification.get("doc_family", ""),
         "subject": document_classification.get("subject", ""),
         "support_level": document_classification.get("support_level", ""),
         "route_hint": document_classification.get("route_hint", ""),
+        "confidence": document_classification.get("confidence", 0.0),
+        "reason": document_classification.get("reason", ""),
     }
     return build_recognition_document(
         image=image_payload,
         raw_questions=questions,
         raw_blocks=_jobs[jid].get("ocr_blocks", []),
         block_source=_jobs[jid].get("ocr_block_source", "ocr_unknown"),
+        layout_regions=document_classification.get("layout_regions", []),
         meta=meta,
     ).model_dump()
 
@@ -399,7 +412,13 @@ def _extract_question_texts(questions: list) -> list[str]:
     return question_texts
 
 
-def _build_document_classification(ocr_blocks: list, questions: list) -> dict:
+def _build_document_classification(
+    ocr_blocks: list,
+    questions: list,
+    *,
+    image_width: int | None = None,
+    image_height: int | None = None,
+) -> dict:
     raw_text = "\n".join(
         str(block.get("text", "")).strip()
         for block in ocr_blocks
@@ -408,7 +427,34 @@ def _build_document_classification(ocr_blocks: list, questions: list) -> dict:
     return classify_document(
         raw_text=raw_text,
         question_texts=_extract_question_texts(questions),
+        ocr_blocks=ocr_blocks,
+        image_width=image_width,
+        image_height=image_height,
     ).model_dump()
+
+
+def _update_document_classification_stats(
+    document_classification: dict | None,
+    questions: list,
+    *,
+    image_width: int | None = None,
+    image_height: int | None = None,
+) -> dict:
+    if not document_classification:
+        return {}
+    stats = summarize_question_alignment(
+        questions,
+        document_classification,
+        image_width=image_width,
+        image_height=image_height,
+    )
+    merged = dict(document_classification)
+    existing_stats = dict(merged.get("stats") or {})
+    existing_stats.update(stats)
+    merged["stats"] = existing_stats
+    if stats.get("meta_like_question_count", 0) > 0 and not merged.get("major_failure_reason"):
+        merged["major_failure_reason"] = "meta_like_question_leak"
+    return merged
 
 
 def _apply_document_support_gate(
@@ -460,6 +506,7 @@ def _build_test_mode_questions(jid: str) -> list[Question]:
 def _build_questions_from_raw(
     jid: str,
     raw_questions: list[dict],
+    document_classification: dict | None,
     shared_vd: str,
     aid: str,
     page_id: str,
@@ -468,6 +515,8 @@ def _build_questions_from_raw(
     source: str,
     image_url: str | None,
 ) -> list[Question]:
+    if not should_extract_questions(document_classification):
+        return []
     questions: list[Question] = []
     for raw_index, rq in enumerate(raw_questions):
         if _should_drop_raw_question(rq):
@@ -475,7 +524,10 @@ def _build_questions_from_raw(
             continue
 
         qid = f"{jid}-{rq.get('number', raw_index + 1)}-{raw_index}"
-        q_text = rq.get("content", f"第{rq.get('number', raw_index + 1)}题")
+        q_text = clean_question_text(
+            rq.get("content", f"第{rq.get('number', raw_index + 1)}题"),
+            document_classification,
+        )
         student_ans = rq.get("student_answer")
         if student_ans is None or (isinstance(student_ans, str) and not student_ans.strip()):
             student_ans = None
@@ -520,13 +572,16 @@ def _build_questions_from_raw(
             confidence=normalize_confidence(rq.get("confidence")),
             error_code=None,
         )
+        if should_drop_candidate_question(payload.question_text, payload.bbox, document_classification):
+            info(f"[BG] Drop meta-like question #{raw_index} for {jid}: {payload.question_text[:80]}")
+            continue
         question = Question(**payload.model_dump())
         questions.append(question)
         _db.create_question_item(
             qid, aid, page_id, q_no, q_text, question.bbox or [], shared_vd[:200],
             source_call_id=source_call_id, parse_cost_allocated_cny=parse_cost_per_q
         )
-    return questions
+    return assign_question_sections(questions, document_classification)
 
 
 async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_id: str, child_id: str):
@@ -732,6 +787,16 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
         ocr_blocks = ocr_raw.get("blocks", [])
         _jobs[jid]["ocr_blocks"] = ocr_blocks
         _jobs[jid]["ocr_block_source"] = "aliyun_general_ocr"
+        image_payload = _jobs[jid].get("recognition_image") or {}
+        image_width = image_payload.get("width")
+        image_height = image_payload.get("height")
+        document_classification = _build_document_classification(
+            ocr_blocks,
+            [],
+            image_width=image_width,
+            image_height=image_height,
+        )
+        _jobs[jid]["document_classification"] = document_classification
         info(f"[BG] Parallel done: Qwen={'OK' if qwen_result.get('success') else 'FAIL'}({qwen_latency}ms) OCR={len(ocr_blocks)}blocks({ocr_latency}ms)")
         usage = qwen_result.get("usage", {}) if qwen_result.get("success") else {}
         input_tokens = usage.get("prompt_tokens", 0) if isinstance(usage, dict) else 0
@@ -771,6 +836,7 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
             questions = _build_questions_from_raw(
                 jid=jid,
                 raw_questions=raw_questions,
+                document_classification=document_classification,
                 shared_vd=shared_vd,
                 aid=aid,
                 page_id=page_id,
@@ -889,6 +955,7 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
                     questions = _build_questions_from_raw(
                         jid=jid,
                         raw_questions=_all_qs,
+                        document_classification=document_classification,
                         shared_vd="B++ 局部识别结果",
                         aid=aid,
                         page_id=page_id,
@@ -925,32 +992,48 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
             _db.save_model_call(_ocr_log)
 
             if ocr_blocks:
-                # 适配 question_cutter 格式：补充 pos 字段
-                _pos_blocks = [{"text": b["text"], "pos": [b.get("x", 0), b.get("y", 0), b.get("w", 0), b.get("h", 0)]} for b in ocr_blocks]
-                extracted = {"blocks": ocr_blocks, "text": ocr_raw.get("text", ""), "block_count": len(ocr_blocks)}
-                cut_results = cut_to_questions(_pos_blocks)
-                questions = []
-                for i, cq in enumerate(cut_results):
-                    qid = f"{jid}-{cq['question_number']}-{i}"
-                    q_bbox = _normalize_question_bbox(cq.get("bbox"))
-                    payload = RecognitionQuestionContract(
-                        question_id=qid,
-                        question_number=cq["question_number"],
-                        question_text=cq["question_text"],
-                        kind="question",
-                        bbox=q_bbox,
-                        answer_bbox=None,
-                        image_url=result_image_url or None,
-                        visual_description=None,
-                        status=QuestionStatus.completed.value,
-                        student_answer=None,
-                        source="ocr_cut",
-                        confidence=None,
-                        error_code=None,
+                if not should_extract_questions(document_classification):
+                    info(
+                        f"[BG] OCR+Cut skipped for {jid}: "
+                        f"page_type={document_classification.get('page_type', 'unknown')}"
                     )
-                    questions.append(Question(**payload.model_dump()))
-                    _db.create_question_item(qid, aid, page_id, cq["question_number"], cq["question_text"], q_bbox or [])
-                info(f"[BG] OCR+Cut: {len(ocr_blocks)} blocks → {len(questions)} questions")
+                    questions = []
+                else:
+                    filtered_blocks = filter_ocr_blocks_for_question_region(ocr_blocks, document_classification)
+                    _pos_blocks = [
+                        {"text": b["text"], "pos": [b.get("x", 0), b.get("y", 0), b.get("w", 0), b.get("h", 0)]}
+                        for b in filtered_blocks
+                    ]
+                    cut_results = cut_to_questions(_pos_blocks)
+                    questions = []
+                    for i, cq in enumerate(cut_results):
+                        cleaned_text = clean_question_text(cq["question_text"], document_classification)
+                        qid = f"{jid}-{cq['question_number']}-{i}"
+                        q_bbox = _normalize_question_bbox(cq.get("bbox"))
+                        if should_drop_candidate_question(cleaned_text, q_bbox, document_classification):
+                            continue
+                        payload = RecognitionQuestionContract(
+                            question_id=qid,
+                            question_number=cq["question_number"],
+                            question_text=cleaned_text,
+                            kind="question",
+                            bbox=q_bbox,
+                            answer_bbox=None,
+                            image_url=result_image_url or None,
+                            visual_description=None,
+                            status=QuestionStatus.completed.value,
+                            student_answer=None,
+                            source="ocr_cut",
+                            confidence=None,
+                            error_code=None,
+                        )
+                        questions.append(Question(**payload.model_dump()))
+                        _db.create_question_item(qid, aid, page_id, cq["question_number"], cleaned_text, q_bbox or [])
+                    questions = assign_question_sections(questions, document_classification)
+                    info(
+                        f"[BG] OCR+Cut: {len(ocr_blocks)} blocks → "
+                        f"{len(filtered_blocks)} filtered blocks → {len(questions)} questions"
+                    )
             else:
                 info(f"[BG] OCR returned 0 blocks, no questions produced")
                 questions = []
@@ -1096,6 +1179,7 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
         _jobs[jid]["job"].status = JobStatus.schema_validating
         _ocr_only = not use_qwen_vl and DISABLE_PER_Q_VISION
         has_failures = False
+        questions = assign_question_sections(questions, document_classification)
         for q in questions:
             if q.status == QuestionStatus.failed:
                 has_failures = True
@@ -1108,7 +1192,18 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
                 q.status = QuestionStatus.failed
                 has_failures = True
 
-        document_classification = _build_document_classification(ocr_blocks, questions)
+        document_classification = _build_document_classification(
+            ocr_blocks,
+            questions,
+            image_width=image_width,
+            image_height=image_height,
+        )
+        document_classification = _update_document_classification_stats(
+            document_classification,
+            questions,
+            image_width=image_width,
+            image_height=image_height,
+        )
         _jobs[jid]["document_classification"] = document_classification
 
         final_status = _decide_final_status(questions, has_failures, _ocr_only)

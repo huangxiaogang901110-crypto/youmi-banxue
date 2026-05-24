@@ -504,6 +504,7 @@ async def get_parse_job_recognition(job_id: str, request: Request, user: tuple =
             raw_questions=db_data.get("questions", []),
             raw_blocks=db_data.get("ocr_blocks", []),
             block_source=db_data.get("ocr_block_source", "persisted_ocr"),
+            layout_regions=(db_data.get("document_classification", {}) or {}).get("layout_regions", []),
             meta={
                 "job_id": job_id,
                 "status": db_data.get("status"),

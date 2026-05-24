@@ -54,6 +54,12 @@ function DiagPanel({ events, expanded, onToggle }: { events: DiagEvent[]; expand
 }
 
 const DOCUMENT_FAMILY_LABELS: Record<string, string> = {
+  math_homework: "数学作业页",
+  chinese_homework: "语文作业页",
+  english_homework: "英语作业页",
+  mixed_homework: "混合作业页",
+  cover_or_instruction_page: "封面/说明页",
+  non_homework: "非作业页",
   math_arithmetic: "数学计算页",
   math_word_problem: "数学应用题",
   math_vertical: "数学竖式题",
@@ -75,12 +81,16 @@ function getDocumentFamilyLabel(docFamily?: string | null): string {
   return DOCUMENT_FAMILY_LABELS[docFamily] || DOCUMENT_FAMILY_LABELS.unknown;
 }
 
+function getClassificationKey(classification?: DocumentClassification | null): string | null {
+  return classification?.page_type || classification?.doc_family || null;
+}
+
 function getRecognitionHint(
   currentStatus: string,
   documentClassification?: DocumentClassification | null,
   questionCount: number = 0,
 ): { title: string; description: string } {
-  const label = getDocumentFamilyLabel(documentClassification?.doc_family);
+  const label = getDocumentFamilyLabel(getClassificationKey(documentClassification));
   const reason = documentClassification?.reason?.trim();
   const supportLevel = documentClassification?.support_level;
 
@@ -130,7 +140,8 @@ function RecognitionHintCard({
   compact?: boolean;
   questionCount?: number;
 }) {
-  if (!classification || !classification.doc_family || classification.doc_family === "unknown") {
+  const classificationKey = getClassificationKey(classification);
+  if (!classification || !classificationKey || classificationKey === "unknown") {
     return null;
   }
 
@@ -147,7 +158,7 @@ function RecognitionHintCard({
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-sm font-semibold">{hint.title}</span>
         <span className="rounded-full bg-white/80 px-2.5 py-0.5 text-xs font-medium">
-          {getDocumentFamilyLabel(classification.doc_family)}
+          {getDocumentFamilyLabel(classificationKey)}
         </span>
         <span className="rounded-full bg-white/80 px-2.5 py-0.5 text-xs">
           {SUPPORT_LEVEL_LABELS[classification.support_level]}
