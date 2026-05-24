@@ -1276,3 +1276,80 @@ def save_image_fingerprint(fp: dict):
     )
     c.commit()
     c.close()
+
+
+def find_reusable_job_by_fingerprint(
+    parent_id: str,
+    child_id: str,
+    original_sha256: str | None,
+    ahash: str | None,
+    dhash: str | None,
+    aspect_ratio: float | None,
+    max_ahash_dist: int = 2,
+    max_dhash_dist: int = 4,
+    max_aspect_diff: float = 0.05,
+):
+    """Step 2: 同图去重查找。按 parent_id + child_id 范围内匹配指纹。
+
+    优先级：
+    1. original_sha256 完全匹配（最快）
+    2. ahash hamming <= max_ahash_dist AND dhash hamming <= max_dhash_dist
+
+    只复用 completed / low_confidence / needs_review 且未删除的 job。
+    返回 (job_id, status, questions_count, ahash_dist, dhash_dist) 或 None。
+    """
+    if not ahash:
+        return None
+    c = _conn()
+    REUSABLE_STATUSES = ("completed", "low_confidence", "needs_review")
+
+    # Priority 1: original_sha256 exact match
+    if original_sha256:
+        row = c.execute(
+            """SELECT fp.job_id, pj.status, pj.questions_count, fp.ahash, fp.dhash
+               FROM image_fingerprints fp
+               JOIN parse_jobs pj ON fp.job_id = pj.job_id
+               WHERE fp.parent_id = ? AND fp.child_id = ?
+                 AND fp.original_sha256 = ?
+                 AND pj.status IN (?, ?, ?)
+                 AND pj.deleted_at IS NULL
+               ORDER BY pj.created_at DESC LIMIT 1""",
+            (parent_id, child_id, original_sha256, *REUSABLE_STATUSES),
+        ).fetchone()
+        if row:
+            c.close()
+            return (row["job_id"], row["status"], row["questions_count"], 0, 0)
+
+    # Priority 2: ahash + dhash hamming distance
+    candidates = c.execute(
+        """SELECT fp.job_id, pj.status, pj.questions_count, fp.ahash, fp.dhash, fp.aspect_ratio
+           FROM image_fingerprints fp
+           JOIN parse_jobs pj ON fp.job_id = pj.job_id
+           WHERE fp.parent_id = ? AND fp.child_id = ?
+             AND fp.ahash IS NOT NULL
+             AND pj.status IN (?, ?, ?)
+             AND pj.deleted_at IS NULL
+           ORDER BY pj.created_at DESC""",
+        (parent_id, child_id, *REUSABLE_STATUSES),
+    ).fetchall()
+    c.close()
+
+    best = None
+    best_score = 999
+    for row in candidates:
+        ah_dist = _hamming_distance(ahash, row["ahash"])
+        dh_dist = _hamming_distance(dhash, row["dhash"]) if dhash and row["dhash"] else 99
+        asp_diff = abs((aspect_ratio or 0) - (row["aspect_ratio"] or 0))
+        if ah_dist <= max_ahash_dist and dh_dist <= max_dhash_dist and asp_diff <= max_aspect_diff:
+            score = ah_dist + dh_dist
+            if score < best_score:
+                best_score = score
+                best = (row["job_id"], row["status"], row["questions_count"], ah_dist, dh_dist)
+    return best
+
+
+def _hamming_distance(h1: str, h2: str) -> int:
+    """计算两个 hex hash 的 hamming distance（逐位 XOR 后 bit count）。"""
+    if not h1 or not h2 or len(h1) != len(h2):
+        return 99
+    return bin(int(h1, 16) ^ int(h2, 16)).count("1")
