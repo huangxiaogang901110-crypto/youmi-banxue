@@ -13,6 +13,7 @@ from typing import Any
 import requests
 from PIL import Image
 
+from image_fingerprint import compute_fingerprints
 
 ROOT = Path(__file__).resolve().parent.parent
 DB_PATH = ROOT / "backend" / "yomi.db"
@@ -26,6 +27,58 @@ def load_images(sample_dir: Path) -> list[Path]:
         for path in sample_dir.iterdir()
         if path.is_file() and path.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp"}
     )
+
+
+def _compute_ahash(image_path: Path) -> str | None:
+    """Compute ahash for local image, return None on failure."""
+    try:
+        fp = compute_fingerprints(image_path.read_bytes())
+        return fp.get("ahash")
+    except Exception:
+        return None
+
+
+def lookup_cached_job(db_path: Path, ahash: str) -> dict[str, Any] | None:
+    """Find a completed job with the same ahash, return its parse result if found."""
+    if not db_path.exists():
+        return None
+    conn = sqlite3.connect(str(db_path))
+    try:
+        cur = conn.cursor()
+        # Find job_id from fingerprints
+        row = cur.execute(
+            "SELECT job_id FROM image_fingerprints WHERE ahash = ? ORDER BY created_at DESC LIMIT 1",
+            (ahash,),
+        ).fetchone()
+        if not row:
+            return None
+        job_id = row[0]
+        # Check parse_jobs for completed job
+        job_row = cur.execute(
+            "SELECT data FROM parse_jobs WHERE id = ? AND status = 'completed'",
+            (job_id,),
+        ).fetchone()
+        if not job_row:
+            return None
+        job_data = json.loads(job_row[0]) if isinstance(job_row[0], str) else job_row[0]
+        questions = job_data.get("questions", []) if isinstance(job_data, dict) else []
+        recognition = job_data.get("recognition", {}) if isinstance(job_data, dict) else {}
+        doc_cls = (
+            job_data.get("document_classification", {})
+            if isinstance(job_data, dict)
+            else {}
+        )
+        return {
+            "job_id": job_id,
+            "questions": questions,
+            "recognition": recognition,
+            "document_classification": doc_cls,
+            "final_status": "completed",
+        }
+    except Exception:
+        return None
+    finally:
+        conn.close()
 
 
 def login(base: str, phone: str, password: str) -> tuple[requests.Session, int, bool]:
@@ -99,8 +152,39 @@ def evaluate_one(
     *,
     poll_interval: float,
     timeout_sec: float,
+    allow_paid_ocr: bool = False,
+    max_paid_calls: int = 0,
+    paid_ocr_used: list[int] | None = None,
+    db_path: Path | None = None,
 ) -> dict[str, Any]:
     width, height = image_size(image_path)
+
+    # ─── CostGuard-0: 付费 OCR 闸门 ───
+    paid_ocr_counter = paid_ocr_used if paid_ocr_used is not None else [0]
+
+    if not allow_paid_ocr:
+        # 默认模式：尝试缓存，无缓存则跳过
+        ahash = _compute_ahash(image_path)
+        if ahash and db_path:
+            cached = lookup_cached_job(db_path, ahash)
+            if cached:
+                questions = cached["questions"]
+                return _build_result_from_cache(
+                    image_path, width, height, cached, questions, db_path
+                )
+        # 无缓存 → 跳过
+        return _skipped_paid_ocr(image_path, width, height)
+    
+    if max_paid_calls <= 0:
+        print("ERROR: --allow-paid-ocr requires --max-paid-calls N (positive integer)", file=sys.stderr)
+        sys.exit(3)
+    
+    if paid_ocr_counter[0] >= max_paid_calls:
+        return _max_paid_calls_reached(image_path, width, height, paid_ocr_counter)
+    
+    paid_ocr_counter[0] += 1
+    print(f"[paid_ocr] call {paid_ocr_counter[0]}/{max_paid_calls}: {image_path.name}", file=sys.stderr)
+
     with image_path.open("rb") as file_obj:
         response = session.post(
             f"{base}/api/parse-jobs",
@@ -220,6 +304,136 @@ def evaluate_one(
     }
 
 
+def _skipped_paid_ocr(image_path: Path, width: int, height: int) -> dict[str, Any]:
+    """CostGuard: default mode skips paid OCR."""
+    print(f"[paid_ocr] SKIPPED (no --allow-paid-ocr): {image_path.name}", file=sys.stderr)
+    return {
+        "file_name": image_path.name,
+        "size": [width, height],
+        "upload_status_code": 0,
+        "job_id": None,
+        "status_sequence": ["SKIPPED_PAID_OCR"],
+        "latency_sec": 0.0,
+        "final_status": "skipped_paid_ocr",
+        "question_count": 0,
+        "questions": [],
+        "recognition": {},
+        "document_classification": {},
+        "completed_empty": False,
+        "zero_bbox_count": 0,
+        "meta_like_question_count": 0,
+        "header_question_count": 0,
+        "instruction_question_count": 0,
+        "footer_question_count": 0,
+        "question_region_hit_count": 0,
+        "section_nonempty_count": 0,
+        "bbox_negative_count": 0,
+        "bbox_giant_count": 0,
+        "answer_bbox_usable_count": 0,
+        "overlay_ready": False,
+        "child_answer_pollution": False,
+        "grouping_reasonable": False,
+        "qwen_recorded": False,
+        "fingerprint_written": False,
+        "major_failure_reason": "skipped_paid_ocr",
+    }
+
+
+def _max_paid_calls_reached(
+    image_path: Path, width: int, height: int, paid_ocr_counter: list[int]
+) -> dict[str, Any]:
+    """CostGuard: max paid calls reached, stop further OCR."""
+    print(
+        f"[paid_ocr] MAX_PAID_CALLS_REACHED (used={paid_ocr_counter[0]}): {image_path.name}",
+        file=sys.stderr,
+    )
+    return {
+        "file_name": image_path.name,
+        "size": [width, height],
+        "upload_status_code": 0,
+        "job_id": None,
+        "status_sequence": ["MAX_PAID_CALLS_REACHED"],
+        "latency_sec": 0.0,
+        "final_status": "max_paid_calls_reached",
+        "question_count": 0,
+        "questions": [],
+        "recognition": {},
+        "document_classification": {},
+        "completed_empty": False,
+        "zero_bbox_count": 0,
+        "meta_like_question_count": 0,
+        "header_question_count": 0,
+        "instruction_question_count": 0,
+        "footer_question_count": 0,
+        "question_region_hit_count": 0,
+        "section_nonempty_count": 0,
+        "bbox_negative_count": 0,
+        "bbox_giant_count": 0,
+        "answer_bbox_usable_count": 0,
+        "overlay_ready": False,
+        "child_answer_pollution": False,
+        "grouping_reasonable": False,
+        "qwen_recorded": False,
+        "fingerprint_written": False,
+        "major_failure_reason": "max_paid_calls_reached",
+    }
+
+
+def _build_result_from_cache(
+    image_path: Path,
+    width: int,
+    height: int,
+    cached: dict[str, Any],
+    questions: list[dict[str, Any]],
+    db_path: Path,
+) -> dict[str, Any]:
+    """CostGuard: build result from cached parse_jobs data."""
+    print(f"[paid_ocr] CACHED (job={cached['job_id'][:12]}): {image_path.name}", file=sys.stderr)
+    qwen_recorded, fingerprint_written = query_sqlite(cached["job_id"])
+    doc_cls = cached.get("document_classification", {})
+    stats = doc_cls.get("stats", {}) if isinstance(doc_cls, dict) else {}
+    section_nonempty_count = sum(
+        1
+        for question in questions
+        if question.get("section_title")
+        or question.get("section_index") is not None
+        or question.get("sub_index") is not None
+    )
+    return {
+        "file_name": image_path.name,
+        "size": [width, height],
+        "subject": doc_cls.get("subject", "unknown"),
+        "page_type": doc_cls.get("page_type", "unknown"),
+        "doc_family": doc_cls.get("doc_family", "unknown"),
+        "upload_status_code": 0,
+        "job_id": cached["job_id"],
+        "status_sequence": ["cached"],
+        "latency_sec": 0.0,
+        "final_status": "completed",
+        "question_count": len(questions),
+        "questions": questions,
+        "recognition": cached.get("recognition", {}),
+        "document_classification": doc_cls,
+        "completed_empty": False,
+        "zero_bbox_count": sum(1 for q in questions if q.get("bbox") == [0, 0, 0, 0]),
+        "meta_like_question_count": int(stats.get("meta_like_question_count", 0) or 0),
+        "header_question_count": int(stats.get("header_question_count", 0) or 0),
+        "instruction_question_count": int(stats.get("instruction_question_count", 0) or 0),
+        "footer_question_count": int(stats.get("footer_question_count", 0) or 0),
+        "question_region_hit_count": int(stats.get("question_region_hit_count", 0) or 0),
+        "section_nonempty_count": section_nonempty_count,
+        "bbox_negative_count": int(stats.get("bbox_negative_count", 0) or 0),
+        "bbox_giant_count": int(stats.get("bbox_giant_count", 0) or 0),
+        "answer_bbox_usable_count": sum(1 for q in questions if q.get("answer_bbox")),
+        "overlay_ready": any(q.get("answer_bbox") and q.get("image_url") for q in questions),
+        "child_answer_pollution": detect_child_answer_pollution(questions),
+        "grouping_reasonable": section_nonempty_count > 0 or len(questions) <= 2,
+        "qwen_recorded": qwen_recorded,
+        "fingerprint_written": fingerprint_written,
+        "major_failure_reason": "",
+    }
+
+
 def bucket_question_count(count: int) -> str:
     if count == 0:
         return "0"
@@ -290,7 +504,30 @@ def main() -> int:
     parser.add_argument("--timeout-sec", type=float, default=90.0)
     parser.add_argument("--upload-gap-sec", type=float, default=13.0)
     parser.add_argument("--json-out", default="/tmp/repair1_step1_eval.json")
+    parser.add_argument(
+        "--allow-paid-ocr",
+        action="store_true",
+        default=False,
+        help="Allow real paid OCR calls (requires --max-paid-calls)",
+    )
+    parser.add_argument(
+        "--max-paid-calls",
+        type=int,
+        default=0,
+        help="Maximum paid OCR calls when --allow-paid-ocr is set",
+    )
     args = parser.parse_args()
+
+    # Validate gate
+    if args.allow_paid_ocr and args.max_paid_calls <= 0:
+        print("ERROR: --allow-paid-ocr requires --max-paid-calls N (positive integer)", file=sys.stderr)
+        return 3
+
+    paid_ocr_used: list[int] = [0]
+    print(
+        f"[paid_ocr] gate: allowed={args.allow_paid_ocr} max_calls={args.max_paid_calls}",
+        file=sys.stderr,
+    )
 
     samples_dir = Path(args.samples_dir)
     images = load_images(samples_dir)
@@ -315,9 +552,22 @@ def main() -> int:
             image_path,
             poll_interval=args.poll_interval,
             timeout_sec=args.timeout_sec,
+            allow_paid_ocr=args.allow_paid_ocr,
+            max_paid_calls=args.max_paid_calls,
+            paid_ocr_used=paid_ocr_used,
+            db_path=DB_PATH,
         )
         last_upload_at = time.time()
         results.append(result)
+
+    # Print summary
+    skipped = sum(1 for r in results if r["final_status"] == "skipped_paid_ocr")
+    maxed = sum(1 for r in results if r["final_status"] == "max_paid_calls_reached")
+    cached = sum(1 for r in results if r.get("status_sequence") == ["cached"])
+    print(
+        f"[paid_ocr] summary: paid_used={paid_ocr_used[0]} cached={cached} skipped={skipped} max_reached={maxed}",
+        file=sys.stderr,
+    )
 
     payload = {
         "ok": True,
