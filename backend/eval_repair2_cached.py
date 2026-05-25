@@ -9,6 +9,8 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
+from PIL import Image
+
 from document_classifier import (
     classify_document,
     clean_question_text,
@@ -19,6 +21,7 @@ from document_classifier import (
 
 ROOT = Path(__file__).resolve().parent.parent
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
+DEFAULT_SAMPLE_LIMIT = 50
 DEFAULT_FIXTURE_DIRS = [
     ROOT / "local_eval_samples",
     ROOT / "e2e" / "fixtures",
@@ -30,6 +33,8 @@ BLANK_PARENS = re.compile(r"(?:（\s*）|\(\s*\)|\[\s*\])")
 NON_TEXT_RE = re.compile(r"^[\W_]+$", re.UNICODE)
 ARITHMETIC_SIGNAL = re.compile(r"\d+\s*[+\-×xX*/÷=]\s*\d+")
 MISSING = object()
+PORTRAIT_LAYOUT_RATIO = 1.35
+COMPLEX_LAYOUT_MIN_QUESTIONS = 3
 
 
 def parse_args() -> argparse.Namespace:
@@ -53,7 +58,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--limit",
         type=int,
-        default=10,
+        default=DEFAULT_SAMPLE_LIMIT,
         help="Maximum sample rows to print.",
     )
     parser.add_argument(
@@ -125,13 +130,13 @@ def resolve_sample_dirs(explicit_dirs: list[Path]) -> list[Path]:
     return resolved
 
 
-def load_fixture_images(sample_dirs: list[Path], limit: int) -> list[Path]:
+def load_fixture_images(sample_dirs: list[Path], limit: int | None = None) -> list[Path]:
     images: list[Path] = []
     for directory in sample_dirs:
         for path in sorted(directory.rglob("*")):
             if path.is_file() and path.suffix.lower() in IMAGE_SUFFIXES:
                 images.append(path)
-                if len(images) >= limit:
+                if limit is not None and len(images) >= limit:
                     return images
     return images
 
@@ -192,6 +197,98 @@ def normalize_fixture_question(question: dict[str, Any]) -> dict[str, Any]:
     if section_title is not MISSING:
         normalized["section_title"] = section_title
     return normalized
+
+
+def sample_path_label(image_path: Path | None) -> str:
+    if image_path is None:
+        return ""
+    try:
+        return str(image_path.relative_to(ROOT))
+    except ValueError:
+        return image_path.name
+
+
+def read_image_metadata(image_path: Path | None) -> dict[str, Any]:
+    if image_path is None:
+        return {
+            "sample_origin": "",
+            "has_json_sidecar": False,
+            "image_width": None,
+            "image_height": None,
+            "aspect_ratio": None,
+            "layout_hint": "unknown",
+        }
+
+    width: int | None = None
+    height: int | None = None
+    try:
+        with Image.open(image_path) as image:
+            width, height = image.size
+    except (OSError, ValueError):
+        width = None
+        height = None
+
+    if width and height:
+        if height / max(width, 1) >= PORTRAIT_LAYOUT_RATIO:
+            layout_hint = "portrait"
+        elif width / max(height, 1) >= PORTRAIT_LAYOUT_RATIO:
+            layout_hint = "landscape"
+        else:
+            layout_hint = "squareish"
+        aspect_ratio: float | None = round(height / max(width, 1), 3)
+    else:
+        layout_hint = "unknown"
+        aspect_ratio = None
+
+    return {
+        "sample_origin": sample_path_label(image_path),
+        "has_json_sidecar": image_path.with_suffix(".json").is_file(),
+        "image_width": width,
+        "image_height": height,
+        "aspect_ratio": aspect_ratio,
+        "layout_hint": layout_hint,
+    }
+
+
+def infer_coverage_flags(
+    *,
+    page_type: str,
+    question_count: int,
+    section_count: int,
+    options_count: int,
+    layout_hint: str,
+) -> list[str]:
+    flags: list[str] = []
+    if page_type == "chinese_homework":
+        flags.append("chinese_questions")
+    if page_type == "cover_or_instruction_page":
+        flags.append("cover_or_instruction_page")
+    if page_type == "non_homework":
+        flags.append("non_homework_image")
+    if page_type == "mixed_homework":
+        flags.append("mixed_homework")
+    if options_count > 0:
+        flags.append("multiple_choice")
+    if options_count >= max(question_count, 1) * 2 and page_type != "mixed_homework":
+        flags.append("choice_page")
+    # Heuristic tag only: portrait layout + dense content => likely camera-style complex layout.
+    if layout_hint == "portrait" and (
+        question_count >= COMPLEX_LAYOUT_MIN_QUESTIONS or section_count >= 2 or options_count >= 3
+    ):
+        flags.append("complex_photo_layout")
+    return flags
+
+
+def fixture_image_sort_key(image_path: Path) -> tuple[int, str]:
+    if image_path.with_suffix(".json").is_file():
+        return (0, sample_path_label(image_path))
+    try:
+        relative = image_path.relative_to(ROOT)
+    except ValueError:
+        relative = image_path
+    if str(relative).startswith("backend/tests/fixtures/"):
+        return (1, str(relative))
+    return (2, str(relative))
 
 
 def normalize_fixture_payload(payload: dict[str, Any]) -> dict[str, Any]:
@@ -284,13 +381,27 @@ def infer_document_classification(
     questions: list[dict[str, Any]],
 ) -> dict[str, Any]:
     stored = payload.get("document_classification")
-    if isinstance(stored, dict) and (
-        stored.get("page_type") or stored.get("doc_family") or stored.get("document_type")
-    ):
-        return stored
     question_texts, raw_text = build_question_texts(questions)
     inferred = classify_document(raw_text=raw_text, question_texts=question_texts)
-    return inferred.model_dump()
+    inferred_payload = inferred.model_dump()
+    if not isinstance(stored, dict):
+        return inferred_payload
+
+    merged = dict(inferred_payload)
+    for key, value in stored.items():
+        if value not in (None, "", [], {}):
+            merged[key] = value
+
+    doc_type = (
+        stored.get("doc_family")
+        or stored.get("document_type")
+        or inferred_payload.get("doc_family")
+        or inferred_payload.get("document_type")
+    )
+    if doc_type:
+        merged["doc_family"] = doc_type
+        merged.setdefault("document_type", doc_type)
+    return merged
 
 
 def evaluate_questions(
@@ -361,6 +472,7 @@ def sample_from_payload(
     sample_name: str,
     job_id: str | None,
     payload: dict[str, Any],
+    image_path: Path | None = None,
     skipped_reason: str = "",
 ) -> dict[str, Any]:
     questions = payload.get("questions")
@@ -368,16 +480,33 @@ def sample_from_payload(
         questions = []
     document_classification = infer_document_classification(payload, questions)
     metrics = evaluate_questions(questions, document_classification)
+    page_type = str(document_classification.get("page_type") or "unknown")
+    document_type = str(
+        document_classification.get("doc_family")
+        or document_classification.get("document_type")
+        or "unknown"
+    )
+    image_metadata = read_image_metadata(image_path)
+    coverage_flags = infer_coverage_flags(
+        page_type=page_type,
+        question_count=metrics["kept_question_count"],
+        section_count=metrics["section_count"],
+        options_count=metrics["options_count"],
+        layout_hint=str(image_metadata["layout_hint"]),
+    )
     return {
         "sample_name": sample_name,
         "source_kind": source_kind,
         "job_id": job_id or "",
-        "page_type": str(document_classification.get("page_type") or "unknown"),
-        "document_type": str(
-            document_classification.get("doc_family")
-            or document_classification.get("document_type")
-            or "unknown"
-        ),
+        "sample_origin": str(image_metadata["sample_origin"]),
+        "has_json_sidecar": bool(image_metadata["has_json_sidecar"]),
+        "image_width": image_metadata["image_width"],
+        "image_height": image_metadata["image_height"],
+        "aspect_ratio": image_metadata["aspect_ratio"],
+        "layout_hint": image_metadata["layout_hint"],
+        "coverage_flags": coverage_flags,
+        "page_type": page_type,
+        "document_type": document_type,
         "question_count": metrics["kept_question_count"],
         "raw_question_count": len(questions),
         "filtered_question_count": metrics["filtered_question_count"],
@@ -412,6 +541,7 @@ def load_recent_cached_samples(
     conn: sqlite3.Connection,
     limit: int,
     seen_job_ids: set[str],
+    seen_sample_names: set[str] | None = None,
 ) -> list[dict[str, Any]]:
     samples: list[dict[str, Any]] = []
     for row in conn.execute(parse_job_query(conn), (max(limit * 3, limit),)).fetchall():
@@ -420,6 +550,8 @@ def load_recent_cached_samples(
             continue
         payload = safe_json_loads(row["data"])
         sample_name = str(payload.get("file_name") or row["file_name"] or job_id)
+        if seen_sample_names is not None and sample_name in seen_sample_names:
+            continue
         samples.append(
             sample_from_payload(
                 source_kind="cached_db",
@@ -429,6 +561,8 @@ def load_recent_cached_samples(
             )
         )
         seen_job_ids.add(job_id)
+        if seen_sample_names is not None:
+            seen_sample_names.add(sample_name)
         if len(samples) >= limit:
             break
     return samples
@@ -473,19 +607,27 @@ def load_fixture_samples(
     seen_job_ids: set[str],
     *,
     only_json_fixtures: bool = False,
+    seen_sample_names: set[str] | None = None,
 ) -> list[dict[str, Any]]:
     samples: list[dict[str, Any]] = []
-    for image_path in fixture_images:
+    ordered_images = sorted(fixture_images, key=fixture_image_sort_key)
+    for image_path in ordered_images:
+        sample_name = image_path.name
+        if seen_sample_names is not None and sample_name in seen_sample_names:
+            continue
         json_fixture_payload = load_json_fixture_payload(image_path)
         if json_fixture_payload is not None:
             samples.append(
                 sample_from_payload(
                     source_kind="json_fixture",
-                    sample_name=image_path.name,
+                    sample_name=sample_name,
                     job_id="",
                     payload=json_fixture_payload,
+                    image_path=image_path,
                 )
             )
+            if seen_sample_names is not None:
+                seen_sample_names.add(sample_name)
             if len(samples) >= limit:
                 break
             continue
@@ -499,20 +641,38 @@ def load_fixture_samples(
                     samples.append(
                         sample_from_payload(
                             source_kind="fixture_cache",
-                            sample_name=image_path.name,
+                            sample_name=sample_name,
                             job_id=job_id,
                             payload=payload,
+                            image_path=image_path,
                         )
                     )
                     seen_job_ids.add(job_id)
+                    if seen_sample_names is not None:
+                        seen_sample_names.add(sample_name)
                     if len(samples) >= limit:
                         break
                     continue
+        image_metadata = read_image_metadata(image_path)
+        coverage_flags = infer_coverage_flags(
+            page_type="unknown",
+            question_count=0,
+            section_count=0,
+            options_count=0,
+            layout_hint=str(image_metadata["layout_hint"]),
+        )
         samples.append(
             {
-                "sample_name": image_path.name,
+                "sample_name": sample_name,
                 "source_kind": "fixture_only",
                 "job_id": "",
+                "sample_origin": str(image_metadata["sample_origin"]),
+                "has_json_sidecar": bool(image_metadata["has_json_sidecar"]),
+                "image_width": image_metadata["image_width"],
+                "image_height": image_metadata["image_height"],
+                "aspect_ratio": image_metadata["aspect_ratio"],
+                "layout_hint": image_metadata["layout_hint"],
+                "coverage_flags": coverage_flags,
                 "page_type": "unknown",
                 "document_type": "unknown",
                 "question_count": 0,
@@ -529,7 +689,22 @@ def load_fixture_samples(
                 "_legacy_field_break_count": 0,
             }
         )
+        if seen_sample_names is not None:
+            seen_sample_names.add(sample_name)
     return samples
+
+
+def split_samples_by_skip(
+    samples: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    effective_samples: list[dict[str, Any]] = []
+    skipped_samples: list[dict[str, Any]] = []
+    for sample in samples:
+        if str(sample.get("skipped_reason") or "").strip():
+            skipped_samples.append(sample)
+        else:
+            effective_samples.append(sample)
+    return effective_samples, skipped_samples
 
 
 def build_summary(
@@ -537,43 +712,151 @@ def build_summary(
     *,
     db_path: Path | None,
     fixture_dirs: list[Path],
+    fixture_images: list[Path],
 ) -> dict[str, Any]:
-    page_types = Counter(sample["page_type"] for sample in samples)
-    document_types = Counter(sample["document_type"] for sample in samples)
-    skipped_no_cache = sum(1 for sample in samples if sample["skipped_reason"] == "SKIPPED_NO_CACHE")
-    suspicious_question_count = sum(int(sample["_suspicious_question_count"]) for sample in samples)
-    residual_meta_like_count = sum(int(sample["_residual_meta_like_count"]) for sample in samples)
-    legacy_field_break_count = sum(int(sample["_legacy_field_break_count"]) for sample in samples)
+    effective_samples, skipped_samples = split_samples_by_skip(samples)
+    all_source_kinds = Counter(sample["source_kind"] for sample in samples)
+    source_kinds = Counter(sample["source_kind"] for sample in effective_samples)
+    skipped_source_kinds = Counter(sample["source_kind"] for sample in skipped_samples)
+    page_types = Counter(sample["page_type"] for sample in effective_samples)
+    document_types = Counter(sample["document_type"] for sample in effective_samples)
+    skipped_reasons = Counter(
+        sample["skipped_reason"] for sample in skipped_samples if sample["skipped_reason"]
+    )
+    coverage_flags = Counter(
+        flag
+        for sample in effective_samples
+        for flag in sample.get("coverage_flags", [])
+        if isinstance(flag, str) and flag
+    )
+    skipped_no_cache = sum(
+        1 for sample in skipped_samples if sample["skipped_reason"] == "SKIPPED_NO_CACHE"
+    )
+    raw_question_total = sum(int(sample["raw_question_count"]) for sample in effective_samples)
+    kept_question_total = sum(int(sample["question_count"]) for sample in effective_samples)
+    filtered_question_total = sum(
+        int(sample["filtered_question_count"]) for sample in effective_samples
+    )
+    meta_filtered_total = sum(int(sample["meta_filtered_count"]) for sample in effective_samples)
+    pseudo_filtered_total = sum(int(sample["pseudo_filtered_count"]) for sample in effective_samples)
+    suspicious_question_count = sum(
+        int(sample["_suspicious_question_count"]) for sample in effective_samples
+    )
+    residual_meta_like_count = sum(
+        int(sample["_residual_meta_like_count"]) for sample in effective_samples
+    )
+    legacy_field_break_count = sum(
+        int(sample["_legacy_field_break_count"]) for sample in effective_samples
+    )
     conservative_total = sum(
         1
-        for sample in samples
+        for sample in effective_samples
         if sample["page_type"] in {"cover_or_instruction_page", "non_homework", "unknown"}
     )
     conservative_bad = sum(
         1
-        for sample in samples
+        for sample in effective_samples
         if sample["page_type"] in {"cover_or_instruction_page", "non_homework", "unknown"}
         and sample["question_count"] > 0
-        and not sample["skipped_reason"]
     )
-    mixed_total = sum(1 for sample in samples if sample["page_type"] == "mixed_homework")
+    mixed_total = sum(1 for sample in effective_samples if sample["page_type"] == "mixed_homework")
     mixed_kept = sum(
         1
-        for sample in samples
+        for sample in effective_samples
         if sample["page_type"] == "mixed_homework" and sample["question_count"] > 0
     )
-    section_positive = sum(1 for sample in samples if sample["section_count"] > 0)
-    options_positive = sum(1 for sample in samples if sample["options_count"] > 0)
-    blanks_positive = sum(1 for sample in samples if sample["blanks_count"] > 0)
+    section_positive = sum(1 for sample in effective_samples if sample["section_count"] > 0)
+    options_positive = sum(1 for sample in effective_samples if sample["options_count"] > 0)
+    blanks_positive = sum(1 for sample in effective_samples if sample["blanks_count"] > 0)
     meta_violations = residual_meta_like_count
+    conservative_bad_samples = [
+        sample["sample_name"]
+        for sample in effective_samples
+        if sample["page_type"] in {"cover_or_instruction_page", "non_homework", "unknown"}
+        and sample["question_count"] > 0
+    ]
+    residual_meta_samples = [
+        sample["sample_name"]
+        for sample in effective_samples
+        if int(sample["_residual_meta_like_count"]) > 0
+    ]
+    suspicious_samples = [
+        sample["sample_name"]
+        for sample in effective_samples
+        if int(sample["_suspicious_question_count"]) > 0
+    ]
+    legacy_field_samples = [
+        sample["sample_name"]
+        for sample in effective_samples
+        if int(sample["_legacy_field_break_count"]) > 0
+    ]
 
     return {
         "db_path": str(db_path) if db_path else "",
         "fixture_dirs": [str(path) for path in fixture_dirs],
-        "sample_count": len(samples),
+        "fixture_image_count": len(fixture_images),
+        "loaded_sample_count": len(samples),
+        "sample_count": len(effective_samples),
+        "effective_sample_count": len(effective_samples),
+        "skipped_count": len(skipped_samples),
         "skipped_no_cache_count": skipped_no_cache,
+        "source_kind_counts": dict(source_kinds),
         "page_type_counts": dict(page_types),
+        "doctype_counts": dict(document_types),
         "document_type_counts": dict(document_types),
+        "coverage_flag_counts": dict(coverage_flags),
+        "effective_samples": {
+            "count": len(effective_samples),
+            "source_kind_counts": dict(source_kinds),
+            "page_type_counts": dict(page_types),
+            "doctype_counts": dict(document_types),
+            "coverage_flag_counts": dict(coverage_flags),
+        },
+        "skipped_samples": {
+            "count": len(skipped_samples),
+            "source_kind_counts": dict(skipped_source_kinds),
+            "skipped_reason_counts": dict(skipped_reasons),
+        },
+        "question_stats": {
+            "raw_question_total": raw_question_total,
+            "kept_question_total": kept_question_total,
+            "filtered_question_total": filtered_question_total,
+            "meta_filtered_total": meta_filtered_total,
+            "pseudo_filtered_total": pseudo_filtered_total,
+            "max_questions_in_sample": max(
+                (int(sample["question_count"]) for sample in effective_samples),
+                default=0,
+            ),
+        },
+        "filter_metadata": {
+            "skipped_reason_counts": dict(skipped_reasons),
+            "filtered_sample_count": sum(
+                1 for sample in effective_samples if int(sample["filtered_question_count"]) > 0
+            ),
+            "json_fixture_count": source_kinds.get("json_fixture", 0),
+            "fixture_cache_count": source_kinds.get("fixture_cache", 0),
+            "fixture_only_count": all_source_kinds.get("fixture_only", 0),
+            "excluded_fixture_only_count": skipped_source_kinds.get("fixture_only", 0),
+            "cached_db_count": source_kinds.get("cached_db", 0),
+        },
+        "violations": {
+            "conservative_pages_with_questions": {
+                "count": len(conservative_bad_samples),
+                "samples": conservative_bad_samples,
+            },
+            "residual_meta_like_questions": {
+                "count": len(residual_meta_samples),
+                "samples": residual_meta_samples,
+            },
+            "suspicious_or_garbled_questions": {
+                "count": len(suspicious_samples),
+                "samples": suspicious_samples,
+            },
+            "legacy_field_breaks": {
+                "count": len(legacy_field_samples),
+                "samples": legacy_field_samples,
+            },
+        },
         "checks": {
             "mixed_homework_not_dropped": {
                 "observed": mixed_total,
@@ -612,13 +895,11 @@ def main() -> int:
     limit = max(int(args.limit or 0), 1)
     db_path = resolve_db_path(args.db_path)
     fixture_dirs = resolve_sample_dirs(args.sample_dirs)
-    fixture_images = load_fixture_images(
-        fixture_dirs,
-        limit=limit if not args.only_json_fixtures else (limit * 100),
-    )
+    fixture_images = load_fixture_images(fixture_dirs)
 
     samples: list[dict[str, Any]] = []
     seen_job_ids: set[str] = set()
+    seen_sample_names: set[str] = set()
     conn: sqlite3.Connection | None = None
 
     try:
@@ -633,6 +914,7 @@ def main() -> int:
                     limit,
                     seen_job_ids,
                     only_json_fixtures=args.only_json_fixtures,
+                    seen_sample_names=seen_sample_names,
                 )
             )
 
@@ -647,6 +929,7 @@ def main() -> int:
                     conn,
                     limit=limit - len(samples),
                     seen_job_ids=seen_job_ids,
+                    seen_sample_names=seen_sample_names,
                 )
             )
     finally:
@@ -654,9 +937,25 @@ def main() -> int:
             conn.close()
 
     samples = samples[:limit]
-    summary = build_summary(samples, db_path=db_path, fixture_dirs=fixture_dirs)
+    effective_samples, skipped_samples = split_samples_by_skip(samples)
+    summary = build_summary(
+        samples,
+        db_path=db_path,
+        fixture_dirs=fixture_dirs,
+        fixture_images=fixture_images,
+    )
 
-    print(json.dumps({"samples": samples, "summary": summary}, ensure_ascii=False, indent=2))
+    print(
+        json.dumps(
+            {
+                "effective_samples": effective_samples,
+                "skipped_samples": skipped_samples,
+                "summary": summary,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
     return 0
 
 
