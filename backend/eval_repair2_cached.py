@@ -29,6 +29,7 @@ BLANK_UNDERSCORE = re.compile(r"_{2,}")
 BLANK_PARENS = re.compile(r"(?:（\s*）|\(\s*\)|\[\s*\])")
 NON_TEXT_RE = re.compile(r"^[\W_]+$", re.UNICODE)
 ARITHMETIC_SIGNAL = re.compile(r"\d+\s*[+\-×xX*/÷=]\s*\d+")
+MISSING = object()
 
 
 def parse_args() -> argparse.Namespace:
@@ -162,6 +163,74 @@ def safe_json_loads(raw: Any) -> dict[str, Any]:
     except json.JSONDecodeError:
         return {}
     return payload if isinstance(payload, dict) else {}
+
+
+def normalize_alias_key(key: Any) -> str:
+    return re.sub(r"[^0-9a-z]+", "", str(key or "").lower())
+
+
+def alias_value(mapping: dict[str, Any], *aliases: str) -> Any:
+    wanted = {normalize_alias_key(alias) for alias in aliases}
+    for key, value in mapping.items():
+        if normalize_alias_key(key) in wanted:
+            return value
+    return MISSING
+
+
+def normalize_fixture_question(question: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(question)
+    question_text = alias_value(question, "question_text")
+    if question_text is not MISSING:
+        normalized["question_text"] = question_text
+    section_title = alias_value(question, "section_title")
+    if section_title is not MISSING:
+        normalized["section_title"] = section_title
+    return normalized
+
+
+def normalize_fixture_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(payload)
+    raw_questions = payload.get("questions")
+    if isinstance(raw_questions, list):
+        normalized["questions"] = [
+            normalize_fixture_question(question)
+            for question in raw_questions
+            if isinstance(question, dict)
+        ]
+    else:
+        normalized["questions"] = []
+
+    raw_document = payload.get("document_classification")
+    document_classification = dict(raw_document) if isinstance(raw_document, dict) else {}
+
+    page_type = alias_value(document_classification, "page_type")
+    if page_type is MISSING:
+        page_type = alias_value(payload, "page_type")
+    if page_type is not MISSING:
+        document_classification["page_type"] = page_type
+
+    document_type = alias_value(document_classification, "doc_family", "document_type")
+    if document_type is MISSING:
+        document_type = alias_value(payload, "doc_family", "document_type")
+    if document_type is not MISSING:
+        document_classification["doc_family"] = document_type
+        document_classification.setdefault("document_type", document_type)
+
+    if document_classification:
+        normalized["document_classification"] = document_classification
+
+    return normalized
+
+
+def load_json_fixture_payload(image_path: Path) -> dict[str, Any] | None:
+    json_path = image_path.with_suffix(".json")
+    if not json_path.exists() or not json_path.is_file():
+        return None
+    try:
+        raw = json_path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    return normalize_fixture_payload(safe_json_loads(raw))
 
 
 def count_blanks(text: str) -> int:
@@ -399,6 +468,17 @@ def load_fixture_samples(
 ) -> list[dict[str, Any]]:
     samples: list[dict[str, Any]] = []
     for image_path in fixture_images[:limit]:
+        json_fixture_payload = load_json_fixture_payload(image_path)
+        if json_fixture_payload is not None:
+            samples.append(
+                sample_from_payload(
+                    source_kind="json_fixture",
+                    sample_name=image_path.name,
+                    job_id="",
+                    payload=json_fixture_payload,
+                )
+            )
+            continue
         if conn is not None:
             cached = lookup_cached_fixture(conn, image_path)
             if cached:
