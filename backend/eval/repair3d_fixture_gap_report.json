@@ -1,0 +1,545 @@
+{
+  "category_gap_summary": [
+    {
+      "category_id": "mixed_pinyin_english",
+      "label": "拼音/英文混合题",
+      "missing_truth_candidate_count": 0,
+      "missing_truth_candidates": [],
+      "normalized_truth_sample_count": 1,
+      "normalized_truth_samples": [
+        "local_eval_samples/a95fa987431b6f696d5f996124fd8903_origin(1).jpg"
+      ],
+      "status": "covered"
+    },
+    {
+      "category_id": "complex_chinese_page",
+      "label": "复杂语文页",
+      "missing_truth_candidate_count": 0,
+      "missing_truth_candidates": [],
+      "normalized_truth_sample_count": 1,
+      "normalized_truth_samples": [
+        "local_eval_samples/a286cd85522d095bdb00014f8791eeda_origin(1).jpg"
+      ],
+      "status": "covered"
+    },
+    {
+      "category_id": "standalone_multiple_choice_page",
+      "label": "选择题独立页",
+      "missing_truth_candidate_count": 0,
+      "missing_truth_candidates": [],
+      "normalized_truth_sample_count": 1,
+      "normalized_truth_samples": [
+        "local_eval_samples/0fea02200c6dfc2bb77d31f52d7c49b9_origin(1).jpg"
+      ],
+      "status": "covered"
+    },
+    {
+      "category_id": "landscape_or_tilted_photo",
+      "label": "横拍/斜拍",
+      "missing_truth_candidate_count": 4,
+      "missing_truth_candidates": [
+        "local_eval_samples/04fb8059d392d3235e042e8c9303f5bf_origin(1).jpg",
+        "local_eval_samples/110203d331e3d6d9dbb35f29ea4d546d_origin(1).jpg",
+        "local_eval_samples/8ca18021d0236fa3311b640d38a022d4_origin(1).jpg",
+        "local_eval_samples/e8bc9c5f71c8e07511caf31ab0065358_origin(1).jpg"
+      ],
+      "normalized_truth_sample_count": 0,
+      "normalized_truth_samples": [],
+      "status": "gap"
+    },
+    {
+      "category_id": "dense_multi_column_page",
+      "label": "多栏密集题",
+      "missing_truth_candidate_count": 2,
+      "missing_truth_candidates": [
+        "local_eval_samples/04fb8059d392d3235e042e8c9303f5bf_origin(1).jpg",
+        "local_eval_samples/8ca18021d0236fa3311b640d38a022d4_origin(1).jpg"
+      ],
+      "normalized_truth_sample_count": 0,
+      "normalized_truth_samples": [],
+      "status": "gap"
+    },
+    {
+      "category_id": "non_homework_image",
+      "label": "非作业图",
+      "missing_truth_candidate_count": 0,
+      "missing_truth_candidates": [],
+      "normalized_truth_sample_count": 1,
+      "normalized_truth_samples": [
+        "local_eval_samples/test_real.jpg"
+      ],
+      "status": "covered"
+    },
+    {
+      "category_id": "cover_or_instruction_page",
+      "label": "封面/说明页",
+      "missing_truth_candidate_count": 0,
+      "missing_truth_candidates": [],
+      "normalized_truth_sample_count": 1,
+      "normalized_truth_samples": [
+        "local_eval_samples/0a511e8d4f883fd787a4d0ad528f189f_origin(1).jpg"
+      ],
+      "status": "covered"
+    },
+    {
+      "category_id": "teacher_markup",
+      "label": "涂改/老师批改痕迹",
+      "missing_truth_candidate_count": 0,
+      "missing_truth_candidates": [],
+      "normalized_truth_sample_count": 4,
+      "normalized_truth_samples": [
+        "local_eval_samples/0a511e8d4f883fd787a4d0ad528f189f_origin(1).jpg",
+        "local_eval_samples/0fea02200c6dfc2bb77d31f52d7c49b9_origin(1).jpg",
+        "local_eval_samples/91fc932fc2591335a8abb08a0c44b95e_origin(1).jpg",
+        "local_eval_samples/a95fa987431b6f696d5f996124fd8903_origin(1).jpg"
+      ],
+      "status": "covered"
+    }
+  ],
+  "db_path": "/home/hermes_me/yomi-codex-r1/backend/yomi.db",
+  "fixture_dirs": [
+    "/home/hermes_me/yomi-codex-r1/local_eval_samples",
+    "/home/hermes_me/yomi-codex-r1/e2e/fixtures",
+    "/home/hermes_me/yomi-codex-r1/backend/tests/fixtures"
+  ],
+  "gap_category_ids": [
+    "dense_multi_column_page",
+    "landscape_or_tilted_photo"
+  ],
+  "ground_truth_gaps": {
+    "count": 20,
+    "samples": [
+      {
+        "annotation_priority": "high",
+        "candidate_gap_categories": [
+          "dense_multi_column_page",
+          "landscape_or_tilted_photo"
+        ],
+        "document_type": "unknown",
+        "layout_hint": "squareish",
+        "missing_fields": [
+          "document_classification.page_type",
+          "document_classification.doc_family",
+          "questions"
+        ],
+        "missing_truth_artifacts": [
+          "json_sidecar",
+          "cache_payload"
+        ],
+        "page_type": "unknown",
+        "review_note": "横拍多栏语文页，带手写痕迹。",
+        "sample_name": "04fb8059d392d3235e042e8c9303f5bf_origin(1).jpg",
+        "sample_origin": "local_eval_samples/04fb8059d392d3235e042e8c9303f5bf_origin(1).jpg",
+        "source_kind": "fixture_only",
+        "worth_manual_annotation": true
+      },
+      {
+        "annotation_priority": "high",
+        "candidate_gap_categories": [
+          "landscape_or_tilted_photo"
+        ],
+        "document_type": "unknown",
+        "layout_hint": "portrait",
+        "missing_fields": [
+          "document_classification.page_type",
+          "document_classification.doc_family",
+          "questions"
+        ],
+        "missing_truth_artifacts": [
+          "json_sidecar",
+          "cache_payload"
+        ],
+        "page_type": "unknown",
+        "review_note": "斜拍练习页，含书写痕迹。",
+        "sample_name": "110203d331e3d6d9dbb35f29ea4d546d_origin(1).jpg",
+        "sample_origin": "local_eval_samples/110203d331e3d6d9dbb35f29ea4d546d_origin(1).jpg",
+        "source_kind": "fixture_only",
+        "worth_manual_annotation": true
+      },
+      {
+        "annotation_priority": "high",
+        "candidate_gap_categories": [
+          "dense_multi_column_page",
+          "landscape_or_tilted_photo"
+        ],
+        "document_type": "unknown",
+        "layout_hint": "squareish",
+        "missing_fields": [
+          "document_classification.page_type",
+          "document_classification.doc_family",
+          "questions"
+        ],
+        "missing_truth_artifacts": [
+          "json_sidecar",
+          "cache_payload"
+        ],
+        "page_type": "unknown",
+        "review_note": "横拍多栏题页，带批改痕迹。",
+        "sample_name": "8ca18021d0236fa3311b640d38a022d4_origin(1).jpg",
+        "sample_origin": "local_eval_samples/8ca18021d0236fa3311b640d38a022d4_origin(1).jpg",
+        "source_kind": "fixture_only",
+        "worth_manual_annotation": true
+      },
+      {
+        "annotation_priority": "high",
+        "candidate_gap_categories": [
+          "landscape_or_tilted_photo"
+        ],
+        "document_type": "unknown",
+        "layout_hint": "portrait",
+        "missing_fields": [
+          "document_classification.page_type",
+          "document_classification.doc_family",
+          "questions"
+        ],
+        "missing_truth_artifacts": [
+          "json_sidecar",
+          "cache_payload"
+        ],
+        "page_type": "unknown",
+        "review_note": "斜拍练习页，已有书写答案。",
+        "sample_name": "e8bc9c5f71c8e07511caf31ab0065358_origin(1).jpg",
+        "sample_origin": "local_eval_samples/e8bc9c5f71c8e07511caf31ab0065358_origin(1).jpg",
+        "source_kind": "fixture_only",
+        "worth_manual_annotation": true
+      },
+      {
+        "annotation_priority": "medium",
+        "candidate_gap_categories": [],
+        "document_type": "unknown",
+        "layout_hint": "squareish",
+        "missing_fields": [
+          "document_classification.page_type",
+          "document_classification.doc_family",
+          "questions"
+        ],
+        "missing_truth_artifacts": [
+          "json_sidecar",
+          "cache_payload"
+        ],
+        "page_type": "unknown",
+        "review_note": "独立选择题页。",
+        "sample_name": "1853b2e7ec6e53910f9328f7a120ba9f_origin(1).jpg",
+        "sample_origin": "local_eval_samples/1853b2e7ec6e53910f9328f7a120ba9f_origin(1).jpg",
+        "source_kind": "fixture_only",
+        "worth_manual_annotation": true
+      },
+      {
+        "annotation_priority": "medium",
+        "candidate_gap_categories": [],
+        "document_type": "unknown",
+        "layout_hint": "squareish",
+        "missing_fields": [
+          "document_classification.page_type",
+          "document_classification.doc_family",
+          "questions"
+        ],
+        "missing_truth_artifacts": [
+          "json_sidecar",
+          "cache_payload"
+        ],
+        "page_type": "unknown",
+        "review_note": "语文字帖页，含书写内容。",
+        "sample_name": "1e46e3aed79a74479995d85b86f40830_origin(1).jpg",
+        "sample_origin": "local_eval_samples/1e46e3aed79a74479995d85b86f40830_origin(1).jpg",
+        "source_kind": "fixture_only",
+        "worth_manual_annotation": true
+      },
+      {
+        "annotation_priority": "medium",
+        "candidate_gap_categories": [],
+        "document_type": "unknown",
+        "layout_hint": "portrait",
+        "missing_fields": [
+          "document_classification.page_type",
+          "document_classification.doc_family",
+          "questions"
+        ],
+        "missing_truth_artifacts": [
+          "json_sidecar",
+          "cache_payload"
+        ],
+        "page_type": "unknown",
+        "review_note": "",
+        "sample_name": "4835cdb5d3c12cb9009213b57f875673_origin(1).jpg",
+        "sample_origin": "local_eval_samples/4835cdb5d3c12cb9009213b57f875673_origin(1).jpg",
+        "source_kind": "fixture_only",
+        "worth_manual_annotation": true
+      },
+      {
+        "annotation_priority": "medium",
+        "candidate_gap_categories": [],
+        "document_type": "unknown",
+        "layout_hint": "portrait",
+        "missing_fields": [
+          "document_classification.page_type",
+          "document_classification.doc_family",
+          "questions"
+        ],
+        "missing_truth_artifacts": [
+          "json_sidecar",
+          "cache_payload"
+        ],
+        "page_type": "unknown",
+        "review_note": "复杂语文页，已有勾改。",
+        "sample_name": "498bf6ab8ee4e13bde413558af899837_origin(1).jpg",
+        "sample_origin": "local_eval_samples/498bf6ab8ee4e13bde413558af899837_origin(1).jpg",
+        "source_kind": "fixture_only",
+        "worth_manual_annotation": true
+      },
+      {
+        "annotation_priority": "medium",
+        "candidate_gap_categories": [],
+        "document_type": "unknown",
+        "layout_hint": "squareish",
+        "missing_fields": [
+          "document_classification.page_type",
+          "document_classification.doc_family",
+          "questions"
+        ],
+        "missing_truth_artifacts": [
+          "json_sidecar",
+          "cache_payload"
+        ],
+        "page_type": "unknown",
+        "review_note": "复杂语文阅读页。",
+        "sample_name": "585120886d1fba8915e5d7500e5f379e_origin(1).jpg",
+        "sample_origin": "local_eval_samples/585120886d1fba8915e5d7500e5f379e_origin(1).jpg",
+        "source_kind": "fixture_only",
+        "worth_manual_annotation": true
+      },
+      {
+        "annotation_priority": "medium",
+        "candidate_gap_categories": [],
+        "document_type": "unknown",
+        "layout_hint": "squareish",
+        "missing_fields": [
+          "document_classification.page_type",
+          "document_classification.doc_family",
+          "questions"
+        ],
+        "missing_truth_artifacts": [
+          "json_sidecar",
+          "cache_payload"
+        ],
+        "page_type": "unknown",
+        "review_note": "独立数学选择题页。",
+        "sample_name": "7aac0fcd266a7c25f1350e6a8e991265_origin(1).jpg",
+        "sample_origin": "local_eval_samples/7aac0fcd266a7c25f1350e6a8e991265_origin(1).jpg",
+        "source_kind": "fixture_only",
+        "worth_manual_annotation": true
+      },
+      {
+        "annotation_priority": "medium",
+        "candidate_gap_categories": [],
+        "document_type": "unknown",
+        "layout_hint": "squareish",
+        "missing_fields": [
+          "document_classification.page_type",
+          "document_classification.doc_family",
+          "questions"
+        ],
+        "missing_truth_artifacts": [
+          "json_sidecar",
+          "cache_payload"
+        ],
+        "page_type": "unknown",
+        "review_note": "整页批改痕迹明显。",
+        "sample_name": "7d98f6d0ff1873c71807e39230d6c522_origin(1).jpg",
+        "sample_origin": "local_eval_samples/7d98f6d0ff1873c71807e39230d6c522_origin(1).jpg",
+        "source_kind": "fixture_only",
+        "worth_manual_annotation": true
+      },
+      {
+        "annotation_priority": "medium",
+        "candidate_gap_categories": [],
+        "document_type": "unknown",
+        "layout_hint": "portrait",
+        "missing_fields": [
+          "document_classification.page_type",
+          "document_classification.doc_family",
+          "questions"
+        ],
+        "missing_truth_artifacts": [
+          "json_sidecar",
+          "cache_payload"
+        ],
+        "page_type": "unknown",
+        "review_note": "",
+        "sample_name": "7ea5094d7c66c5ef77bc05934fcae451_origin(1).jpg",
+        "sample_origin": "local_eval_samples/7ea5094d7c66c5ef77bc05934fcae451_origin(1).jpg",
+        "source_kind": "fixture_only",
+        "worth_manual_annotation": true
+      },
+      {
+        "annotation_priority": "medium",
+        "candidate_gap_categories": [],
+        "document_type": "unknown",
+        "layout_hint": "portrait",
+        "missing_fields": [
+          "document_classification.page_type",
+          "document_classification.doc_family",
+          "questions"
+        ],
+        "missing_truth_artifacts": [
+          "json_sidecar",
+          "cache_payload"
+        ],
+        "page_type": "unknown",
+        "review_note": "",
+        "sample_name": "867013b1842c5e745d02e48843fee0e4_origin(1).jpg",
+        "sample_origin": "local_eval_samples/867013b1842c5e745d02e48843fee0e4_origin(1).jpg",
+        "source_kind": "fixture_only",
+        "worth_manual_annotation": true
+      },
+      {
+        "annotation_priority": "medium",
+        "candidate_gap_categories": [],
+        "document_type": "unknown",
+        "layout_hint": "portrait",
+        "missing_fields": [
+          "document_classification.page_type",
+          "document_classification.doc_family",
+          "questions"
+        ],
+        "missing_truth_artifacts": [
+          "json_sidecar",
+          "cache_payload"
+        ],
+        "page_type": "unknown",
+        "review_note": "",
+        "sample_name": "8a8863a40d46915ce70b8596feb92eff_origin(1).jpg",
+        "sample_origin": "local_eval_samples/8a8863a40d46915ce70b8596feb92eff_origin(1).jpg",
+        "source_kind": "fixture_only",
+        "worth_manual_annotation": true
+      },
+      {
+        "annotation_priority": "medium",
+        "candidate_gap_categories": [],
+        "document_type": "unknown",
+        "layout_hint": "portrait",
+        "missing_fields": [
+          "document_classification.page_type",
+          "document_classification.doc_family",
+          "questions"
+        ],
+        "missing_truth_artifacts": [
+          "json_sidecar",
+          "cache_payload"
+        ],
+        "page_type": "unknown",
+        "review_note": "",
+        "sample_name": "c54377cd2b8f80ff07dda40ce357e565_origin(1).jpg",
+        "sample_origin": "local_eval_samples/c54377cd2b8f80ff07dda40ce357e565_origin(1).jpg",
+        "source_kind": "fixture_only",
+        "worth_manual_annotation": true
+      },
+      {
+        "annotation_priority": "medium",
+        "candidate_gap_categories": [],
+        "document_type": "unknown",
+        "layout_hint": "portrait",
+        "missing_fields": [
+          "document_classification.page_type",
+          "document_classification.doc_family",
+          "questions"
+        ],
+        "missing_truth_artifacts": [
+          "json_sidecar",
+          "cache_payload"
+        ],
+        "page_type": "unknown",
+        "review_note": "拼音字帖页，书写痕迹明显。",
+        "sample_name": "d8b52e65075e632eb751fa152aa9a387_origin(1).jpg",
+        "sample_origin": "local_eval_samples/d8b52e65075e632eb751fa152aa9a387_origin(1).jpg",
+        "source_kind": "fixture_only",
+        "worth_manual_annotation": true
+      },
+      {
+        "annotation_priority": "medium",
+        "candidate_gap_categories": [],
+        "document_type": "unknown",
+        "layout_hint": "portrait",
+        "missing_fields": [
+          "document_classification.page_type",
+          "document_classification.doc_family",
+          "questions"
+        ],
+        "missing_truth_artifacts": [
+          "json_sidecar",
+          "cache_payload"
+        ],
+        "page_type": "unknown",
+        "review_note": "非作业界面/说明型截图。",
+        "sample_name": "db2d0e0a19d2c6bd5cf6da750bf6cdbb_origin(1).jpg",
+        "sample_origin": "local_eval_samples/db2d0e0a19d2c6bd5cf6da750bf6cdbb_origin(1).jpg",
+        "source_kind": "fixture_only",
+        "worth_manual_annotation": true
+      },
+      {
+        "annotation_priority": "medium",
+        "candidate_gap_categories": [],
+        "document_type": "unknown",
+        "layout_hint": "portrait",
+        "missing_fields": [
+          "document_classification.page_type",
+          "document_classification.doc_family",
+          "questions"
+        ],
+        "missing_truth_artifacts": [
+          "json_sidecar",
+          "cache_payload"
+        ],
+        "page_type": "unknown",
+        "review_note": "说明页风格，底部有批改。",
+        "sample_name": "db5fc846398224118346e9bbf028e78a_origin(1).jpg",
+        "sample_origin": "local_eval_samples/db5fc846398224118346e9bbf028e78a_origin(1).jpg",
+        "source_kind": "fixture_only",
+        "worth_manual_annotation": true
+      },
+      {
+        "annotation_priority": "low",
+        "candidate_gap_categories": [],
+        "document_type": "math_arithmetic",
+        "layout_hint": "landscape",
+        "missing_fields": [],
+        "missing_truth_artifacts": [
+          "json_sidecar",
+          "human_verified_ground_truth"
+        ],
+        "page_type": "math_homework",
+        "review_note": "",
+        "sample_name": "sample.bmp",
+        "sample_origin": "backend/tests/fixtures/sample.bmp",
+        "source_kind": "fixture_cache",
+        "worth_manual_annotation": true
+      },
+      {
+        "annotation_priority": "low",
+        "candidate_gap_categories": [],
+        "document_type": "unknown",
+        "layout_hint": "portrait",
+        "missing_fields": [
+          "document_classification.doc_family"
+        ],
+        "missing_truth_artifacts": [],
+        "page_type": "mixed_homework",
+        "review_note": "拼音/英文混合页带书写痕迹。",
+        "sample_name": "a95fa987431b6f696d5f996124fd8903_origin(1).jpg",
+        "sample_origin": "local_eval_samples/a95fa987431b6f696d5f996124fd8903_origin(1).jpg",
+        "source_kind": "json_fixture",
+        "worth_manual_annotation": true
+      }
+    ]
+  },
+  "inventory": {
+    "fixture_image_count": 29,
+    "fixture_sample_count": 29,
+    "normalized_truth_sample_count": 10,
+    "source_kind_counts": {
+      "fixture_cache": 1,
+      "fixture_only": 18,
+      "json_fixture": 10
+    }
+  }
+}

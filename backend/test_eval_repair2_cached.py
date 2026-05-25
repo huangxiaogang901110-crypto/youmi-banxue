@@ -133,7 +133,7 @@ def test_load_fixture_samples_without_json_or_cache_is_skipped(tmp_path):
             "section_count": 0,
             "options_count": 0,
             "blanks_count": 0,
-            "skipped_reason": "SKIPPED_NO_CACHE",
+            "skipped_reason": cached_eval.SKIPPED_NO_CACHE_REASON,
             "_suspicious_question_count": 0,
             "_residual_meta_like_count": 0,
             "_legacy_field_break_count": 0,
@@ -383,7 +383,7 @@ def test_build_summary_reports_question_filter_and_coverage_metadata():
             "section_count": 2,
             "options_count": 0,
             "blanks_count": 2,
-            "skipped_reason": "SKIPPED_NO_CACHE",
+            "skipped_reason": cached_eval.SKIPPED_NO_CACHE_REASON,
             "_suspicious_question_count": 1,
             "_residual_meta_like_count": 0,
             "_legacy_field_break_count": 0,
@@ -409,12 +409,15 @@ def test_build_summary_reports_question_filter_and_coverage_metadata():
     assert summary["question_stats"]["filtered_question_total"] == 1
     assert summary["filter_metadata"]["fixture_only_count"] == 1
     assert summary["filter_metadata"]["excluded_fixture_only_count"] == 1
-    assert summary["filter_metadata"]["skipped_reason_counts"] == {"SKIPPED_NO_CACHE": 1}
+    assert summary["filter_metadata"]["skipped_reason_counts"] == {
+        cached_eval.SKIPPED_NO_CACHE_REASON: 1
+    }
+    assert summary["violation_total_count"] == 0
     assert summary["effective_samples"]["count"] == 1
     assert summary["skipped_samples"] == {
         "count": 1,
         "source_kind_counts": {"fixture_only": 1},
-        "skipped_reason_counts": {"SKIPPED_NO_CACHE": 1},
+        "skipped_reason_counts": {cached_eval.SKIPPED_NO_CACHE_REASON: 1},
     }
     assert summary["violations"]["suspicious_or_garbled_questions"]["count"] == 0
 
@@ -434,4 +437,123 @@ def test_default_load_fixture_samples_still_works(tmp_path):
 
     assert len(samples) == 1
     assert samples[0]["source_kind"] == "fixture_only"
-    assert samples[0]["skipped_reason"] == "SKIPPED_NO_CACHE"
+    assert samples[0]["skipped_reason"] == cached_eval.SKIPPED_NO_CACHE_REASON
+
+
+def test_quality_gate_rejects_unknown_effective_pollution():
+    summary = {
+        "effective_sample_count": 1,
+        "skipped_count": 18,
+        "loaded_sample_count": 19,
+        "source_kind_counts": {"json_fixture": 1},
+        "skipped_samples": {
+            "source_kind_counts": {"fixture_only": 18},
+            "skipped_reason_counts": {cached_eval.SKIPPED_NO_CACHE_REASON: 18},
+        },
+        "violation_total_count": 0,
+    }
+    effective_samples = [
+        {
+            "source_kind": "json_fixture",
+            "page_type": "unknown",
+        }
+    ]
+    skipped_samples = [
+        {
+            "source_kind": "fixture_only",
+            "page_type": "unknown",
+            "skipped_reason": cached_eval.SKIPPED_NO_CACHE_REASON,
+        }
+        for _ in range(18)
+    ]
+
+    gate = cached_eval.build_quality_gate(
+        summary,
+        effective_samples,
+        skipped_samples,
+        only_json_fixtures=False,
+    )
+
+    assert gate["passed"] is False
+    assert gate["checks"]["effective_sample_count"]["passed"] is False
+    assert gate["checks"]["unknown_effective_count"]["passed"] is False
+
+
+def test_repo_only_json_quality_gate_matches_baseline():
+    result = cached_eval.evaluate_cached_samples(
+        db_path=None,
+        sample_dirs=[],
+        limit=50,
+        only_json_fixtures=True,
+    )
+
+    summary = result["summary"]
+    gate = summary["quality_gate"]
+
+    assert summary["effective_sample_count"] == 10
+    assert summary["skipped_count"] == 0
+    assert summary["source_kind_counts"] == {"json_fixture": 10}
+    assert summary["violation_total_count"] == 0
+    assert summary["page_type_counts"].get("unknown", 0) == 0
+    assert gate["mode"] == "only_json_fixtures"
+    assert gate["passed"] is True
+
+
+def test_repo_no_paid_quality_gate_and_gap_report_snapshot():
+    result = cached_eval.evaluate_cached_samples(
+        db_path=None,
+        sample_dirs=[],
+        limit=50,
+        only_json_fixtures=False,
+    )
+
+    summary = result["summary"]
+    gate = summary["quality_gate"]
+    report = result["fixture_gap_report"]
+    categories = {
+        item["category_id"]: item
+        for item in report["category_gap_summary"]
+    }
+    gaps_by_origin = {
+        item["sample_origin"]: item
+        for item in report["ground_truth_gaps"]["samples"]
+    }
+
+    assert summary["effective_sample_count"] == 11
+    assert summary["skipped_count"] == 18
+    assert summary["source_kind_counts"] == {"json_fixture": 10, "fixture_cache": 1}
+    assert summary["skipped_samples"]["source_kind_counts"] == {"fixture_only": 18}
+    assert summary["filter_metadata"]["skipped_reason_counts"] == {
+        cached_eval.SKIPPED_NO_CACHE_REASON: 18
+    }
+    assert summary["violation_total_count"] == 0
+    assert summary["page_type_counts"].get("unknown", 0) == 0
+    assert gate["mode"] == "no_paid"
+    assert gate["passed"] is True
+    assert gate["checks"]["fixture_only_effective_count"]["observed"] == 0
+
+    assert categories["mixed_pinyin_english"]["status"] == "covered"
+    assert categories["complex_chinese_page"]["status"] == "covered"
+    assert categories["standalone_multiple_choice_page"]["status"] == "covered"
+    assert categories["non_homework_image"]["status"] == "covered"
+    assert categories["cover_or_instruction_page"]["status"] == "covered"
+    assert categories["teacher_markup"]["status"] == "covered"
+    assert categories["landscape_or_tilted_photo"]["status"] == "gap"
+    assert categories["dense_multi_column_page"]["status"] == "gap"
+
+    assert gaps_by_origin[
+        "local_eval_samples/a95fa987431b6f696d5f996124fd8903_origin(1).jpg"
+    ]["missing_fields"] == ["document_classification.doc_family"]
+    assert gaps_by_origin["backend/tests/fixtures/sample.bmp"]["missing_truth_artifacts"] == [
+        "json_sidecar",
+        "human_verified_ground_truth",
+    ]
+    assert gaps_by_origin[
+        "local_eval_samples/04fb8059d392d3235e042e8c9303f5bf_origin(1).jpg"
+    ]["candidate_gap_categories"] == [
+        "dense_multi_column_page",
+        "landscape_or_tilted_photo",
+    ]
+
+    snapshot = json.loads(cached_eval.DEFAULT_GAP_REPORT_PATH.read_text(encoding="utf-8"))
+    assert report == snapshot
