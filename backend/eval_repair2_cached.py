@@ -22,6 +22,9 @@ from document_classifier import (
 ROOT = Path(__file__).resolve().parent.parent
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
 DEFAULT_SAMPLE_LIMIT = 50
+SKIPPED_NO_CACHE_REASON = "SKIPPEDNOCACHE"
+DEFAULT_GAP_REPORT_PATH = ROOT / "backend" / "eval" / "repair3d_fixture_gap_report.json"
+DEFAULT_REVIEW_TAGS_PATH = ROOT / "backend" / "eval" / "repair3d_fixture_review_tags.json"
 DEFAULT_FIXTURE_DIRS = [
     ROOT / "local_eval_samples",
     ROOT / "e2e" / "fixtures",
@@ -35,6 +38,44 @@ ARITHMETIC_SIGNAL = re.compile(r"\d+\s*[+\-×xX*/÷=]\s*\d+")
 MISSING = object()
 PORTRAIT_LAYOUT_RATIO = 1.35
 COMPLEX_LAYOUT_MIN_QUESTIONS = 3
+PINYIN_DIACRITIC_RE = re.compile(r"[āáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜüĀÁǍÀĒÉĚÈĪÍǏÌŌÓǑÒŪÚǓÙǕǗǙǛÜ]")
+LATIN_TOKEN_RE = re.compile(r"[A-Za-zāáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜüĀÁǍÀĒÉĚÈĪÍǏÌŌÓǑÒŪÚǓÙǕǗǙǛÜ]+")
+ENGLISH_SIGNAL_RE = re.compile(
+    r"\b(?:english|student|school|apple|banana|cherry|date|fill|blank|go|goes|am|is|are)\b",
+    re.IGNORECASE,
+)
+GAP_CATEGORY_LABELS = {
+    "mixed_pinyin_english": "拼音/英文混合题",
+    "complex_chinese_page": "复杂语文页",
+    "standalone_multiple_choice_page": "选择题独立页",
+    "landscape_or_tilted_photo": "横拍/斜拍",
+    "dense_multi_column_page": "多栏密集题",
+    "non_homework_image": "非作业图",
+    "cover_or_instruction_page": "封面/说明页",
+    "teacher_markup": "涂改/老师批改痕迹",
+}
+QUALITY_GATE_EXPECTATIONS = {
+    "only_json_fixtures": {
+        "effective_sample_count": 10,
+        "skipped_count": 0,
+        "effective_source_kind_counts": {"json_fixture": 10},
+        "skipped_source_kind_counts": {},
+        "skipped_reason_counts": {},
+        "violation_total_count": 0,
+        "unknown_effective_count": 0,
+        "fixture_only_effective_count": 0,
+    },
+    "no_paid": {
+        "effective_sample_count": 11,
+        "skipped_count": 18,
+        "effective_source_kind_counts": {"json_fixture": 10, "fixture_cache": 1},
+        "skipped_source_kind_counts": {"fixture_only": 18},
+        "skipped_reason_counts": {SKIPPED_NO_CACHE_REASON: 18},
+        "violation_total_count": 0,
+        "unknown_effective_count": 0,
+        "fixture_only_effective_count": 0,
+    },
+}
 
 
 def parse_args() -> argparse.Namespace:
@@ -71,6 +112,12 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Only evaluate JSON fixture sidecar samples. "
         "Excludes cached_db, fixture_cache, fixture_only, and any non-json_fixture source.",
+    )
+    parser.add_argument(
+        "--gap-report-path",
+        type=Path,
+        default=DEFAULT_GAP_REPORT_PATH,
+        help="Machine-readable Repair-3D fixture gap report output path.",
     )
     return parser.parse_args()
 
@@ -334,6 +381,96 @@ def load_json_fixture_payload(image_path: Path) -> dict[str, Any] | None:
     except OSError:
         return None
     return normalize_fixture_payload(safe_json_loads(raw))
+
+
+def load_fixture_review_tags(path: Path = DEFAULT_REVIEW_TAGS_PATH) -> dict[str, dict[str, Any]]:
+    if not path.exists() or not path.is_file():
+        return {}
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+    normalized: dict[str, dict[str, Any]] = {}
+    for sample_origin, payload in raw.items():
+        if isinstance(payload, dict):
+            normalized[str(sample_origin)] = dict(payload)
+    return normalized
+
+
+def get_fixture_payload_for_sample(sample: dict[str, Any]) -> dict[str, Any] | None:
+    sample_origin = str(sample.get("sample_origin") or "").strip()
+    if not sample_origin:
+        return None
+    image_path = ROOT / sample_origin
+    if not image_path.exists() or sample.get("source_kind") != "json_fixture":
+        return None
+    return load_json_fixture_payload(image_path)
+
+
+def payload_has_pinyin_and_english(payload: dict[str, Any] | None) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    questions = payload.get("questions")
+    if not isinstance(questions, list):
+        return False
+
+    parts: list[str] = []
+    for question in questions:
+        if not isinstance(question, dict):
+            continue
+        section_title = str(question.get("section_title") or "").strip()
+        question_text = str(question.get("question_text") or "").strip()
+        if section_title:
+            parts.append(section_title)
+        if question_text:
+            parts.append(question_text)
+
+    merged = "\n".join(parts)
+    if not merged:
+        return False
+
+    latin_tokens = LATIN_TOKEN_RE.findall(merged)
+    short_latin_tokens = [
+        token
+        for token in latin_tokens
+        if 2 <= len(token) <= 6 and token.isascii()
+    ]
+    has_pinyin_signal = (
+        "拼音" in merged
+        or bool(PINYIN_DIACRITIC_RE.search(merged))
+        or (len(short_latin_tokens) >= 3 and any(marker in merged for marker in ("——", "___", "（", "(")))
+    )
+    has_english_signal = bool(ENGLISH_SIGNAL_RE.search(merged))
+    return has_pinyin_signal and has_english_signal
+
+
+def derive_fixture_category_tags(
+    sample: dict[str, Any],
+    review_entry: dict[str, Any],
+    payload: dict[str, Any] | None,
+) -> list[str]:
+    tags = {
+        str(tag)
+        for tag in review_entry.get("review_tags", [])
+        if isinstance(tag, str) and tag in GAP_CATEGORY_LABELS
+    }
+    if sample.get("page_type") == "non_homework":
+        tags.add("non_homework_image")
+    if sample.get("page_type") == "cover_or_instruction_page":
+        tags.add("cover_or_instruction_page")
+    if "choice_page" in sample.get("coverage_flags", []):
+        tags.add("standalone_multiple_choice_page")
+    if (
+        sample.get("page_type") == "chinese_homework"
+        and int(sample.get("question_count") or 0) >= 5
+        and int(sample.get("section_count") or 0) >= 2
+    ):
+        tags.add("complex_chinese_page")
+    if payload_has_pinyin_and_english(payload):
+        tags.add("mixed_pinyin_english")
+    return sorted(tags)
 
 
 def count_blanks(text: str) -> int:
@@ -683,7 +820,7 @@ def load_fixture_samples(
                 "section_count": 0,
                 "options_count": 0,
                 "blanks_count": 0,
-                "skipped_reason": "SKIPPED_NO_CACHE",
+                "skipped_reason": SKIPPED_NO_CACHE_REASON,
                 "_suspicious_question_count": 0,
                 "_residual_meta_like_count": 0,
                 "_legacy_field_break_count": 0,
@@ -730,7 +867,7 @@ def build_summary(
         if isinstance(flag, str) and flag
     )
     skipped_no_cache = sum(
-        1 for sample in skipped_samples if sample["skipped_reason"] == "SKIPPED_NO_CACHE"
+        1 for sample in skipped_samples if sample["skipped_reason"] == SKIPPED_NO_CACHE_REASON
     )
     raw_question_total = sum(int(sample["raw_question_count"]) for sample in effective_samples)
     kept_question_total = sum(int(sample["question_count"]) for sample in effective_samples)
@@ -790,6 +927,12 @@ def build_summary(
         for sample in effective_samples
         if int(sample["_legacy_field_break_count"]) > 0
     ]
+    violation_total_count = (
+        len(conservative_bad_samples)
+        + len(residual_meta_samples)
+        + len(suspicious_samples)
+        + len(legacy_field_samples)
+    )
 
     return {
         "db_path": str(db_path) if db_path else "",
@@ -839,6 +982,7 @@ def build_summary(
             "excluded_fixture_only_count": skipped_source_kinds.get("fixture_only", 0),
             "cached_db_count": source_kinds.get("cached_db", 0),
         },
+        "violation_total_count": violation_total_count,
         "violations": {
             "conservative_pages_with_questions": {
                 "count": len(conservative_bad_samples),
@@ -890,39 +1034,279 @@ def build_summary(
     }
 
 
-def main() -> int:
-    args = parse_args()
-    limit = max(int(args.limit or 0), 1)
-    db_path = resolve_db_path(args.db_path)
-    fixture_dirs = resolve_sample_dirs(args.sample_dirs)
+def build_quality_gate(
+    summary: dict[str, Any],
+    effective_samples: list[dict[str, Any]],
+    skipped_samples: list[dict[str, Any]],
+    *,
+    only_json_fixtures: bool,
+) -> dict[str, Any]:
+    mode = "only_json_fixtures" if only_json_fixtures else "no_paid"
+    expected = QUALITY_GATE_EXPECTATIONS[mode]
+    observed_effective_source_kinds = dict(summary.get("source_kind_counts", {}))
+    observed_skipped_source_kinds = dict(
+        ((summary.get("skipped_samples") or {}).get("source_kind_counts") or {})
+    )
+    observed_skipped_reasons = dict(
+        ((summary.get("skipped_samples") or {}).get("skipped_reason_counts") or {})
+    )
+    unknown_effective_count = sum(
+        1 for sample in effective_samples if str(sample.get("page_type") or "") == "unknown"
+    )
+    fixture_only_effective_count = sum(
+        1 for sample in effective_samples if str(sample.get("source_kind") or "") == "fixture_only"
+    )
+    checks = {
+        "effective_sample_count": {
+            "expected": expected["effective_sample_count"],
+            "observed": int(summary.get("effective_sample_count", 0)),
+        },
+        "skipped_count": {
+            "expected": expected["skipped_count"],
+            "observed": int(summary.get("skipped_count", 0)),
+        },
+        "effective_source_kind_counts": {
+            "expected": expected["effective_source_kind_counts"],
+            "observed": observed_effective_source_kinds,
+        },
+        "skipped_source_kind_counts": {
+            "expected": expected["skipped_source_kind_counts"],
+            "observed": observed_skipped_source_kinds,
+        },
+        "skipped_reason_counts": {
+            "expected": expected["skipped_reason_counts"],
+            "observed": observed_skipped_reasons,
+        },
+        "violation_total_count": {
+            "expected": expected["violation_total_count"],
+            "observed": int(summary.get("violation_total_count", 0)),
+        },
+        "unknown_effective_count": {
+            "expected": expected["unknown_effective_count"],
+            "observed": unknown_effective_count,
+        },
+        "fixture_only_effective_count": {
+            "expected": expected["fixture_only_effective_count"],
+            "observed": fixture_only_effective_count,
+        },
+        "loaded_sample_count_matches_split": {
+            "expected": len(effective_samples) + len(skipped_samples),
+            "observed": int(summary.get("loaded_sample_count", 0)),
+        },
+    }
+    for check in checks.values():
+        check["passed"] = check["observed"] == check["expected"]
+    return {
+        "mode": mode,
+        "passed": all(check["passed"] for check in checks.values()),
+        "checks": checks,
+    }
+
+
+def build_fixture_gap_report(
+    *,
+    fixture_samples: list[dict[str, Any]],
+    fixture_dirs: list[Path],
+    fixture_images: list[Path],
+    db_path: Path | None,
+) -> dict[str, Any]:
+    review_tags = load_fixture_review_tags()
+    sample_entries: list[dict[str, Any]] = []
+    for sample in fixture_samples:
+        sample_origin = str(sample.get("sample_origin") or "")
+        review_entry = review_tags.get(sample_origin, {})
+        payload = get_fixture_payload_for_sample(sample)
+        category_tags = derive_fixture_category_tags(sample, review_entry, payload)
+
+        missing_truth_artifacts: list[str] = []
+        missing_fields: list[str] = []
+        source_kind = str(sample.get("source_kind") or "")
+        if source_kind == "fixture_only":
+            missing_truth_artifacts = ["json_sidecar", "cache_payload"]
+            missing_fields = [
+                "document_classification.page_type",
+                "document_classification.doc_family",
+                "questions",
+            ]
+        elif source_kind == "fixture_cache":
+            missing_truth_artifacts = ["json_sidecar", "human_verified_ground_truth"]
+        elif source_kind == "json_fixture":
+            if str(sample.get("page_type") or "unknown") == "unknown":
+                missing_fields.append("document_classification.page_type")
+            if str(sample.get("document_type") or "unknown") == "unknown":
+                missing_fields.append("document_classification.doc_family")
+            if (
+                int(sample.get("raw_question_count") or 0) == 0
+                and str(sample.get("page_type") or "")
+                not in {"cover_or_instruction_page", "non_homework"}
+            ):
+                missing_fields.append("questions")
+
+        sample_entries.append(
+            {
+                "sample_name": str(sample.get("sample_name") or ""),
+                "sample_origin": sample_origin,
+                "source_kind": source_kind,
+                "page_type": str(sample.get("page_type") or "unknown"),
+                "document_type": str(sample.get("document_type") or "unknown"),
+                "layout_hint": str(sample.get("layout_hint") or "unknown"),
+                "question_count": int(sample.get("question_count") or 0),
+                "section_count": int(sample.get("section_count") or 0),
+                "category_tags": category_tags,
+                "missing_truth_artifacts": missing_truth_artifacts,
+                "missing_fields": missing_fields,
+                "review_note": str(review_entry.get("note") or ""),
+            }
+        )
+
+    normalized_truth_entries = [
+        entry for entry in sample_entries if entry["source_kind"] == "json_fixture"
+    ]
+    gap_category_ids = sorted(
+        category_id
+        for category_id in GAP_CATEGORY_LABELS
+        if not any(category_id in entry["category_tags"] for entry in normalized_truth_entries)
+    )
+    gap_category_set = set(gap_category_ids)
+
+    ground_truth_gap_samples: list[dict[str, Any]] = []
+    for entry in sample_entries:
+        if not entry["missing_truth_artifacts"] and not entry["missing_fields"]:
+            continue
+        candidate_gap_categories = [
+            category_id for category_id in entry["category_tags"] if category_id in gap_category_set
+        ]
+        if candidate_gap_categories:
+            annotation_priority = "high"
+        elif entry["source_kind"] == "fixture_only":
+            annotation_priority = "medium"
+        else:
+            annotation_priority = "low"
+        ground_truth_gap_samples.append(
+            {
+                "sample_name": entry["sample_name"],
+                "sample_origin": entry["sample_origin"],
+                "source_kind": entry["source_kind"],
+                "page_type": entry["page_type"],
+                "document_type": entry["document_type"],
+                "layout_hint": entry["layout_hint"],
+                "missing_truth_artifacts": entry["missing_truth_artifacts"],
+                "missing_fields": entry["missing_fields"],
+                "candidate_gap_categories": candidate_gap_categories,
+                "worth_manual_annotation": bool(
+                    entry["missing_truth_artifacts"] or entry["missing_fields"]
+                ),
+                "annotation_priority": annotation_priority,
+                "review_note": entry["review_note"],
+            }
+        )
+    ground_truth_gap_samples.sort(
+        key=lambda entry: (
+            {"high": 0, "medium": 1, "low": 2}[entry["annotation_priority"]],
+            entry["sample_origin"],
+        )
+    )
+
+    category_gap_summary: list[dict[str, Any]] = []
+    for category_id, label in GAP_CATEGORY_LABELS.items():
+        normalized_truth_samples = [
+            entry["sample_origin"]
+            for entry in normalized_truth_entries
+            if category_id in entry["category_tags"]
+        ]
+        missing_truth_candidates = [
+            gap["sample_origin"]
+            for gap in ground_truth_gap_samples
+            if category_id in gap["candidate_gap_categories"]
+        ]
+        category_gap_summary.append(
+            {
+                "category_id": category_id,
+                "label": label,
+                "status": "covered" if normalized_truth_samples else "gap",
+                "normalized_truth_sample_count": len(normalized_truth_samples),
+                "normalized_truth_samples": normalized_truth_samples,
+                "missing_truth_candidate_count": len(missing_truth_candidates),
+                "missing_truth_candidates": missing_truth_candidates,
+            }
+        )
+
+    return {
+        "fixture_dirs": [str(path) for path in fixture_dirs],
+        "db_path": str(db_path) if db_path else "",
+        "inventory": {
+            "fixture_image_count": len(fixture_images),
+            "fixture_sample_count": len(fixture_samples),
+            "source_kind_counts": dict(Counter(entry["source_kind"] for entry in sample_entries)),
+            "normalized_truth_sample_count": len(normalized_truth_entries),
+        },
+        "gap_category_ids": gap_category_ids,
+        "ground_truth_gaps": {
+            "count": len(ground_truth_gap_samples),
+            "samples": ground_truth_gap_samples,
+        },
+        "category_gap_summary": category_gap_summary,
+    }
+
+
+def write_json_report(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    serialized = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    try:
+        current = path.read_text(encoding="utf-8")
+    except OSError:
+        current = None
+    if current != serialized:
+        path.write_text(serialized, encoding="utf-8")
+
+
+def evaluate_cached_samples(
+    *,
+    db_path: Path | None,
+    sample_dirs: list[Path],
+    limit: int,
+    only_json_fixtures: bool,
+) -> dict[str, Any]:
+    resolved_db_path = resolve_db_path(db_path)
+    fixture_dirs = resolve_sample_dirs(sample_dirs)
     fixture_images = load_fixture_images(fixture_dirs)
+    fixture_limit = max(limit, len(fixture_images) or 1)
 
     samples: list[dict[str, Any]] = []
+    fixture_samples: list[dict[str, Any]] = []
     seen_job_ids: set[str] = set()
     seen_sample_names: set[str] = set()
     conn: sqlite3.Connection | None = None
 
     try:
-        if db_path:
-            conn = connect_readonly(db_path)
+        if resolved_db_path:
+            conn = connect_readonly(resolved_db_path)
 
         if fixture_images:
-            samples.extend(
-                load_fixture_samples(
-                    conn,
-                    fixture_images,
-                    limit,
-                    seen_job_ids,
-                    only_json_fixtures=args.only_json_fixtures,
-                    seen_sample_names=seen_sample_names,
-                )
+            fixture_seen_job_ids: set[str] = set()
+            fixture_seen_sample_names: set[str] = set()
+            fixture_samples = load_fixture_samples(
+                conn,
+                fixture_images,
+                fixture_limit,
+                fixture_seen_job_ids,
+                only_json_fixtures=False,
+                seen_sample_names=fixture_seen_sample_names,
             )
+            if only_json_fixtures:
+                samples.extend(
+                    sample for sample in fixture_samples if str(sample.get("source_kind")) == "json_fixture"
+                )
+            else:
+                samples.extend(fixture_samples)
+                seen_job_ids = fixture_seen_job_ids
+                seen_sample_names = fixture_seen_sample_names
 
         if (
             conn is not None
             and len(samples) < limit
             and table_exists(conn, "parse_jobs")
-            and not args.only_json_fixtures
+            and not only_json_fixtures
         ):
             samples.extend(
                 load_recent_cached_samples(
@@ -940,17 +1324,56 @@ def main() -> int:
     effective_samples, skipped_samples = split_samples_by_skip(samples)
     summary = build_summary(
         samples,
-        db_path=db_path,
+        db_path=resolved_db_path,
         fixture_dirs=fixture_dirs,
         fixture_images=fixture_images,
     )
+    quality_gate = build_quality_gate(
+        summary,
+        effective_samples,
+        skipped_samples,
+        only_json_fixtures=only_json_fixtures,
+    )
+    fixture_gap_report = build_fixture_gap_report(
+        fixture_samples=fixture_samples,
+        fixture_dirs=fixture_dirs,
+        fixture_images=fixture_images,
+        db_path=resolved_db_path,
+    )
+    summary["quality_gate"] = quality_gate
+    summary["fixture_gap_overview"] = {
+        "gap_category_ids": list(fixture_gap_report["gap_category_ids"]),
+        "ground_truth_gap_sample_count": int(fixture_gap_report["ground_truth_gaps"]["count"]),
+    }
+    return {
+        "effective_samples": effective_samples,
+        "skipped_samples": skipped_samples,
+        "summary": summary,
+        "fixture_gap_report": fixture_gap_report,
+    }
+
+
+def main() -> int:
+    args = parse_args()
+    result = evaluate_cached_samples(
+        db_path=args.db_path,
+        sample_dirs=args.sample_dirs,
+        limit=max(int(args.limit or 0), 1),
+        only_json_fixtures=args.only_json_fixtures,
+    )
+    write_json_report(args.gap_report_path, result["fixture_gap_report"])
+    try:
+        gap_report_label = str(args.gap_report_path.relative_to(ROOT))
+    except ValueError:
+        gap_report_label = str(args.gap_report_path)
+    result["summary"]["fixture_gap_report_path"] = gap_report_label
 
     print(
         json.dumps(
             {
-                "effective_samples": effective_samples,
-                "skipped_samples": skipped_samples,
-                "summary": summary,
+                "effective_samples": result["effective_samples"],
+                "skipped_samples": result["skipped_samples"],
+                "summary": result["summary"],
             },
             ensure_ascii=False,
             indent=2,

@@ -1,0 +1,114 @@
+{
+  "local_eval_samples/04fb8059d392d3235e042e8c9303f5bf_origin(1).jpg": {
+    "review_tags": [
+      "dense_multi_column_page",
+      "landscape_or_tilted_photo",
+      "teacher_markup"
+    ],
+    "note": "横拍多栏语文页，带手写痕迹。"
+  },
+  "local_eval_samples/0a511e8d4f883fd787a4d0ad528f189f_origin(1).jpg": {
+    "review_tags": [
+      "teacher_markup"
+    ],
+    "note": "封面页带批改痕迹。"
+  },
+  "local_eval_samples/0fea02200c6dfc2bb77d31f52d7c49b9_origin(1).jpg": {
+    "review_tags": [
+      "teacher_markup"
+    ],
+    "note": "选择题页上有勾改。"
+  },
+  "local_eval_samples/110203d331e3d6d9dbb35f29ea4d546d_origin(1).jpg": {
+    "review_tags": [
+      "landscape_or_tilted_photo",
+      "teacher_markup"
+    ],
+    "note": "斜拍练习页，含书写痕迹。"
+  },
+  "local_eval_samples/1853b2e7ec6e53910f9328f7a120ba9f_origin(1).jpg": {
+    "review_tags": [
+      "standalone_multiple_choice_page"
+    ],
+    "note": "独立选择题页。"
+  },
+  "local_eval_samples/1e46e3aed79a74479995d85b86f40830_origin(1).jpg": {
+    "review_tags": [
+      "complex_chinese_page",
+      "teacher_markup"
+    ],
+    "note": "语文字帖页，含书写内容。"
+  },
+  "local_eval_samples/498bf6ab8ee4e13bde413558af899837_origin(1).jpg": {
+    "review_tags": [
+      "complex_chinese_page",
+      "teacher_markup"
+    ],
+    "note": "复杂语文页，已有勾改。"
+  },
+  "local_eval_samples/585120886d1fba8915e5d7500e5f379e_origin(1).jpg": {
+    "review_tags": [
+      "complex_chinese_page"
+    ],
+    "note": "复杂语文阅读页。"
+  },
+  "local_eval_samples/7aac0fcd266a7c25f1350e6a8e991265_origin(1).jpg": {
+    "review_tags": [
+      "standalone_multiple_choice_page"
+    ],
+    "note": "独立数学选择题页。"
+  },
+  "local_eval_samples/7d98f6d0ff1873c71807e39230d6c522_origin(1).jpg": {
+    "review_tags": [
+      "teacher_markup"
+    ],
+    "note": "整页批改痕迹明显。"
+  },
+  "local_eval_samples/8ca18021d0236fa3311b640d38a022d4_origin(1).jpg": {
+    "review_tags": [
+      "dense_multi_column_page",
+      "landscape_or_tilted_photo",
+      "teacher_markup"
+    ],
+    "note": "横拍多栏题页，带批改痕迹。"
+  },
+  "local_eval_samples/91fc932fc2591335a8abb08a0c44b95e_origin(1).jpg": {
+    "review_tags": [
+      "teacher_markup"
+    ],
+    "note": "竖式计算页有书写答案。"
+  },
+  "local_eval_samples/a95fa987431b6f696d5f996124fd8903_origin(1).jpg": {
+    "review_tags": [
+      "teacher_markup"
+    ],
+    "note": "拼音/英文混合页带书写痕迹。"
+  },
+  "local_eval_samples/d8b52e65075e632eb751fa152aa9a387_origin(1).jpg": {
+    "review_tags": [
+      "complex_chinese_page",
+      "teacher_markup"
+    ],
+    "note": "拼音字帖页，书写痕迹明显。"
+  },
+  "local_eval_samples/db2d0e0a19d2c6bd5cf6da750bf6cdbb_origin(1).jpg": {
+    "review_tags": [
+      "non_homework_image"
+    ],
+    "note": "非作业界面/说明型截图。"
+  },
+  "local_eval_samples/db5fc846398224118346e9bbf028e78a_origin(1).jpg": {
+    "review_tags": [
+      "cover_or_instruction_page",
+      "teacher_markup"
+    ],
+    "note": "说明页风格，底部有批改。"
+  },
+  "local_eval_samples/e8bc9c5f71c8e07511caf31ab0065358_origin(1).jpg": {
+    "review_tags": [
+      "landscape_or_tilted_photo",
+      "teacher_markup"
+    ],
+    "note": "斜拍练习页，已有书写答案。"
+  }
+}
