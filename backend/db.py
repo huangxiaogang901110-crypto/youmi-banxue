@@ -135,6 +135,29 @@ def init():
             expired INTEGER DEFAULT 0
         );
 
+        -- ── 图片指纹（只写不读，为去重做准备）────────────
+        CREATE TABLE IF NOT EXISTS image_fingerprints (
+            id TEXT PRIMARY KEY,
+            parent_id TEXT NOT NULL,
+            child_id TEXT NOT NULL,
+            job_id TEXT NOT NULL,
+            original_sha256 TEXT,
+            ahash TEXT NOT NULL,
+            dhash TEXT,
+            width INTEGER,
+            height INTEGER,
+            aspect_ratio REAL,
+            file_size INTEGER,
+            created_at TEXT NOT NULL,
+            deleted_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_fp_lookup
+            ON image_fingerprints(parent_id, child_id, ahash);
+        CREATE INDEX IF NOT EXISTS idx_fp_job
+            ON image_fingerprints(job_id);
+        CREATE INDEX IF NOT EXISTS idx_fp_sha256
+            ON image_fingerprints(original_sha256);
+
         -- ── Phase 1 错题本 ───────────────────────────────
         CREATE TABLE IF NOT EXISTS mistake_book_item (
             id TEXT PRIMARY KEY,
@@ -634,18 +657,26 @@ def load_all():
         if "job" not in entry and "status" in entry:
             entry = {
                 "job": {
+                    "job_id": entry.get("job_id", row["job_id"]),
                     "status": entry.get("status", ""),
                     "questions_count": entry.get("questions_count", 0),
                     "file_name": entry.get("file_name", ""),
                     "created_at": entry.get("created_at", ""),
                     "updated_at": entry.get("updated_at", ""),
                     "completed_at": entry.get("completed_at", ""),
+                    "image_url": entry.get("image_url", ""),
                 },
                 "questions": entry.get("questions", []),
+                "recognition": entry.get("recognition"),
+                "document_classification": entry.get("document_classification", {}),
+                "preprocess_versions": entry.get("preprocess_versions", []),
+                "ocr_blocks": entry.get("ocr_blocks", []),
+                "ocr_block_source": entry.get("ocr_block_source", "ocr_unknown"),
                 "poll_count": entry.get("poll_count", 0),
                 "child_id": entry.get("child_id", ""),
                 "parent_id": entry.get("parent_id", ""),
                 "client_task_id": entry.get("client_task_id", ""),
+                "image_url": entry.get("image_url", ""),
                 "progress": entry.get("progress", ""),
                 "error_code": entry.get("error_code", ""),
                 "retry_count": entry.get("retry_count", 0),
@@ -1218,3 +1249,107 @@ def save_parse_history(child_id: str, job_id: str, data_json: str):
     )
     c.commit()
     c.close()
+
+
+def save_image_fingerprint(fp: dict):
+    """保存图片指纹（只写不读）。fp 必须包含 compute_fingerprints 返回的所有字段。"""
+    import uuid
+    c = _conn()
+    c.execute(
+        """INSERT OR REPLACE INTO image_fingerprints
+           (id, parent_id, child_id, job_id, original_sha256, ahash, dhash,
+            width, height, aspect_ratio, file_size, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
+        (
+            uuid.uuid4().hex[:12],
+            fp.get("parent_id", ""),
+            fp.get("child_id", ""),
+            fp.get("job_id", ""),
+            fp.get("original_sha256"),
+            fp.get("ahash"),
+            fp.get("dhash"),
+            fp.get("width"),
+            fp.get("height"),
+            fp.get("aspect_ratio"),
+            fp.get("file_size"),
+        ),
+    )
+    c.commit()
+    c.close()
+
+
+def find_reusable_job_by_fingerprint(
+    parent_id: str,
+    child_id: str,
+    original_sha256: str | None,
+    ahash: str | None,
+    dhash: str | None,
+    aspect_ratio: float | None,
+    max_ahash_dist: int = 2,
+    max_dhash_dist: int = 4,
+    max_aspect_diff: float = 0.05,
+):
+    """Step 2: 同图去重查找。按 parent_id + child_id 范围内匹配指纹。
+
+    优先级：
+    1. original_sha256 完全匹配（最快）
+    2. ahash hamming <= max_ahash_dist AND dhash hamming <= max_dhash_dist
+
+    只复用 completed / low_confidence / needs_review 且未删除的 job。
+    返回 (job_id, status, questions_count, ahash_dist, dhash_dist) 或 None。
+    """
+    if not ahash:
+        return None
+    c = _conn()
+    REUSABLE_STATUSES = ("completed", "low_confidence", "needs_review")
+
+    # Priority 1: original_sha256 exact match
+    if original_sha256:
+        row = c.execute(
+            """SELECT fp.job_id, pj.status, pj.questions_count, fp.ahash, fp.dhash
+               FROM image_fingerprints fp
+               JOIN parse_jobs pj ON fp.job_id = pj.job_id
+               WHERE fp.parent_id = ? AND fp.child_id = ?
+                 AND fp.original_sha256 = ?
+                 AND pj.status IN (?, ?, ?)
+                 AND pj.deleted_at IS NULL
+               ORDER BY pj.created_at DESC LIMIT 1""",
+            (parent_id, child_id, original_sha256, *REUSABLE_STATUSES),
+        ).fetchone()
+        if row:
+            c.close()
+            return (row["job_id"], row["status"], row["questions_count"], 0, 0)
+
+    # Priority 2: ahash + dhash hamming distance
+    candidates = c.execute(
+        """SELECT fp.job_id, pj.status, pj.questions_count, fp.ahash, fp.dhash, fp.aspect_ratio
+           FROM image_fingerprints fp
+           JOIN parse_jobs pj ON fp.job_id = pj.job_id
+           WHERE fp.parent_id = ? AND fp.child_id = ?
+             AND fp.ahash IS NOT NULL
+             AND pj.status IN (?, ?, ?)
+             AND pj.deleted_at IS NULL
+           ORDER BY pj.created_at DESC""",
+        (parent_id, child_id, *REUSABLE_STATUSES),
+    ).fetchall()
+    c.close()
+
+    best = None
+    best_score = 999
+    for row in candidates:
+        ah_dist = _hamming_distance(ahash, row["ahash"])
+        dh_dist = _hamming_distance(dhash, row["dhash"]) if dhash and row["dhash"] else 99
+        asp_diff = abs((aspect_ratio or 0) - (row["aspect_ratio"] or 0))
+        if ah_dist <= max_ahash_dist and dh_dist <= max_dhash_dist and asp_diff <= max_aspect_diff:
+            score = ah_dist + dh_dist
+            if score < best_score:
+                best_score = score
+                best = (row["job_id"], row["status"], row["questions_count"], ah_dist, dh_dist)
+    return best
+
+
+def _hamming_distance(h1: str, h2: str) -> int:
+    """计算两个 hex hash 的 hamming distance（逐位 XOR 后 bit count）。"""
+    if not h1 or not h2 or len(h1) != len(h2):
+        return 99
+    return bin(int(h1, 16) ^ int(h2, 16)).count("1")

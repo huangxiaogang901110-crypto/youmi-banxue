@@ -97,8 +97,9 @@ function UploadContent() {
 
       // 预检：同一张图已解析过？
       try {
+        const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL ?? "";
         const checkResp = await fetch(
-          `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/parse-jobs/check-hash?hash=${hash}`,
+          `${apiBaseUrl}/api/parse-jobs/check-hash?hash=${hash}`,
           { headers: getToken() ? { Authorization: `Bearer ${getToken()}` } : {} }
         );
         const checkData = await checkResp.json();

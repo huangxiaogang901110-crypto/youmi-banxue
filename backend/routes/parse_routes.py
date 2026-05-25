@@ -20,6 +20,7 @@ from model_logger import make_log_entry
 from deepseek_client import DeepSeekClient
 from tutor_prompt import build_tutor_messages
 import oss_client as _oss
+from schemas.recognition import RecognitionImage, build_recognition_document
 from vision_client import QwenVLClient
 from pydantic import BaseModel, Field
 from pydantic import BaseModel as PydanticBase
@@ -131,6 +132,17 @@ async def upload_to_job(
     t2 = time.time()
     _log_info(f"api_upload_done jid={job_id} elapsed_ms={int((t2-t0)*1000)}")
 
+    # ── 图片指纹写入（只写不读）──
+    try:
+        from image_fingerprint import compute_fingerprints
+        fp = compute_fingerprints(contents)
+        fp["parent_id"] = parent_id
+        fp["child_id"] = child_id
+        fp["job_id"] = job_id
+        _db.save_image_fingerprint(fp)
+    except Exception as e:
+        _log_warn(f"fp_write_fail jid={job_id} err={type(e).__name__}:{e}")
+
     return {"ok": True, "data": {"job_id": job_id, "status": "uploaded", "file_name": file.filename}, "request_id": uuid.uuid4().hex}
 
 # ─── 1. POST /api/parse-jobs ───────────────────────────────
@@ -197,6 +209,44 @@ async def create_parse_job(
         t2 = time.time()
         _log_info(f"api_after_file_read jid={jid} bytes={len(contents)} elapsed_ms={int((t2-t0)*1000)}")
 
+        # ── Step 2: 同图去重 — 指纹命中后复用历史 job，跳过 OCR/Qwen ──
+        try:
+            from image_fingerprint import compute_fingerprints
+            fp = compute_fingerprints(contents)
+            fp["parent_id"] = parent_id
+            fp["child_id"] = child_id
+            fp["job_id"] = jid
+            reusable = _db.find_reusable_job_by_fingerprint(
+                parent_id, child_id,
+                fp.get("original_sha256"), fp.get("ahash"), fp.get("dhash"),
+                fp.get("aspect_ratio"),
+            )
+            if reusable:
+                source_job_id, source_status, source_qcount, ah_dist, dh_dist = reusable
+                _log_info(
+                    f"DEDUP_HIT jid={jid} source_job_id={source_job_id} "
+                    f"source_status={source_status} qcount={source_qcount} "
+                    f"ahash_dist={ah_dist} dhash_dist={dh_dist}"
+                )
+                # Save fingerprint for this new upload too (links jid to same image)
+                _db.save_image_fingerprint(fp)
+                return {
+                    "ok": True,
+                    "data": {
+                        "job_id": source_job_id,
+                        "status": source_status,
+                        "file_name": file.filename,
+                        "reused": True,
+                        "source_job_id": source_job_id,
+                    },
+                    "request_id": uuid.uuid4().hex,
+                }
+            else:
+                _log_info(f"DEDUP_MISS jid={jid} reason=new_image")
+        except Exception as e:
+            _log_warn(f"dedup_check_fail jid={jid} err={type(e).__name__}:{e} (fallthrough to normal)")
+        # ── end dedup ──
+
         # ── 注册任务到内存 + DB（file.read 成功后立即落库）──
         enqueue_parse_job(jid, {
             "job": ParseJob(job_id=jid, status=JobStatus.uploaded,
@@ -216,6 +266,17 @@ async def create_parse_job(
         asyncio.create_task(worker_process_job(jid, contents, file, now, parent_id, child_id))
         t4 = time.time()
         _log_info(f"api_worker_started jid={jid} elapsed_ms={int((t4-t0)*1000)}")
+
+        # ── 图片指纹写入（只写不读，为去重做准备）──
+        try:
+            from image_fingerprint import compute_fingerprints
+            fp = compute_fingerprints(contents)
+            fp["parent_id"] = parent_id
+            fp["child_id"] = child_id
+            fp["job_id"] = jid
+            _db.save_image_fingerprint(fp)
+        except Exception as e:
+            _log_warn(f"fp_write_fail jid={jid} err={type(e).__name__}:{e}")
 
         # ── 返回 ──
         t5 = time.time()
@@ -404,6 +465,12 @@ async def get_parse_job_status(job_id: str, request: Request, user: tuple = Depe
             data = job_obj.model_dump()
         else:
             data = job_obj
+        data["job_id"] = data.get("job_id") or job_id
+        data["image_url"] = data.get("image_url") or j.get("image_url", "")
+        data["document_classification"] = (
+            j.get("document_classification")
+            or (j.get("recognition") or {}).get("meta", {}).get("document_classification", {})
+        )
         # 附加调试信息：error_code / progress
         data["error_code"] = j.get("error_code", "")
         data["progress"] = j.get("progress", "")
@@ -444,6 +511,50 @@ async def get_parse_job_questions(job_id: str, request: Request, user: tuple = D
         raise
     except Exception as e:
         return {"ok": False, "code": "questions_error", "message": str(e), "request_id": uuid.uuid4().hex}
+
+
+@router.get("/api/parse-jobs/{job_id}/recognition")
+@limiter.limit("30/minute")
+async def get_parse_job_recognition(job_id: str, request: Request, user: tuple = Depends(get_current_user)):
+    try:
+        await asyncio.sleep(0.1)
+        if job_id in _jobs and _jobs[job_id].get("recognition"):
+            return {"ok": True, "data": _jobs[job_id]["recognition"], "request_id": uuid.uuid4().hex}
+
+        db_data = _db.get_job_data(job_id)
+        if not db_data:
+            raise HTTPException(status_code=404, detail={"ok": False, "code": "not_found", "message": "任务不存在", "request_id": uuid.uuid4().hex})
+
+        if db_data.get("recognition"):
+            return {"ok": True, "data": db_data["recognition"], "request_id": uuid.uuid4().hex}
+
+        image = RecognitionImage(
+            id=job_id,
+            text=db_data.get("file_name") or job_id,
+            source="persisted_job",
+            kind="image",
+            status="completed",
+            file_path=db_data.get("image_url"),
+            preprocess_versions=db_data.get("preprocess_versions", []),
+        )
+        recognition = build_recognition_document(
+            image=image,
+            raw_questions=db_data.get("questions", []),
+            raw_blocks=db_data.get("ocr_blocks", []),
+            block_source=db_data.get("ocr_block_source", "persisted_ocr"),
+            layout_regions=(db_data.get("document_classification", {}) or {}).get("layout_regions", []),
+            meta={
+                "job_id": job_id,
+                "status": db_data.get("status"),
+                "image_url": db_data.get("image_url"),
+                "document_classification": db_data.get("document_classification", {}),
+            },
+        ).model_dump()
+        return {"ok": True, "data": recognition, "request_id": uuid.uuid4().hex}
+    except HTTPException:
+        raise
+    except Exception as e:
+        return {"ok": False, "code": "recognition_error", "message": str(e), "request_id": uuid.uuid4().hex}
 
 
 
@@ -849,4 +960,3 @@ async def save_parse_history(request: Request, body: ParseHistorySaveRequest, us
             "message": str(e),
             "request_id": uuid.uuid4().hex,
         }
-

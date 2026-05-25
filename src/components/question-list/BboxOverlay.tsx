@@ -58,6 +58,12 @@ export default function BboxOverlay({ bboxes, activeIndex, imageUrl }: Props) {
     };
   };
 
+  const isRenderableBbox = (bbox: number[]) => {
+    if (!Array.isArray(bbox) || bbox.length !== 4) return false;
+    const [x, y, w, h] = bbox;
+    return [x, y, w, h].every((v) => Number.isFinite(v)) && w > 0 && h > 0;
+  };
+
   return (
     <div ref={containerRef} className="relative w-full">
       {imageUrl ? (
@@ -73,6 +79,7 @@ export default function BboxOverlay({ bboxes, activeIndex, imageUrl }: Props) {
 
       {/* bbox rectangles */}
       {bboxes.map((b, i) => {
+        if (!isRenderableBbox(b.bbox)) return null;
         const pos = mapCoord(b.bbox);
         const active = i === activeIndex;
         return (
