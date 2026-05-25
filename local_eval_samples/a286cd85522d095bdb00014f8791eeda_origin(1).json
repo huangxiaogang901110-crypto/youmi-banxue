@@ -1,0 +1,69 @@
+{
+  "page_type": "chinese_homework",
+  "doc_family": "chinese_worksheet",
+  "document_classification": {
+    "page_type": "chinese_homework",
+    "doc_family": "chinese_worksheet",
+    "section_headers": [
+      {
+        "section_title": "一、看拼音写词语"
+      },
+      {
+        "section_title": "二、比一比，组词"
+      },
+      {
+        "section_title": "三、照样子写句子"
+      }
+    ]
+  },
+  "questions": [
+    {
+      "question_id": "q-1",
+      "question_number": 1,
+      "question_text": "shàn zi——（    ）",
+      "section_title": "一、看拼音写词语"
+    },
+    {
+      "question_id": "q-2",
+      "question_number": 2,
+      "question_text": "màn màn——（    ）",
+      "section_title": "一、看拼音写词语"
+    },
+    {
+      "question_id": "q-3",
+      "question_number": 3,
+      "question_text": "yù dào——（    ）",
+      "section_title": "一、看拼音写词语"
+    },
+    {
+      "question_id": "q-4",
+      "question_number": 4,
+      "question_text": "tù zi——（    ）",
+      "section_title": "一、看拼音写词语"
+    },
+    {
+      "question_id": "q-5",
+      "question_number": 5,
+      "question_text": "兔（    ）免（    ）",
+      "section_title": "二、比一比，组词"
+    },
+    {
+      "question_id": "q-6",
+      "question_number": 6,
+      "question_text": "根（    ）跟（    ）",
+      "section_title": "二、比一比，组词"
+    },
+    {
+      "question_id": "q-7",
+      "question_number": 7,
+      "question_text": "痛（    ）通（    ）",
+      "section_title": "二、比一比，组词"
+    },
+    {
+      "question_id": "q-8",
+      "question_number": 8,
+      "question_text": "仿写：大象有一对大耳朵，像扇子似的耷拉着。",
+      "section_title": "三、照样子写句子"
+    }
+  ]
+}

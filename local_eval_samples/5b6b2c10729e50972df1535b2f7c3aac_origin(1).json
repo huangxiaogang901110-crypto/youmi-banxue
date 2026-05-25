@@ -1,0 +1,106 @@
+{
+  "page_type": "math_homework",
+  "doc_family": "math_arithmetic",
+  "questions": [
+    {
+      "question_id": "q-1",
+      "question_number": 1,
+      "question_text": "4 + 7 = ___"
+    },
+    {
+      "question_id": "q-2",
+      "question_number": 2,
+      "question_text": "8 + 8 = ___"
+    },
+    {
+      "question_id": "q-3",
+      "question_number": 3,
+      "question_text": "9 + 6 = ___"
+    },
+    {
+      "question_id": "q-4",
+      "question_number": 4,
+      "question_text": "9 + 2 = ___"
+    },
+    {
+      "question_id": "q-5",
+      "question_number": 5,
+      "question_text": "7 + 7 = ___"
+    },
+    {
+      "question_id": "q-6",
+      "question_number": 6,
+      "question_text": "8 + 4 = ___"
+    },
+    {
+      "question_id": "q-7",
+      "question_number": 7,
+      "question_text": "5 + 8 = ___"
+    },
+    {
+      "question_id": "q-8",
+      "question_number": 8,
+      "question_text": "7 + 5 = ___"
+    },
+    {
+      "question_id": "q-9",
+      "question_number": 9,
+      "question_text": "9 + 4 = ___"
+    },
+    {
+      "question_id": "q-10",
+      "question_number": 10,
+      "question_text": "3 + 9 = ___"
+    },
+    {
+      "question_id": "q-11",
+      "question_number": 11,
+      "question_text": "7 + 8 = ___"
+    },
+    {
+      "question_id": "q-12",
+      "question_number": 12,
+      "question_text": "7 + 6 = ___"
+    },
+    {
+      "question_id": "q-13",
+      "question_number": 13,
+      "question_text": "6 + 7 = ___"
+    },
+    {
+      "question_id": "q-14",
+      "question_number": 14,
+      "question_text": "6 + 8 = ___"
+    },
+    {
+      "question_id": "q-15",
+      "question_number": 15,
+      "question_text": "9 + 9 = ___"
+    },
+    {
+      "question_id": "q-16",
+      "question_number": 16,
+      "question_text": "9 + 5 = ___"
+    },
+    {
+      "question_id": "q-17",
+      "question_number": 17,
+      "question_text": "4 + 9 = ___"
+    },
+    {
+      "question_id": "q-18",
+      "question_number": 18,
+      "question_text": "5 + 9 = ___"
+    },
+    {
+      "question_id": "q-19",
+      "question_number": 19,
+      "question_text": "3 + 8 = ___"
+    },
+    {
+      "question_id": "q-20",
+      "question_number": 20,
+      "question_text": "4 + 8 = ___"
+    }
+  ]
+}
