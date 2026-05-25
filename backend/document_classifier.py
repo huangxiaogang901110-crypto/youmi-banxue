@@ -9,32 +9,43 @@ from pydantic import BaseModel, Field
 
 ARITHMETIC_SIGNS = re.compile(r"[+\-×xX*/÷=]")
 ARITHMETIC_EXPR = re.compile(r"\d+\s*[+\-×xX*/÷]\s*\d+")
+COMPARISON_EXPR = re.compile(r"\d+\s*(?:○|[<>＜＞≤≥≦≧])\s*\d+")
 QUESTION_NUMBER = re.compile(
     r"^\s*(?:\(?\d{1,3}\)?[.、．)]|[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳]|[一二三四五六七八九十]+[、．.])"
 )
 SECTION_HEADER = re.compile(r"^\s*[★☆]?\s*[一二三四五六七八九十]+[、．.)）]")
 ENGLISH_TOKEN = re.compile(r"\b[A-Za-z]{3,}\b")
 PINYIN_TOKEN = re.compile(r"\b[a-z]{1,6}\b")
-META_FIELDS = re.compile(r"(日期|班级|姓名|学号|老师|家长签字|用时|得分|总分|分数)")
+META_FIELDS = re.compile(
+    r"(日期|班级|姓名|学号|老师|任课教师|授课老师|辅导老师|课程|科目|家长签字|家长签名|用时|得分|总分|分数)"
+)
 TITLE_KEYWORDS = re.compile(
     r"(寒假作业|暑假作业|每日一练|同步练习|专项练习|自主学习|课时|单元|口算训练|课间活动|需要几个轮子)"
 )
 INSTRUCTION_KEYWORDS = re.compile(
     r"(请|要求|完成|根据题意|照样子|温馨提示|在○里|在括号里|把.*?圈起来|直接写出得数|列竖式计算|打卡)"
 )
-FOOTER_KEYWORDS = re.compile(r"(第\d+页|共\d+页|出版社|印刷|定价|二维码|微信|抖音)")
+FOOTER_KEYWORDS = re.compile(
+    r"(第\d+页|共\d+页|出版社|印刷|定价|二维码|微信|抖音|copyright|版权所有|扫码关注|网址|客服)"
+)
 HOMEWORK_KEYWORDS = re.compile(r"(作业|练习|题|计算|口算|列竖式|应用题|比大小|填一填|判断|选择)")
 NON_HOMEWORK_KEYWORDS = re.compile(
-    r"(营养成分|配料|净含量|保质期|生产日期|登录|验证码|隐私政策|注册|收银|快递|面单|listen and order)"
+    r"(营养成分|配料|净含量|保质期|生产日期|登录|验证码|隐私政策|注册|收银|快递|面单|listen and order|说明书|注意事项|版权所有|扫码关注)"
 )
-MATH_KEYWORDS = re.compile(
-    r"(计算|口算|加减|乘法|除法|列竖式|应用题|比大小|填一填|判断题|选择题|得数|算式|答案)"
+MATH_CORE_KEYWORDS = re.compile(
+    r"(计算|口算|加减|乘法|除法|列竖式|应用题|比大小|填一填|得数|算式|验算|余数|大于|小于)"
+)
+MATH_GENERIC_KEYWORDS = re.compile(
+    r"(判断题|选择题|判断|选择|填空|填一填)"
 )
 CHINESE_KEYWORDS = re.compile(
-    r"(拼音|读音|组词|造句|同音字|近义词|反义词|课文|阅读|根据课文|照样子|仿写|口罩|蜘蛛开店|大象的耳朵)"
+    r"(拼音|读音|组词|造句|同音字|近义词|反义词|课文|阅读|根据课文|照样子|仿写|词语|句子|短文|汉字|中文|反义词|近义词|补充句子|补全|连一连|写词语|看图写话|选择正确读音|口罩|蜘蛛开店|大象的耳朵)"
 )
 ENGLISH_KEYWORDS = re.compile(
     r"(listen|read|write|match|english|fill in the blanks|look and choose|circle the|order the)"
+)
+LANGUAGE_WORKSHEET_KEYWORDS = re.compile(
+    r"(看图|选择正确|选词填空|补全|补充|连一连|单词|词语|句子|短文|中文|汉字)"
 )
 ANSWER_CUES = re.compile(r"(答[:：]|答案|写出|填空|括号|田字格|横线)")
 
@@ -212,6 +223,19 @@ def _pick_structural_lines(lines: list[str], page_type: str) -> list[str]:
             picked.append(stripped)
     return picked
 
+
+def _split_nonempty_lines(text: str) -> list[str]:
+    return [line.strip() for line in str(text or "").splitlines() if line.strip()]
+
+
+def _has_comparison_signal(text: str) -> bool:
+    stripped = str(text or "").strip()
+    if not stripped:
+        return False
+    if COMPARISON_EXPR.search(stripped):
+        return True
+    return "○" in stripped and len(re.findall(r"\d", stripped)) >= 2
+
 def _is_question_like(text: str) -> bool:
     stripped = text.strip()
     if not stripped:
@@ -219,6 +243,8 @@ def _is_question_like(text: str) -> bool:
     if QUESTION_NUMBER.match(stripped):
         return True
     if ARITHMETIC_EXPR.search(stripped):
+        return True
+    if _has_comparison_signal(stripped):
         return True
     if any(token in stripped for token in ("?", "？", "＝", "=", "填空", "判断", "选择", "应用题", "比大小")):
         return True
@@ -337,9 +363,15 @@ def _build_blocks(
 
 
 def _score_subjects(text: str) -> dict[str, int]:
+    math_core_hits = len(MATH_CORE_KEYWORDS.findall(text))
+    arithmetic_hits = len(ARITHMETIC_EXPR.findall(text))
+    comparison_hits = len(COMPARISON_EXPR.findall(text))
+    has_math_shape = arithmetic_hits > 0 or comparison_hits > 0
     return {
-        "math": len(MATH_KEYWORDS.findall(text)) + len(ARITHMETIC_EXPR.findall(text)) * 2,
-        "chinese": len(CHINESE_KEYWORDS.findall(text)),
+        "math": math_core_hits + arithmetic_hits * 2 + comparison_hits * 2 + (
+            len(MATH_GENERIC_KEYWORDS.findall(text)) if has_math_shape else 0
+        ),
+        "chinese": len(CHINESE_KEYWORDS.findall(text)) + len(LANGUAGE_WORKSHEET_KEYWORDS.findall(text)),
         "english": len(ENGLISH_KEYWORDS.findall(text.lower())) + len(ENGLISH_TOKEN.findall(text)) // 6,
     }
 
@@ -349,7 +381,7 @@ def _derive_math_doc_family(text: str) -> str:
         return "math_word_problem"
     if "竖式" in text or "列竖式" in text:
         return "math_vertical"
-    if "比大小" in text or "判断题" in text or "选择题" in text:
+    if "比大小" in text or "判断题" in text or "选择题" in text or _has_comparison_signal(text):
         return "math_comparison_logic"
     if "一半" in text or "平均分" in text or "看图" in text:
         return "math_visual_concept"
@@ -460,15 +492,26 @@ def classify_document(
     text = merged.strip()
     lowered = text.lower()
     sign_count = len(ARITHMETIC_SIGNS.findall(text))
+    lines = _split_nonempty_lines(text)
     blocks = _build_blocks(ocr_blocks, image_width=image_width, image_height=image_height)
     layout_regions = _build_layout_regions(blocks)
     section_headers = _collect_section_headers(blocks)
 
     non_homework_hits = sum(1 for block in blocks if _is_non_homework_text(block.text))
+    text_non_homework_hits = sum(1 for line in lines if _is_non_homework_text(line))
     meta_indices = [block.index for block in blocks if block.is_meta or block.is_title]
     question_indices = [block.index for block in blocks if block.is_question_like]
     answer_indices = [block.index for block in blocks if block.is_answer_like]
     subject_scores = _score_subjects(text)
+    question_like_line_count = sum(1 for line in lines if _is_question_like(line))
+    meta_like_line_count = sum(1 for line in lines if _is_meta_like(line) or _is_title_like(line))
+    instruction_like_line_count = sum(1 for line in lines if _is_instruction_like(line))
+    arithmetic_hits = len(ARITHMETIC_EXPR.findall(text))
+    comparison_hits = len(COMPARISON_EXPR.findall(text))
+    has_math_shape = arithmetic_hits > 0 or comparison_hits > 0
+    english_token_count = len(ENGLISH_TOKEN.findall(text))
+    has_cjk_signal = _count_cjk(text) >= 4
+    has_bilingual_signal = has_cjk_signal and english_token_count >= 1
     subject = max(subject_scores, key=subject_scores.get) if any(subject_scores.values()) else "unknown"
     page_type = "unknown"
     support_level = "partial"
@@ -478,20 +521,38 @@ def classify_document(
     reason = "未命中稳定模板，按保守模式处理。"
     major_failure_reason = ""
 
-    if non_homework_hits >= 2 or ("营养成分" in text and sign_count == 0):
+    total_non_homework_hits = non_homework_hits + text_non_homework_hits
+    total_meta_hits = len(meta_indices) + meta_like_line_count + instruction_like_line_count
+    total_question_hits = len(question_indices) + question_like_line_count
+
+    if total_non_homework_hits >= 2 or (
+        _is_non_homework_text(text) and not has_math_shape and total_question_hits == 0
+    ) or ("营养成分" in text and sign_count == 0):
         page_type = "non_homework"
         support_level = "unsupported"
         route_hint = "reject_non_homework"
         confidence = 0.92
         reason = "命中非作业内容特征，按非作业页处理。"
         major_failure_reason = "non_homework_page"
-    elif len(question_indices) == 0 and (len(meta_indices) >= max(2, len(blocks) // 3) or TITLE_KEYWORDS.search(text)):
+    elif total_question_hits <= 1 and (
+        total_meta_hits >= max(2, max(len(blocks), len(lines)) // 3) or TITLE_KEYWORDS.search(text)
+    ) and not (has_math_shape and total_question_hits >= 2):
         page_type = "cover_or_instruction_page"
         support_level = "unsupported"
         route_hint = "reject_cover_page"
         confidence = 0.88
         reason = "页面以标题、页眉或说明为主，按封面/说明页处理。"
         major_failure_reason = "cover_or_instruction_page"
+    elif has_bilingual_signal and not has_math_shape and (
+        subject_scores["chinese"] > 0 or subject_scores["english"] > 0 or LANGUAGE_WORKSHEET_KEYWORDS.search(text)
+    ):
+        page_type = "mixed_homework"
+        subject = "mixed"
+        support_level = "partial"
+        route_hint = "mixed_review"
+        doc_family = "unknown"
+        confidence = 0.62
+        reason = "同时存在中文与英文题面信号，按混合作业页处理。"
     elif subject_scores["math"] > 0 and subject_scores["chinese"] > 0:
         page_type = "mixed_homework"
         subject = "mixed"
@@ -508,22 +569,28 @@ def classify_document(
         doc_family = "unknown"
         confidence = 0.56
         reason = "同时命中数学与英语特征，先按混合作业页处理。"
-    elif subject == "math" and (sign_count >= 4 or len(question_indices) >= 3 or HOMEWORK_KEYWORDS.search(text)):
+    elif (
+        (subject_scores["math"] > 0 or has_math_shape)
+        and (has_math_shape or sign_count >= 4 or total_question_hits >= 3 or HOMEWORK_KEYWORDS.search(text))
+    ):
         page_type = "math_homework"
+        subject = "math"
         support_level = "full"
         route_hint = "math_rule_first"
         doc_family = _derive_math_doc_family(text)
         confidence = 0.84
         reason = "命中数学计算/题号/作业关键词，按数学作业页处理。"
-    elif subject == "chinese" and subject_scores["chinese"] > 0:
+    elif subject_scores["chinese"] > 0:
         page_type = "chinese_homework"
+        subject = "chinese"
         support_level = "partial"
         route_hint = "language_review"
         doc_family = "chinese_language"
         confidence = 0.76
         reason = "命中语文练习关键词，按语文作业页分流。"
-    elif subject == "english" and subject_scores["english"] > 0:
+    elif subject_scores["english"] > 0:
         page_type = "english_homework"
+        subject = "english"
         support_level = "partial"
         route_hint = "language_review"
         doc_family = "english_language"
@@ -536,7 +603,7 @@ def classify_document(
         confidence = 0.1
         reason = "OCR 未得到有效文本，按未知页处理。"
         major_failure_reason = "empty_text"
-    elif len(question_indices) == 0:
+    elif total_question_hits == 0:
         page_type = "unknown"
         support_level = "unsupported"
         route_hint = "general_review"

@@ -110,6 +110,19 @@ def test_classify_math_page():
     assert result.page_type == "math_homework"
 
 
+def test_classify_comparison_math_page():
+    """比大小/○ 数学页不应掉到 unknown"""
+    result = classify_document(
+        raw_text="""
+1. 3○5
+2. 7○9
+3. 12○8
+        """.strip(),
+    )
+    assert result.page_type == "math_homework"
+    assert result.doc_family == "math_comparison_logic"
+
+
 def test_classify_chinese_page():
     """语文作业页应正确识别"""
     result = classify_document(
@@ -121,6 +134,45 @@ píng guǒ  → (____)
         """.strip(),
     )
     assert result.page_type in ("chinese_homework", "mixed_homework", "unknown")
+
+
+def test_classify_mixed_cn_en_page():
+    """混合中英题不应被误判为纯数学或 unknown"""
+    result = classify_document(
+        raw_text="""
+一、看图选择正确答案
+1. apple 的中文是（ ）
+A. 苹果
+B. 香蕉
+C. 西瓜
+        """.strip(),
+    )
+    assert result.page_type == "mixed_homework"
+
+
+def test_raw_text_non_homework_page():
+    """纯文本非作业页不能因为英文词而误判成作业"""
+    result = classify_document(
+        raw_text="""
+listen and order
+扫码关注微信
+登录验证码
+        """.strip(),
+    )
+    assert result.page_type == "non_homework"
+
+
+def test_title_with_real_math_questions_not_cover():
+    """有真实算式的口算页不能被 title 规则打成 cover"""
+    result = classify_document(
+        raw_text="""
+口算训练
+1. 3 + 5 =
+2. 6 + 7 =
+3. 8 - 2 =
+        """.strip(),
+    )
+    assert result.page_type == "math_homework"
 
 
 def test_drop_questions_for_cover():
@@ -312,8 +364,11 @@ def test_should_drop_meta():
 def test_meta_instruction_or_footer_helper():
     """共享 helper 应识别 meta/说明/页脚文本"""
     assert is_meta_instruction_or_footer_text("班级：三年级(2)班")
+    assert is_meta_instruction_or_footer_text("课程：三年级数学")
+    assert is_meta_instruction_or_footer_text("授课老师：王老师")
     assert is_meta_instruction_or_footer_text("根据题意列式计算")
     assert is_meta_instruction_or_footer_text("第5页 共12页")
+    assert is_meta_instruction_or_footer_text("版权所有 © 悠米伴学")
     assert not is_meta_instruction_or_footer_text("1. 计算 3 + 5 = ___")
 
 
