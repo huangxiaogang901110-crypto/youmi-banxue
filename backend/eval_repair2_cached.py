@@ -694,6 +694,19 @@ def load_fixture_samples(
     return samples
 
 
+def split_samples_by_skip(
+    samples: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    effective_samples: list[dict[str, Any]] = []
+    skipped_samples: list[dict[str, Any]] = []
+    for sample in samples:
+        if str(sample.get("skipped_reason") or "").strip():
+            skipped_samples.append(sample)
+        else:
+            effective_samples.append(sample)
+    return effective_samples, skipped_samples
+
+
 def build_summary(
     samples: list[dict[str, Any]],
     *,
@@ -701,89 +714,129 @@ def build_summary(
     fixture_dirs: list[Path],
     fixture_images: list[Path],
 ) -> dict[str, Any]:
-    page_types = Counter(sample["page_type"] for sample in samples)
-    document_types = Counter(sample["document_type"] for sample in samples)
-    source_kinds = Counter(sample["source_kind"] for sample in samples)
-    skipped_reasons = Counter(sample["skipped_reason"] for sample in samples if sample["skipped_reason"])
+    effective_samples, skipped_samples = split_samples_by_skip(samples)
+    all_source_kinds = Counter(sample["source_kind"] for sample in samples)
+    source_kinds = Counter(sample["source_kind"] for sample in effective_samples)
+    skipped_source_kinds = Counter(sample["source_kind"] for sample in skipped_samples)
+    page_types = Counter(sample["page_type"] for sample in effective_samples)
+    document_types = Counter(sample["document_type"] for sample in effective_samples)
+    skipped_reasons = Counter(
+        sample["skipped_reason"] for sample in skipped_samples if sample["skipped_reason"]
+    )
     coverage_flags = Counter(
         flag
-        for sample in samples
+        for sample in effective_samples
         for flag in sample.get("coverage_flags", [])
         if isinstance(flag, str) and flag
     )
-    skipped_no_cache = sum(1 for sample in samples if sample["skipped_reason"] == "SKIPPED_NO_CACHE")
-    raw_question_total = sum(int(sample["raw_question_count"]) for sample in samples)
-    kept_question_total = sum(int(sample["question_count"]) for sample in samples)
-    filtered_question_total = sum(int(sample["filtered_question_count"]) for sample in samples)
-    meta_filtered_total = sum(int(sample["meta_filtered_count"]) for sample in samples)
-    pseudo_filtered_total = sum(int(sample["pseudo_filtered_count"]) for sample in samples)
-    suspicious_question_count = sum(int(sample["_suspicious_question_count"]) for sample in samples)
-    residual_meta_like_count = sum(int(sample["_residual_meta_like_count"]) for sample in samples)
-    legacy_field_break_count = sum(int(sample["_legacy_field_break_count"]) for sample in samples)
+    skipped_no_cache = sum(
+        1 for sample in skipped_samples if sample["skipped_reason"] == "SKIPPED_NO_CACHE"
+    )
+    raw_question_total = sum(int(sample["raw_question_count"]) for sample in effective_samples)
+    kept_question_total = sum(int(sample["question_count"]) for sample in effective_samples)
+    filtered_question_total = sum(
+        int(sample["filtered_question_count"]) for sample in effective_samples
+    )
+    meta_filtered_total = sum(int(sample["meta_filtered_count"]) for sample in effective_samples)
+    pseudo_filtered_total = sum(int(sample["pseudo_filtered_count"]) for sample in effective_samples)
+    suspicious_question_count = sum(
+        int(sample["_suspicious_question_count"]) for sample in effective_samples
+    )
+    residual_meta_like_count = sum(
+        int(sample["_residual_meta_like_count"]) for sample in effective_samples
+    )
+    legacy_field_break_count = sum(
+        int(sample["_legacy_field_break_count"]) for sample in effective_samples
+    )
     conservative_total = sum(
         1
-        for sample in samples
+        for sample in effective_samples
         if sample["page_type"] in {"cover_or_instruction_page", "non_homework", "unknown"}
     )
     conservative_bad = sum(
         1
-        for sample in samples
+        for sample in effective_samples
         if sample["page_type"] in {"cover_or_instruction_page", "non_homework", "unknown"}
         and sample["question_count"] > 0
-        and not sample["skipped_reason"]
     )
-    mixed_total = sum(1 for sample in samples if sample["page_type"] == "mixed_homework")
+    mixed_total = sum(1 for sample in effective_samples if sample["page_type"] == "mixed_homework")
     mixed_kept = sum(
         1
-        for sample in samples
+        for sample in effective_samples
         if sample["page_type"] == "mixed_homework" and sample["question_count"] > 0
     )
-    section_positive = sum(1 for sample in samples if sample["section_count"] > 0)
-    options_positive = sum(1 for sample in samples if sample["options_count"] > 0)
-    blanks_positive = sum(1 for sample in samples if sample["blanks_count"] > 0)
+    section_positive = sum(1 for sample in effective_samples if sample["section_count"] > 0)
+    options_positive = sum(1 for sample in effective_samples if sample["options_count"] > 0)
+    blanks_positive = sum(1 for sample in effective_samples if sample["blanks_count"] > 0)
     meta_violations = residual_meta_like_count
     conservative_bad_samples = [
         sample["sample_name"]
-        for sample in samples
+        for sample in effective_samples
         if sample["page_type"] in {"cover_or_instruction_page", "non_homework", "unknown"}
         and sample["question_count"] > 0
-        and not sample["skipped_reason"]
     ]
     residual_meta_samples = [
-        sample["sample_name"] for sample in samples if int(sample["_residual_meta_like_count"]) > 0
+        sample["sample_name"]
+        for sample in effective_samples
+        if int(sample["_residual_meta_like_count"]) > 0
     ]
     suspicious_samples = [
-        sample["sample_name"] for sample in samples if int(sample["_suspicious_question_count"]) > 0
+        sample["sample_name"]
+        for sample in effective_samples
+        if int(sample["_suspicious_question_count"]) > 0
     ]
     legacy_field_samples = [
-        sample["sample_name"] for sample in samples if int(sample["_legacy_field_break_count"]) > 0
+        sample["sample_name"]
+        for sample in effective_samples
+        if int(sample["_legacy_field_break_count"]) > 0
     ]
 
     return {
         "db_path": str(db_path) if db_path else "",
         "fixture_dirs": [str(path) for path in fixture_dirs],
         "fixture_image_count": len(fixture_images),
-        "sample_count": len(samples),
+        "loaded_sample_count": len(samples),
+        "sample_count": len(effective_samples),
+        "effective_sample_count": len(effective_samples),
+        "skipped_count": len(skipped_samples),
         "skipped_no_cache_count": skipped_no_cache,
         "source_kind_counts": dict(source_kinds),
         "page_type_counts": dict(page_types),
         "doctype_counts": dict(document_types),
         "document_type_counts": dict(document_types),
         "coverage_flag_counts": dict(coverage_flags),
+        "effective_samples": {
+            "count": len(effective_samples),
+            "source_kind_counts": dict(source_kinds),
+            "page_type_counts": dict(page_types),
+            "doctype_counts": dict(document_types),
+            "coverage_flag_counts": dict(coverage_flags),
+        },
+        "skipped_samples": {
+            "count": len(skipped_samples),
+            "source_kind_counts": dict(skipped_source_kinds),
+            "skipped_reason_counts": dict(skipped_reasons),
+        },
         "question_stats": {
             "raw_question_total": raw_question_total,
             "kept_question_total": kept_question_total,
             "filtered_question_total": filtered_question_total,
             "meta_filtered_total": meta_filtered_total,
             "pseudo_filtered_total": pseudo_filtered_total,
-            "max_questions_in_sample": max((int(sample["question_count"]) for sample in samples), default=0),
+            "max_questions_in_sample": max(
+                (int(sample["question_count"]) for sample in effective_samples),
+                default=0,
+            ),
         },
         "filter_metadata": {
             "skipped_reason_counts": dict(skipped_reasons),
-            "filtered_sample_count": sum(1 for sample in samples if int(sample["filtered_question_count"]) > 0),
+            "filtered_sample_count": sum(
+                1 for sample in effective_samples if int(sample["filtered_question_count"]) > 0
+            ),
             "json_fixture_count": source_kinds.get("json_fixture", 0),
             "fixture_cache_count": source_kinds.get("fixture_cache", 0),
-            "fixture_only_count": source_kinds.get("fixture_only", 0),
+            "fixture_only_count": all_source_kinds.get("fixture_only", 0),
+            "excluded_fixture_only_count": skipped_source_kinds.get("fixture_only", 0),
             "cached_db_count": source_kinds.get("cached_db", 0),
         },
         "violations": {
@@ -884,6 +937,7 @@ def main() -> int:
             conn.close()
 
     samples = samples[:limit]
+    effective_samples, skipped_samples = split_samples_by_skip(samples)
     summary = build_summary(
         samples,
         db_path=db_path,
@@ -891,7 +945,17 @@ def main() -> int:
         fixture_images=fixture_images,
     )
 
-    print(json.dumps({"samples": samples, "summary": summary}, ensure_ascii=False, indent=2))
+    print(
+        json.dumps(
+            {
+                "effective_samples": effective_samples,
+                "skipped_samples": skipped_samples,
+                "summary": summary,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
     return 0
 
 

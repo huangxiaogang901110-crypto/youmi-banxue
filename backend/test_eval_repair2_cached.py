@@ -398,15 +398,25 @@ def test_build_summary_reports_question_filter_and_coverage_metadata():
     )
 
     assert summary["fixture_image_count"] == 2
-    assert summary["sample_count"] == 2
-    assert summary["source_kind_counts"] == {"json_fixture": 1, "fixture_only": 1}
+    assert summary["loaded_sample_count"] == 2
+    assert summary["sample_count"] == 1
+    assert summary["effective_sample_count"] == 1
+    assert summary["skipped_count"] == 1
+    assert summary["source_kind_counts"] == {"json_fixture": 1}
     assert summary["doctype_counts"]["math_comparison_logic"] == 1
-    assert summary["coverage_flag_counts"]["complex_photo_layout"] == 2
-    assert summary["question_stats"]["kept_question_total"] == 5
+    assert summary["coverage_flag_counts"]["complex_photo_layout"] == 1
+    assert summary["question_stats"]["kept_question_total"] == 3
     assert summary["question_stats"]["filtered_question_total"] == 1
     assert summary["filter_metadata"]["fixture_only_count"] == 1
+    assert summary["filter_metadata"]["excluded_fixture_only_count"] == 1
     assert summary["filter_metadata"]["skipped_reason_counts"] == {"SKIPPED_NO_CACHE": 1}
-    assert summary["violations"]["suspicious_or_garbled_questions"]["count"] == 1
+    assert summary["effective_samples"]["count"] == 1
+    assert summary["skipped_samples"] == {
+        "count": 1,
+        "source_kind_counts": {"fixture_only": 1},
+        "skipped_reason_counts": {"SKIPPED_NO_CACHE": 1},
+    }
+    assert summary["violations"]["suspicious_or_garbled_questions"]["count"] == 0
 
 
 def test_default_load_fixture_samples_still_works(tmp_path):
