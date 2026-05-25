@@ -1,0 +1,56 @@
+{
+  "page_type": "math_homework",
+  "doc_family": "math_arithmetic",
+  "questions": [
+    {
+      "question_id": "q-1",
+      "question_number": 1,
+      "question_text": "16 - 15 = ___"
+    },
+    {
+      "question_id": "q-2",
+      "question_number": 2,
+      "question_text": "24 + 16 = ___"
+    },
+    {
+      "question_id": "q-3",
+      "question_number": 3,
+      "question_text": "35 + 8 = ___"
+    },
+    {
+      "question_id": "q-4",
+      "question_number": 4,
+      "question_text": "42 - 7 = ___"
+    },
+    {
+      "question_id": "q-5",
+      "question_number": 5,
+      "question_text": "18 + 22 = ___"
+    },
+    {
+      "question_id": "q-6",
+      "question_number": 6,
+      "question_text": "50 - 23 = ___"
+    },
+    {
+      "question_id": "q-7",
+      "question_number": 7,
+      "question_text": "31 - 9 = ___"
+    },
+    {
+      "question_id": "q-8",
+      "question_number": 8,
+      "question_text": "47 + 3 = ___"
+    },
+    {
+      "question_id": "q-9",
+      "question_number": 9,
+      "question_text": "39 - 12 = ___"
+    },
+    {
+      "question_id": "q-10",
+      "question_number": 10,
+      "question_text": "28 + 17 = ___"
+    }
+  ]
+}

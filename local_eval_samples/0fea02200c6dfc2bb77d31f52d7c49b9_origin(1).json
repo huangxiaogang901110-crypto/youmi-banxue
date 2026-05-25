@@ -1,0 +1,40 @@
+{
+  "page_type": "math_homework",
+  "doc_family": "math_comparison_logic",
+  "questions": [
+    {
+      "question_id": "q-1",
+      "question_number": 1,
+      "question_text": "1. 下面哪个数是最大的？",
+      "options": [
+        "A. 345",
+        "B. 354",
+        "C. 435",
+        "D. 453"
+      ],
+      "section_title": "一、选择题"
+    },
+    {
+      "question_id": "q-2",
+      "question_number": 2,
+      "question_text": "2. 56 + 38 的结果是：",
+      "options": [
+        "A. 84",
+        "B. 94",
+        "C. 104",
+        "D. 114"
+      ]
+    },
+    {
+      "question_id": "q-3",
+      "question_number": 3,
+      "question_text": "3. 下列算式中结果最大的是：",
+      "options": [
+        "A. 12 + 35",
+        "B. 67 - 10",
+        "C. 28 + 29",
+        "D. 80 - 25"
+      ]
+    }
+  ]
+}

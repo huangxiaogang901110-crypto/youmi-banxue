@@ -1,0 +1,51 @@
+{
+  "page_type": "mixed_homework",
+  "document_classification": {
+    "page_type": "mixed_homework",
+    "section_headers": [
+      {
+        "section_title": "一、读拼音，写汉字"
+      },
+      {
+        "section_title": "二、English - Fill in the blanks"
+      }
+    ]
+  },
+  "questions": [
+    {
+      "question_id": "q-1",
+      "question_number": 1,
+      "question_text": "chūn tiān——（    ）",
+      "section_title": "一、读拼音，写汉字"
+    },
+    {
+      "question_id": "q-2",
+      "question_number": 2,
+      "question_text": "huā duǒ——（    ）",
+      "section_title": "一、读拼音，写汉字"
+    },
+    {
+      "question_id": "q-3",
+      "question_number": 3,
+      "question_text": "xiǎo niǎo——（    ）",
+      "section_title": "一、读拼音，写汉字"
+    },
+    {
+      "question_id": "q-4",
+      "question_number": 4,
+      "question_text": "I ____ a student. (am/is/are)",
+      "section_title": "二、English - Fill in the blanks",
+      "options": [
+        "A. am",
+        "B. is",
+        "C. are"
+      ]
+    },
+    {
+      "question_id": "q-5",
+      "question_number": 5,
+      "question_text": "She ____ to school every day. (go/goes)",
+      "section_title": "二、English - Fill in the blanks"
+    }
+  ]
+}

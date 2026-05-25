@@ -1,0 +1,37 @@
+{
+  "page_type": "math_homework",
+  "doc_family": "math_comparison_logic",
+  "questions": [
+    {
+      "question_id": "q-1",
+      "question_number": 1,
+      "question_text": "比较大小：3256 ○ 3526  ",
+      "section_title": "第6课时 万以内数的大小比较"
+    },
+    {
+      "question_id": "q-2",
+      "question_number": 2,
+      "question_text": "比较大小：7809 ○ 7908"
+    },
+    {
+      "question_id": "q-3",
+      "question_number": 3,
+      "question_text": "比较大小：4567 ○ 4500"
+    },
+    {
+      "question_id": "q-4",
+      "question_number": 4,
+      "question_text": "比较大小：3005 ○ 3050"
+    },
+    {
+      "question_id": "q-5",
+      "question_number": 5,
+      "question_text": "比较大小：9999 ○ 10000"
+    },
+    {
+      "question_id": "q-6",
+      "question_number": 6,
+      "question_text": "把下列数从小到大排列：4012, 4100, 4001, 4200"
+    }
+  ]
+}

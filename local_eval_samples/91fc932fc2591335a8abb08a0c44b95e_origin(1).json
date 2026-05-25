@@ -1,0 +1,57 @@
+{
+  "page_type": "math_homework",
+  "doc_family": "math_vertical",
+  "questions": [
+    {
+      "question_id": "q-1",
+      "question_number": 1,
+      "question_text": "550 + 467 = ___",
+      "section_title": "竖式计算：三位数的加法（连续进位）"
+    },
+    {
+      "question_id": "q-2",
+      "question_number": 2,
+      "question_text": "386 + 529 = ___"
+    },
+    {
+      "question_id": "q-3",
+      "question_number": 3,
+      "question_text": "718 + 193 = ___"
+    },
+    {
+      "question_id": "q-4",
+      "question_number": 4,
+      "question_text": "245 + 678 = ___"
+    },
+    {
+      "question_id": "q-5",
+      "question_number": 5,
+      "question_text": "539 + 284 = ___"
+    },
+    {
+      "question_id": "q-6",
+      "question_number": 6,
+      "question_text": "467 + 355 = ___"
+    },
+    {
+      "question_id": "q-7",
+      "question_number": 7,
+      "question_text": "629 + 188 = ___"
+    },
+    {
+      "question_id": "q-8",
+      "question_number": 8,
+      "question_text": "376 + 449 = ___"
+    },
+    {
+      "question_id": "q-9",
+      "question_number": 9,
+      "question_text": "584 + 339 = ___"
+    },
+    {
+      "question_id": "q-10",
+      "question_number": 10,
+      "question_text": "297 + 616 = ___"
+    }
+  ]
+}
