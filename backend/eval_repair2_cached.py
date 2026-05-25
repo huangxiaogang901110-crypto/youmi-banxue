@@ -61,6 +61,12 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Safety no-op. This evaluator never calls paid OCR/Qwen/DeepSeek APIs.",
     )
+    parser.add_argument(
+        "--only-json-fixtures",
+        action="store_true",
+        help="Only evaluate JSON fixture sidecar samples. "
+        "Excludes cached_db, fixture_cache, fixture_only, and any non-json_fixture source.",
+    )
     return parser.parse_args()
 
 
@@ -465,9 +471,11 @@ def load_fixture_samples(
     fixture_images: list[Path],
     limit: int,
     seen_job_ids: set[str],
+    *,
+    only_json_fixtures: bool = False,
 ) -> list[dict[str, Any]]:
     samples: list[dict[str, Any]] = []
-    for image_path in fixture_images[:limit]:
+    for image_path in fixture_images:
         json_fixture_payload = load_json_fixture_payload(image_path)
         if json_fixture_payload is not None:
             samples.append(
@@ -478,6 +486,10 @@ def load_fixture_samples(
                     payload=json_fixture_payload,
                 )
             )
+            if len(samples) >= limit:
+                break
+            continue
+        if only_json_fixtures:
             continue
         if conn is not None:
             cached = lookup_cached_fixture(conn, image_path)
@@ -493,6 +505,8 @@ def load_fixture_samples(
                         )
                     )
                     seen_job_ids.add(job_id)
+                    if len(samples) >= limit:
+                        break
                     continue
         samples.append(
             {
@@ -598,7 +612,10 @@ def main() -> int:
     limit = max(int(args.limit or 0), 1)
     db_path = resolve_db_path(args.db_path)
     fixture_dirs = resolve_sample_dirs(args.sample_dirs)
-    fixture_images = load_fixture_images(fixture_dirs, limit)
+    fixture_images = load_fixture_images(
+        fixture_dirs,
+        limit=limit if not args.only_json_fixtures else (limit * 100),
+    )
 
     samples: list[dict[str, Any]] = []
     seen_job_ids: set[str] = set()
@@ -609,9 +626,22 @@ def main() -> int:
             conn = connect_readonly(db_path)
 
         if fixture_images:
-            samples.extend(load_fixture_samples(conn, fixture_images, limit, seen_job_ids))
+            samples.extend(
+                load_fixture_samples(
+                    conn,
+                    fixture_images,
+                    limit,
+                    seen_job_ids,
+                    only_json_fixtures=args.only_json_fixtures,
+                )
+            )
 
-        if conn is not None and len(samples) < limit and table_exists(conn, "parse_jobs"):
+        if (
+            conn is not None
+            and len(samples) < limit
+            and table_exists(conn, "parse_jobs")
+            and not args.only_json_fixtures
+        ):
             samples.extend(
                 load_recent_cached_samples(
                     conn,

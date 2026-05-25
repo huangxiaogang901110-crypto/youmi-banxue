@@ -190,3 +190,99 @@ def test_json_fixture_cover_page_stays_questionless(tmp_path):
     assert sample["page_type"] == "cover_or_instruction_page"
     assert sample["document_type"] == "cover_sheet"
     assert sample["question_count"] == 0
+
+
+def test_only_json_fixtures_skips_images_without_sidecar(tmp_path):
+    """--only-json-fixtures must skip images that lack a JSON sidecar."""
+    fixture_dir = tmp_path / "fixtures"
+    fixture_dir.mkdir()
+    json_img = fixture_dir / "with_json.jpg"
+    _write_sidecar_fixture(
+        json_img,
+        {
+            "page_type": "math_homework",
+            "questions": [
+                {
+                    "question_id": "q-1",
+                    "question_number": 1,
+                    "question_text": "5 + 3 = ___",
+                }
+            ],
+        },
+    )
+    no_json_img = fixture_dir / "without_json.jpg"
+    no_json_img.write_bytes(b"no-sidecar")
+
+    samples = cached_eval.load_fixture_samples(
+        conn=None,
+        fixture_images=[json_img, no_json_img],
+        limit=10,
+        seen_job_ids=set(),
+        only_json_fixtures=True,
+    )
+
+    assert len(samples) == 1
+    assert samples[0]["source_kind"] == "json_fixture"
+    assert samples[0]["sample_name"] == "with_json.jpg"
+
+
+def test_only_json_fixtures_does_not_miss_json_samples(tmp_path):
+    """All images with JSON sidecars must be included when --only-json-fixtures is set."""
+    fixture_dir = tmp_path / "fixtures"
+    fixture_dir.mkdir()
+    paths = []
+    for i in range(3):
+        img = fixture_dir / f"sample_{i}.jpg"
+        _write_sidecar_fixture(
+            img,
+            {
+                "page_type": "math_homework",
+                "questions": [
+                    {
+                        "question_id": f"q-{i}",
+                        "question_number": i + 1,
+                        "question_text": f"question {i}",
+                    }
+                ],
+            },
+        )
+        paths.append(img)
+
+    samples = cached_eval.load_fixture_samples(
+        conn=None,
+        fixture_images=paths,
+        limit=10,
+        seen_job_ids=set(),
+        only_json_fixtures=True,
+    )
+
+    assert len(samples) == 3
+    kinds = {sample["source_kind"] for sample in samples}
+    assert kinds == {"json_fixture"}
+
+
+def test_only_json_fixtures_flag_parsed_by_argparse(monkeypatch):
+    """--only-json-fixtures must be recognized as a valid argument."""
+    import sys
+    monkeypatch.setattr(sys, "argv", ["prog", "--only-json-fixtures"])
+    args = cached_eval.parse_args()
+    assert hasattr(args, "only_json_fixtures")
+    assert args.only_json_fixtures is True
+
+
+def test_default_load_fixture_samples_still_works(tmp_path):
+    """Default mode (only_json_fixtures=False) must produce fixture_only for no-json images."""
+    img = tmp_path / "no_json.png"
+    img.write_bytes(b"no-sidecar")
+
+    samples = cached_eval.load_fixture_samples(
+        conn=None,
+        fixture_images=[img],
+        limit=10,
+        seen_job_ids=set(),
+        only_json_fixtures=False,
+    )
+
+    assert len(samples) == 1
+    assert samples[0]["source_kind"] == "fixture_only"
+    assert samples[0]["skipped_reason"] == "SKIPPED_NO_CACHE"
