@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from pathlib import Path
 
 from document_classifier import DocumentClassification
 import eval_repair2_cached as cached_eval
@@ -115,6 +116,13 @@ def test_load_fixture_samples_without_json_or_cache_is_skipped(tmp_path):
             "sample_name": "uncached.png",
             "source_kind": "fixture_only",
             "job_id": "",
+            "sample_origin": "uncached.png",
+            "has_json_sidecar": False,
+            "image_width": None,
+            "image_height": None,
+            "aspect_ratio": None,
+            "layout_hint": "unknown",
+            "coverage_flags": [],
             "page_type": "unknown",
             "document_type": "unknown",
             "question_count": 0,
@@ -268,6 +276,137 @@ def test_only_json_fixtures_flag_parsed_by_argparse(monkeypatch):
     args = cached_eval.parse_args()
     assert hasattr(args, "only_json_fixtures")
     assert args.only_json_fixtures is True
+
+
+def test_load_fixture_samples_prioritizes_json_sidecars_when_limit_small(tmp_path):
+    uncached = tmp_path / "a_uncached.jpg"
+    uncached.write_bytes(b"no-sidecar")
+    json_a = tmp_path / "b_json.jpg"
+    _write_sidecar_fixture(
+        json_a,
+        {
+            "page_type": "math_homework",
+            "questions": [
+                {"question_id": "q-1", "question_number": 1, "question_text": "1 + 1 = ___"}
+            ],
+        },
+    )
+    json_b = tmp_path / "c_json.jpg"
+    _write_sidecar_fixture(
+        json_b,
+        {
+            "page_type": "chinese_homework",
+            "questions": [
+                {"question_id": "q-2", "question_number": 1, "question_text": "高兴——（    ）"}
+            ],
+        },
+    )
+
+    samples = cached_eval.load_fixture_samples(
+        conn=None,
+        fixture_images=[uncached, json_b, json_a],
+        limit=2,
+        seen_job_ids=set(),
+    )
+
+    assert [sample["sample_name"] for sample in samples] == ["b_json.jpg", "c_json.jpg"]
+    assert {sample["source_kind"] for sample in samples} == {"json_fixture"}
+
+
+def test_sample_from_payload_infers_missing_page_type_from_questions():
+    sample = cached_eval.sample_from_payload(
+        source_kind="cached_db",
+        sample_name="math.jpg",
+        job_id="job-1",
+        payload={
+            "document_classification": {"doc_family": "math_arithmetic"},
+            "questions": [
+                {
+                    "question_id": "q-1",
+                    "question_number": 1,
+                    "question_text": "1. 5 + 3 = ___",
+                }
+            ],
+        },
+    )
+
+    assert sample["page_type"] == "math_homework"
+    assert sample["document_type"] == "math_arithmetic"
+
+
+def test_build_summary_reports_question_filter_and_coverage_metadata():
+    samples = [
+        {
+            "sample_name": "choice.jpg",
+            "source_kind": "json_fixture",
+            "job_id": "",
+            "sample_origin": "local_eval_samples/choice.jpg",
+            "has_json_sidecar": True,
+            "image_width": 1080,
+            "image_height": 1920,
+            "aspect_ratio": 1.778,
+            "layout_hint": "portrait",
+            "coverage_flags": ["multiple_choice", "choice_page", "complex_photo_layout"],
+            "page_type": "math_homework",
+            "document_type": "math_comparison_logic",
+            "question_count": 3,
+            "raw_question_count": 3,
+            "filtered_question_count": 1,
+            "meta_filtered_count": 1,
+            "pseudo_filtered_count": 0,
+            "section_count": 1,
+            "options_count": 12,
+            "blanks_count": 0,
+            "skipped_reason": "",
+            "_suspicious_question_count": 0,
+            "_residual_meta_like_count": 0,
+            "_legacy_field_break_count": 0,
+        },
+        {
+            "sample_name": "mixed.jpg",
+            "source_kind": "fixture_only",
+            "job_id": "",
+            "sample_origin": "local_eval_samples/mixed.jpg",
+            "has_json_sidecar": False,
+            "image_width": 1080,
+            "image_height": 1920,
+            "aspect_ratio": 1.778,
+            "layout_hint": "portrait",
+            "coverage_flags": ["mixed_homework", "complex_photo_layout"],
+            "page_type": "mixed_homework",
+            "document_type": "unknown",
+            "question_count": 2,
+            "raw_question_count": 2,
+            "filtered_question_count": 0,
+            "meta_filtered_count": 0,
+            "pseudo_filtered_count": 0,
+            "section_count": 2,
+            "options_count": 0,
+            "blanks_count": 2,
+            "skipped_reason": "SKIPPED_NO_CACHE",
+            "_suspicious_question_count": 1,
+            "_residual_meta_like_count": 0,
+            "_legacy_field_break_count": 0,
+        },
+    ]
+
+    summary = cached_eval.build_summary(
+        samples,
+        db_path=None,
+        fixture_dirs=[Path("/tmp/fixtures")],
+        fixture_images=[Path("/tmp/fixtures/a.jpg"), Path("/tmp/fixtures/b.jpg")],
+    )
+
+    assert summary["fixture_image_count"] == 2
+    assert summary["sample_count"] == 2
+    assert summary["source_kind_counts"] == {"json_fixture": 1, "fixture_only": 1}
+    assert summary["doctype_counts"]["math_comparison_logic"] == 1
+    assert summary["coverage_flag_counts"]["complex_photo_layout"] == 2
+    assert summary["question_stats"]["kept_question_total"] == 5
+    assert summary["question_stats"]["filtered_question_total"] == 1
+    assert summary["filter_metadata"]["fixture_only_count"] == 1
+    assert summary["filter_metadata"]["skipped_reason_counts"] == {"SKIPPED_NO_CACHE": 1}
+    assert summary["violations"]["suspicious_or_garbled_questions"]["count"] == 1
 
 
 def test_default_load_fixture_samples_still_works(tmp_path):

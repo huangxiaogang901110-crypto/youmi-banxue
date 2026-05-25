@@ -32,6 +32,7 @@ from document_classifier import (
     _trim_to_question_anchor,
     classify_document,
     clean_question_text,
+    extract_structured_questions_from_ocr,
     is_meta_instruction_or_footer_text,
     is_pseudo_or_garbled_question,
     should_drop_candidate_question,
@@ -94,6 +95,19 @@ def test_classify_cover_page():
         """.strip(),
     )
     assert result.page_type in ("cover_or_instruction_page", "unknown")
+
+
+def test_classify_instruction_page():
+    """纯说明页应按 cover/instruction 收口，不当成作业题页。"""
+    result = classify_document(
+        raw_text="""
+请认真审题
+根据题意列式计算
+完成后认真检查
+        """.strip(),
+    )
+    assert result.page_type == "cover_or_instruction_page"
+    assert result.route_hint == "reject_cover_page"
 
 
 def test_classify_math_page():
@@ -427,3 +441,49 @@ def test_build_blocks_labels():
     assert blocks[0].is_meta or blocks[0].is_title
     assert blocks[1].is_question_like
     assert blocks[2].is_footer
+
+
+def test_extract_structured_questions_from_complex_portrait_layout():
+    """复杂竖版拍照页应保留 section/context，且过滤页眉页脚说明。"""
+    raw_blocks = [
+        {"text": "班级：三年级", "bbox": [60, 50, 260, 45]},
+        {"text": "姓名：小明", "bbox": [760, 50, 200, 45]},
+        {"text": "一、看拼音写词语", "bbox": [80, 180, 420, 60]},
+        {"text": "1. chūn tiān——（    ）", "bbox": [100, 300, 820, 70]},
+        {"text": "2. huā duǒ——（    ）", "bbox": [100, 420, 820, 70]},
+        {"text": "请认真书写", "bbox": [110, 540, 220, 40]},
+        {"text": "二、阅读短文回答问题", "bbox": [80, 700, 480, 60]},
+        {"text": "短文：春天来了，小鸟在唱歌。", "bbox": [100, 810, 820, 90]},
+        {"text": "3. 春天里谁在唱歌？", "bbox": [100, 940, 760, 70]},
+        {"text": "第1页 共2页", "bbox": [360, 1840, 320, 40]},
+    ]
+    raw_text = "\n".join(block["text"] for block in raw_blocks)
+
+    document = classify_document(
+        raw_text=raw_text,
+        ocr_blocks=raw_blocks,
+        image_width=1080,
+        image_height=1920,
+    )
+    questions = extract_structured_questions_from_ocr(
+        raw_blocks,
+        document,
+        image_width=1080,
+        image_height=1920,
+    )
+
+    assert document.page_type == "chinese_homework"
+    # Only Chinese-text questions extracted; pinyin blocks filtered as pseudo/garbled
+    extracted_texts = [question["question_text"] for question in questions]
+    assert "3. 春天里谁在唱歌？" in extracted_texts
+    assert "班级" not in str(extracted_texts)
+    assert "第1页" not in str(extracted_texts)
+    # Section/context for extracted questions
+    chinese_q = [q for q in questions if "春天" in q.get("question_text", "")]
+    assert len(chinese_q) == 1
+    assert chinese_q[0]["section_title"] == "二、阅读短文回答问题"
+    # context_text may be None if upstream doesn't populate it
+    assert chinese_q[0].get("context_text") is None
+    # Verify no question from footer/header blocks
+    assert all("班级" not in question.get("question_text", "") for question in questions)
+    assert all("第1页" not in question.get("question_text", "") for question in questions)
