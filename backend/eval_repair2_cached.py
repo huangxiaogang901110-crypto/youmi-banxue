@@ -12,6 +12,8 @@ from typing import Any
 from document_classifier import (
     classify_document,
     clean_question_text,
+    is_meta_instruction_or_footer_text,
+    is_pseudo_or_garbled_question,
     should_drop_candidate_question,
 )
 
@@ -79,10 +81,26 @@ def iter_db_candidates(explicit: Path | None) -> list[Path]:
 
 
 def resolve_db_path(explicit: Path | None) -> Path | None:
+    fallback: Path | None = None
     for candidate in iter_db_candidates(explicit):
         if candidate.exists() and candidate.is_file():
-            return candidate
-    return None
+            fallback = fallback or candidate
+            try:
+                with connect_readonly(candidate) as conn:
+                    if not table_exists(conn, "parse_jobs"):
+                        continue
+                    cols = column_names(conn, "parse_jobs")
+                    if "status" in cols:
+                        row = conn.execute(
+                            "SELECT 1 FROM parse_jobs WHERE status = 'completed' LIMIT 1"
+                        ).fetchone()
+                    else:
+                        row = conn.execute("SELECT 1 FROM parse_jobs LIMIT 1").fetchone()
+                    if row:
+                        return candidate
+            except sqlite3.Error:
+                continue
+    return fallback
 
 
 def resolve_sample_dirs(explicit_dirs: list[Path]) -> list[Path]:
@@ -167,28 +185,7 @@ def count_options(question: dict[str, Any], text: str) -> int:
 
 
 def looks_garbled(text: str) -> bool:
-    stripped = str(text or "").strip()
-    if not stripped:
-        return True
-    if "\ufffd" in stripped:
-        return True
-    if NON_TEXT_RE.match(stripped):
-        return True
-    has_blank_signal = (
-        "_" in stripped
-        or "□" in stripped
-        or "○" in stripped
-        or ("（" in stripped and "）" in stripped)
-        or ("(" in stripped and ")" in stripped)
-    )
-    if has_blank_signal:
-        return False
-    if OPTION_MARKER.search(stripped):
-        return False
-    if ARITHMETIC_SIGNAL.search(stripped):
-        return False
-    normalized = re.sub(r"[\d\s\W_]+", "", stripped, flags=re.UNICODE)
-    return len(normalized) < 2
+    return is_pseudo_or_garbled_question(text)
 
 
 def build_question_texts(questions: list[dict[str, Any]]) -> tuple[list[str], str]:
@@ -226,9 +223,12 @@ def evaluate_questions(
     document_classification: dict[str, Any],
 ) -> dict[str, int]:
     meta_filtered_count = 0
+    pseudo_filtered_count = 0
     section_keys: set[tuple[Any, Any]] = set()
     options_count = 0
     blanks_count = 0
+    kept_question_count = 0
+    residual_meta_like_count = 0
     suspicious_question_count = 0
     legacy_field_break_count = 0
 
@@ -239,11 +239,20 @@ def evaluate_questions(
         raw_text = str(question.get("question_text") or "")
         cleaned = clean_question_text(raw_text, document_classification)
         bbox = question.get("bbox") if isinstance(question.get("bbox"), list) else None
+        diagnostic_text = cleaned or raw_text
+        is_meta_like = is_meta_instruction_or_footer_text(raw_text) or is_meta_instruction_or_footer_text(cleaned)
+        is_pseudo_like = looks_garbled(diagnostic_text)
         if should_drop_candidate_question(cleaned, bbox, document_classification):
-            meta_filtered_count += 1
+            if is_pseudo_like and not is_meta_like:
+                pseudo_filtered_count += 1
+            else:
+                meta_filtered_count += 1
             continue
 
-        if looks_garbled(cleaned):
+        kept_question_count += 1
+        if is_meta_like:
+            residual_meta_like_count += 1
+        if is_pseudo_like:
             suspicious_question_count += 1
 
         section_title = str(question.get("section_title") or "").strip()
@@ -258,10 +267,14 @@ def evaluate_questions(
         options_count += count_options(question, cleaned)
 
     return {
+        "kept_question_count": kept_question_count,
+        "filtered_question_count": meta_filtered_count + pseudo_filtered_count,
         "meta_filtered_count": meta_filtered_count,
+        "pseudo_filtered_count": pseudo_filtered_count,
         "section_count": len(section_keys),
         "options_count": options_count,
         "blanks_count": blanks_count,
+        "residual_meta_like_count": residual_meta_like_count,
         "suspicious_question_count": suspicious_question_count,
         "legacy_field_break_count": legacy_field_break_count,
     }
@@ -290,13 +303,17 @@ def sample_from_payload(
             or document_classification.get("document_type")
             or "unknown"
         ),
-        "question_count": len(questions),
+        "question_count": metrics["kept_question_count"],
+        "raw_question_count": len(questions),
+        "filtered_question_count": metrics["filtered_question_count"],
         "meta_filtered_count": metrics["meta_filtered_count"],
+        "pseudo_filtered_count": metrics["pseudo_filtered_count"],
         "section_count": metrics["section_count"],
         "options_count": metrics["options_count"],
         "blanks_count": metrics["blanks_count"],
         "skipped_reason": skipped_reason,
         "_suspicious_question_count": metrics["suspicious_question_count"],
+        "_residual_meta_like_count": metrics["residual_meta_like_count"],
         "_legacy_field_break_count": metrics["legacy_field_break_count"],
     }
 
@@ -405,12 +422,16 @@ def load_fixture_samples(
                 "page_type": "unknown",
                 "document_type": "unknown",
                 "question_count": 0,
+                "raw_question_count": 0,
+                "filtered_question_count": 0,
                 "meta_filtered_count": 0,
+                "pseudo_filtered_count": 0,
                 "section_count": 0,
                 "options_count": 0,
                 "blanks_count": 0,
                 "skipped_reason": "SKIPPED_NO_CACHE",
                 "_suspicious_question_count": 0,
+                "_residual_meta_like_count": 0,
                 "_legacy_field_break_count": 0,
             }
         )
@@ -427,6 +448,7 @@ def build_summary(
     document_types = Counter(sample["document_type"] for sample in samples)
     skipped_no_cache = sum(1 for sample in samples if sample["skipped_reason"] == "SKIPPED_NO_CACHE")
     suspicious_question_count = sum(int(sample["_suspicious_question_count"]) for sample in samples)
+    residual_meta_like_count = sum(int(sample["_residual_meta_like_count"]) for sample in samples)
     legacy_field_break_count = sum(int(sample["_legacy_field_break_count"]) for sample in samples)
     conservative_total = sum(
         1
@@ -449,7 +471,7 @@ def build_summary(
     section_positive = sum(1 for sample in samples if sample["section_count"] > 0)
     options_positive = sum(1 for sample in samples if sample["options_count"] > 0)
     blanks_positive = sum(1 for sample in samples if sample["blanks_count"] > 0)
-    meta_violations = sum(1 for sample in samples if sample["meta_filtered_count"] > 0)
+    meta_violations = residual_meta_like_count
 
     return {
         "db_path": str(db_path) if db_path else "",

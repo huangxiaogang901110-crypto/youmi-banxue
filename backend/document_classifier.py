@@ -45,6 +45,7 @@ PASSAGE_HINTS = re.compile(r"(阅读|短文|材料|根据课文|根据短文|看
 BLANK_HINTS = re.compile(r"(?:_{2,}|（\s*）|\(\s*\)|□|○|横线)")
 OPTION_HINTS = re.compile(r"(?:^[A-DＡ-Ｄ][.．、)]\s*|[（(][A-DＡ-Ｄ][)）])")
 CJK_CHAR = re.compile(r"[\u4e00-\u9fff]")
+NON_TEXT_RE = re.compile(r"^[\W_]+$", re.UNICODE)
 
 
 @dataclass
@@ -267,6 +268,32 @@ def _is_meta_like(text: str) -> bool:
 
 def _is_non_homework_text(text: str) -> bool:
     return bool(NON_HOMEWORK_KEYWORDS.search(text.strip()))
+
+
+def is_meta_instruction_or_footer_text(text: str) -> bool:
+    stripped = str(text or "").strip()
+    if not stripped:
+        return False
+    return _is_meta_like(stripped) or _is_instruction_like(stripped) or _is_footer_like(stripped)
+
+
+def is_pseudo_or_garbled_question(text: str) -> bool:
+    stripped = str(text or "").strip()
+    if not stripped:
+        return True
+    if "\ufffd" in stripped:
+        return True
+    if NON_TEXT_RE.match(stripped):
+        return True
+    has_blank_signal = bool(BLANK_HINTS.search(stripped) or re.search(r"\[\s*\]", stripped))
+    if has_blank_signal and re.search(r"[\dA-Za-z\u4e00-\u9fff]", stripped):
+        return False
+    if OPTION_HINTS.search(stripped):
+        return False
+    if ARITHMETIC_EXPR.search(stripped):
+        return False
+    normalized = re.sub(r"[\d\s\W_]+", "", stripped, flags=re.UNICODE)
+    return len(normalized) < 2
 
 
 def _build_blocks(
@@ -898,7 +925,9 @@ def should_drop_candidate_question(
     stripped = str(text or "").strip()
     if not stripped:
         return True
-    if _is_meta_like(stripped) or _is_instruction_like(stripped) or _is_footer_like(stripped):
+    if is_meta_instruction_or_footer_text(stripped):
+        return True
+    if is_pseudo_or_garbled_question(stripped):
         return True
     if document_classification:
         regions = (

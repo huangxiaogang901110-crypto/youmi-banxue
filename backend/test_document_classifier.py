@@ -32,6 +32,8 @@ from document_classifier import (
     _trim_to_question_anchor,
     classify_document,
     clean_question_text,
+    is_meta_instruction_or_footer_text,
+    is_pseudo_or_garbled_question,
     should_drop_candidate_question,
     should_extract_questions,
     should_extract_structural_questions,
@@ -305,6 +307,32 @@ def test_should_drop_meta():
     assert should_drop_candidate_question("班级：三年级", None, doc) == True
     assert should_drop_candidate_question("老师：王老师", None, doc) == True
     assert should_drop_candidate_question("1. 看拼音写词语", None, doc) == False
+
+
+def test_meta_instruction_or_footer_helper():
+    """共享 helper 应识别 meta/说明/页脚文本"""
+    assert is_meta_instruction_or_footer_text("班级：三年级(2)班")
+    assert is_meta_instruction_or_footer_text("根据题意列式计算")
+    assert is_meta_instruction_or_footer_text("第5页 共12页")
+    assert not is_meta_instruction_or_footer_text("1. 计算 3 + 5 = ___")
+
+
+def test_pseudo_or_garbled_question_helper():
+    """纯符号/噪声短碎片应按伪题处理"""
+    assert is_pseudo_or_garbled_question("▲ - ● →")
+    assert is_pseudo_or_garbled_question("△ - □ → [ ] - [ ] = [ ]")
+    assert is_pseudo_or_garbled_question("??")
+    assert not is_pseudo_or_garbled_question("1. 5 + 3 = ___")
+    assert not is_pseudo_or_garbled_question("□ + 3 = 7")
+    assert not is_pseudo_or_garbled_question("看图列式计算")
+
+
+def test_should_drop_pseudo_visual_question():
+    """当前 pipeline 共用 drop 逻辑应过滤伪题，不误杀正常填空算式"""
+    doc = DocumentClassification(page_type="math_homework")
+    assert should_drop_candidate_question("▲ - ● →", None, doc) == True
+    assert should_drop_candidate_question("△ - □ → [ ] - [ ] = [ ]", None, doc) == True
+    assert should_drop_candidate_question("□ + 3 = 7", None, doc) == False
 
 
 def test_structural_signal():
