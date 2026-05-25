@@ -1,0 +1,262 @@
+{
+  "plan_id": "repair3g_real_sample_plan_v1",
+  "status": "draft_only",
+  "execution_guard": {
+    "execute_now": false,
+    "enter_3i_now": false,
+    "requires_separate_authorization": true,
+    "forbidden_actions": [
+      "deploy",
+      "restart",
+      "sync_public_repo",
+      "touch_prod_ports_3000_8000",
+      "auto_expand_sample_scope"
+    ]
+  },
+  "evidence": {
+    "gap_report": "backend/eval/repair3d_fixture_gap_report.json",
+    "review_tags": "backend/eval/repair3d_fixture_review_tags.json",
+    "quality_gate_impl": "backend/eval_repair2_cached.py",
+    "real_run_prototype": "backend/evaluate_repair1_step1.py"
+  },
+  "budget": {
+    "min_images": 5,
+    "max_images": 8,
+    "max_batches": 1,
+    "max_parse_job_calls": 8,
+    "max_paid_ocr_calls": 4,
+    "max_deepseek_calls": 0,
+    "per_image_timeout_sec": 90,
+    "upload_gap_sec": 13
+  },
+  "test_entry": {
+    "planned_backend_base": "http://127.0.0.1:8002",
+    "confirmation_status": "pending",
+    "notes": [
+      "backend/evaluate_repair1_step1.py defaults to 8002",
+      "repo runbooks currently document 8001/3001, so 3I must confirm the real non-prod entry before execution"
+    ]
+  },
+  "samples": [
+    {
+      "sample_id": "RS-01",
+      "priority": 1,
+      "required_traits": [
+        "横拍/斜拍",
+        "多栏密集题",
+        "语文阅读/填空",
+        "涂改/老师批改痕迹"
+      ],
+      "purpose": "一张图同时补 landscape 与 dense 两个主缺口，并验证批改痕迹不会污染题面。",
+      "gap_targets": [
+        "landscape_or_tilted_photo",
+        "dense_multi_column_page",
+        "teacher_markup"
+      ],
+      "expected_question_count_range": "8-15",
+      "expected_calls": {
+        "ocr": "likely",
+        "qwen": "yes",
+        "deepseek": "no"
+      },
+      "reference_analogs": [
+        "local_eval_samples/04fb8059d392d3235e042e8c9303f5bf_origin(1).jpg"
+      ]
+    },
+    {
+      "sample_id": "RS-02",
+      "priority": 2,
+      "required_traits": [
+        "斜拍",
+        "数学练习",
+        "书写答案"
+      ],
+      "purpose": "验证斜拍页的题号、答案、切题边界。",
+      "gap_targets": [
+        "landscape_or_tilted_photo",
+        "teacher_markup"
+      ],
+      "expected_question_count_range": "6-12",
+      "expected_calls": {
+        "ocr": "likely",
+        "qwen": "yes",
+        "deepseek": "no"
+      },
+      "reference_analogs": [
+        "local_eval_samples/110203d331e3d6d9dbb35f29ea4d546d_origin(1).jpg",
+        "local_eval_samples/e8bc9c5f71c8e07511caf31ab0065358_origin(1).jpg"
+      ]
+    },
+    {
+      "sample_id": "RS-03",
+      "priority": 3,
+      "required_traits": [
+        "横拍/斜拍",
+        "多栏密集题",
+        "数学比较/选择混排"
+      ],
+      "purpose": "验证多栏排序、题组拆分、密集题边界。",
+      "gap_targets": [
+        "dense_multi_column_page",
+        "landscape_or_tilted_photo"
+      ],
+      "expected_question_count_range": "8-15",
+      "expected_calls": {
+        "ocr": "likely",
+        "qwen": "yes",
+        "deepseek": "no"
+      },
+      "reference_analogs": [
+        "local_eval_samples/8ca18021d0236fa3311b640d38a022d4_origin(1).jpg"
+      ]
+    },
+    {
+      "sample_id": "RS-04",
+      "priority": 4,
+      "required_traits": [
+        "语文阅读/填空",
+        "竖拍清晰页"
+      ],
+      "purpose": "复核 section 标题与 blanks 保真。",
+      "gap_targets": [
+        "complex_chinese_page"
+      ],
+      "expected_question_count_range": "4-8",
+      "expected_calls": {
+        "ocr": "possible",
+        "qwen": "yes",
+        "deepseek": "no"
+      },
+      "reference_analogs": [
+        "local_eval_samples/585120886d1fba8915e5d7500e5f379e_origin(1).jpg",
+        "local_eval_samples/498bf6ab8ee4e13bde413558af899837_origin(1).jpg"
+      ]
+    },
+    {
+      "sample_id": "RS-05",
+      "priority": 5,
+      "required_traits": [
+        "拼音/英文混合",
+        "少量书写"
+      ],
+      "purpose": "复核 mixed 路由与拼音/英文共存场景。",
+      "gap_targets": [
+        "mixed_pinyin_english"
+      ],
+      "expected_question_count_range": "4-8",
+      "expected_calls": {
+        "ocr": "possible",
+        "qwen": "yes",
+        "deepseek": "no"
+      },
+      "reference_analogs": [
+        "local_eval_samples/a95fa987431b6f696d5f996124fd8903_origin(1).jpg"
+      ]
+    },
+    {
+      "sample_id": "RS-06",
+      "priority": 6,
+      "required_traits": [
+        "选择题独立页"
+      ],
+      "purpose": "复核 options 保留和独立选择题切题边界。",
+      "gap_targets": [
+        "standalone_multiple_choice_page"
+      ],
+      "expected_question_count_range": "4-10",
+      "expected_calls": {
+        "ocr": "possible",
+        "qwen": "yes",
+        "deepseek": "no"
+      },
+      "reference_analogs": [
+        "local_eval_samples/1853b2e7ec6e53910f9328f7a120ba9f_origin(1).jpg",
+        "local_eval_samples/7aac0fcd266a7c25f1350e6a8e991265_origin(1).jpg"
+      ]
+    },
+    {
+      "sample_id": "RS-07",
+      "priority": 7,
+      "required_traits": [
+        "封面/说明页",
+        "可带老师勾改"
+      ],
+      "purpose": "验证 conservative routing，不应产出题目。",
+      "gap_targets": [
+        "cover_or_instruction_page",
+        "teacher_markup"
+      ],
+      "expected_question_count_range": "0",
+      "expected_calls": {
+        "ocr": "possible",
+        "qwen": "yes",
+        "deepseek": "no"
+      },
+      "reference_analogs": [
+        "local_eval_samples/0a511e8d4f883fd787a4d0ad528f189f_origin(1).jpg",
+        "local_eval_samples/db5fc846398224118346e9bbf028e78a_origin(1).jpg"
+      ]
+    },
+    {
+      "sample_id": "RS-08",
+      "priority": 8,
+      "required_traits": [
+        "非作业图"
+      ],
+      "purpose": "验证 non-homework 拒收路径。",
+      "gap_targets": [
+        "non_homework_image"
+      ],
+      "expected_question_count_range": "0",
+      "expected_calls": {
+        "ocr": "possible",
+        "qwen": "yes",
+        "deepseek": "no"
+      },
+      "reference_analogs": [
+        "local_eval_samples/db2d0e0a19d2c6bd5cf6da750bf6cdbb_origin(1).jpg"
+      ]
+    }
+  ],
+  "command_drafts": [
+    {
+      "name": "preflight_env_check",
+      "execute_now": false,
+      "command": "bash local_check_env.sh"
+    },
+    {
+      "name": "preflight_no_paid_only_json",
+      "execute_now": false,
+      "command": "python backend/evalrepair2cached.py --no-paid --only-json-fixtures"
+    },
+    {
+      "name": "preflight_no_paid_all",
+      "execute_now": false,
+      "command": "python backend/evalrepair2cached.py --no-paid"
+    },
+    {
+      "name": "repair3g_batch1_real_run",
+      "execute_now": false,
+      "command": "python backend/evaluate_repair1_step1.py --base http://127.0.0.1:8002 --samples-dir /ABS/PATH/repair3g_batch1 --phone \"$TEST_PHONE\" --password \"$TEST_PWD\" --allow-paid-ocr --max-paid-calls 4 --poll-interval 3 --timeout-sec 90 --upload-gap-sec 13 --json-out /tmp/repair3g_batch1.json"
+    }
+  ],
+  "stop_conditions": [
+    "Any request points to prod ports 3000 or 8000",
+    "Any step requires deploy, restart, or pipeline.py production-path change",
+    "Paid OCR count reaches 4",
+    "Two consecutive samples end as failed, completed_empty, or max_paid_calls_reached",
+    "Any DeepSeek call is recorded",
+    "Any obvious plaintext key or phone leak appears in logs"
+  ],
+  "manual_acceptance_fields": [
+    "sample_id",
+    "expected_question_count_range",
+    "observed_question_count",
+    "meta_false_positive",
+    "missed_questions",
+    "grouping_correct",
+    "cache_written",
+    "fixture_candidate",
+    "notes"
+  ]
+}
