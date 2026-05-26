@@ -8,11 +8,19 @@
 - sidecar_complete: `True`
 - call_source: `repair3d_real_eval`
 - db_path: `/tmp/repair3d_real_eval.db`
+- sample_ids: `["vertical_math_01", "english_text_01", "annotated_header_01", "tilted_01", "non_homework_01"]`
+- qwen_timeout_seconds: `30`
+- model_calls_total: `0`
+- model_calls_per_image: `0.0`
+- cost_total: `n/a`
+- cost_per_image: `n/a`
+- cost_available: `False`
+- non_homework_result: `{"document_type": "unknown", "expected_document_type": "non_homework", "page_type": "unknown", "questions_count": 0, "sample_id": "non_homework_01", "status": "planned", "terminal_status": "needs_review"}`
 
 | sample_id | filename | status | questions | model_calls | cost_cny | skipped_reason | terminal_status_distribution |
 | --- | --- | --- | ---: | ---: | ---: | --- | --- |
-| horizontal_01 | horizontal_01.jpg | planned | 0 | 0 | 0.0 | - | {"needs_review": 1} |
-| english_text_01 | english_text_01.jpg | planned | 0 | 0 | 0.0 | - | {"needs_review": 1} |
-| english_text_02 | english_text_02.jpg | planned | 0 | 0 | 0.0 | - | {"needs_review": 1} |
-| english_text_03 | english_text_03.jpg | planned | 0 | 0 | 0.0 | - | {"needs_review": 1} |
-| vertical_math_01 | vertical_math_01.jpg | planned | 0 | 0 | 0.0 | - | {"needs_review": 1} |
+| vertical_math_01 | vertical_math_01.jpg | planned | 0 | 0 | n/a | - | {"needs_review": 1} |
+| english_text_01 | english_text_01.jpg | planned | 0 | 0 | n/a | - | {"needs_review": 1} |
+| annotated_header_01 | annotated_header_01.jpg | planned | 0 | 0 | n/a | - | {"needs_review": 1} |
+| tilted_01 | tilted_01.jpg | planned | 0 | 0 | n/a | - | {"needs_review": 1} |
+| non_homework_01 | non_homework_01.jpg | planned | 0 | 0 | n/a | - | {"needs_review": 1} |
