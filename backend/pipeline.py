@@ -862,6 +862,23 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
         ocr_latency = ocr_raw.get("latency_ms", 0)
         ocr_blocks = ocr_raw.get("blocks", [])
         _jobs[jid]["ocr_blocks"] = ocr_blocks
+        if ocr_blocks and _os.environ.get("YOMI_EXPORT_OCR_BLOCKS"):
+            try:
+                with open(f"/tmp/ocr_blocks_{jid}.json", "w", encoding="utf-8") as export_file:
+                    json.dump(
+                        {
+                            "job_id": jid,
+                            "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                            "block_count": len(ocr_blocks),
+                            "ocr_block_source": "aliyun_general_ocr",
+                            "blocks": ocr_blocks,
+                        },
+                        export_file,
+                        ensure_ascii=False,
+                        indent=2,
+                    )
+            except Exception as exc:
+                warning(f"[BG] OCR blocks export failed for {jid}: {exc}")
         _jobs[jid]["ocr_block_source"] = "aliyun_general_ocr"
         image_payload = _jobs[jid].get("recognition_image") or {}
         image_width = image_payload.get("width")
