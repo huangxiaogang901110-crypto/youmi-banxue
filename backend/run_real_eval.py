@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+from contextlib import contextmanager
 import importlib
 import json
 import os
@@ -13,7 +14,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Sequence
+from typing import Any, Iterator, Sequence
 
 import eval_repair2_cached as cached_eval
 from models import JobStatus, ParseJob
@@ -23,12 +24,22 @@ DEFAULT_SAMPLE_DIR = ROOT / "local_eval_samples" / "repair3d_user_samples"
 DEFAULT_DB_PATH = Path("/tmp/repair3d_real_eval.db")
 DEFAULT_LIMIT = 5
 MAX_LIMIT = 5
+DEFAULT_SAMPLE_IDS = (
+    "vertical_math_01",
+    "english_text_01",
+    "annotated_header_01",
+    "tilted_01",
+    "non_homework_01",
+)
 SAFE_CALL_SOURCE = "repair3d_real_eval"
 REQUIRED_ENV_VARS = ("QWEN_DASHSCOPE_API_KEY", "DEEPSEEK_API_KEY")
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
 PROTECTED_DB_TOKENS = ("yomi.db", "/home/hermes_me/yomi/")
 RUNNER_PARENT_ID = "repair3d-eval-parent"
 RUNNER_CHILD_ID = "repair3d-eval-child"
+NON_HOMEWORK_SAMPLE_ID = "non_homework_01"
+QWEN_TIMEOUT_ENV_VAR = "QWEN_TIMEOUT_SECONDS"
+QWEN_TIMEOUT_COMPAT_ENV_VARS = ("YOMIQWENFULLTIMEOUTSECONDS",)
 
 
 class RunnerError(RuntimeError):
@@ -67,6 +78,18 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         type=Path,
         default=DEFAULT_DB_PATH,
         help="SQLite path for isolated real-run eval only.",
+    )
+    parser.add_argument(
+        "--sample-ids",
+        type=str,
+        default=None,
+        help="Comma-separated sample_id list. Defaults to Repair-3D coverage set.",
+    )
+    parser.add_argument(
+        "--qwen-timeout-seconds",
+        type=int,
+        default=None,
+        help="Optional Qwen timeout override. Applied only during --run-real.",
     )
     parser.add_argument("--output-json", type=Path, default=None)
     parser.add_argument("--output-md", type=Path, default=None)
@@ -109,12 +132,62 @@ def normalize_limit(limit: int) -> int:
     return min(limit, MAX_LIMIT)
 
 
+def normalize_sample_ids(raw_sample_ids: str | None) -> list[str] | None:
+    if raw_sample_ids is None:
+        return None
+    sample_ids: list[str] = []
+    for raw_value in raw_sample_ids.split(","):
+        sample_id = raw_value.strip()
+        if not sample_id:
+            continue
+        if sample_id not in sample_ids:
+            sample_ids.append(sample_id)
+    if not sample_ids:
+        raise RunnerError("--sample-ids must contain at least one sample_id")
+    return sample_ids
+
+
+def normalize_qwen_timeout_seconds(value: int | None) -> int | None:
+    if value is None:
+        return None
+    if value < 1:
+        raise RunnerError("--qwen-timeout-seconds must be >= 1")
+    return value
+
+
 def guard_db_path(db_path: Path) -> Path:
     resolved = resolve_path(db_path)
     lowered = str(resolved).lower()
     if any(token in lowered for token in PROTECTED_DB_TOKENS):
         raise RunnerError(f"Refusing production-like db path: {resolved}")
     return resolved
+
+
+@contextmanager
+def temporary_env(overrides: dict[str, str]) -> Iterator[None]:
+    original = {name: os.environ.get(name) for name in overrides}
+    try:
+        for name, value in overrides.items():
+            os.environ[name] = value
+        yield
+    finally:
+        for name, previous_value in original.items():
+            if previous_value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = previous_value
+
+
+def build_real_run_env_overrides(qwen_timeout_seconds: int | None) -> dict[str, str]:
+    overrides = {"YOMICALL_SOURCE": SAFE_CALL_SOURCE}
+    if qwen_timeout_seconds is None:
+        return overrides
+    timeout_value = str(qwen_timeout_seconds)
+    overrides[QWEN_TIMEOUT_ENV_VAR] = timeout_value
+    # Bridge runner-only knob to existing pipeline env without changing production defaults.
+    for name in QWEN_TIMEOUT_COMPAT_ENV_VARS:
+        overrides[name] = timeout_value
+    return overrides
 
 
 def env_status(names: Sequence[str]) -> dict[str, str]:
@@ -161,7 +234,12 @@ def sample_id_from_filename(filename: str) -> str:
     return Path(filename).stem
 
 
-def select_manifest_samples(sample_dir: Path, limit: int) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+def select_manifest_samples(
+    sample_dir: Path,
+    limit: int,
+    *,
+    sample_ids: Sequence[str] | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     manifest = load_manifest(sample_dir)
     raw_samples = manifest.get("samples")
     if not isinstance(raw_samples, list):
@@ -196,6 +274,7 @@ def select_manifest_samples(sample_dir: Path, limit: int) -> tuple[list[dict[str
                 "sample_id": sample_id_from_filename(filename),
                 "filename": filename,
                 "intended_use": str(entry.get("intended_use") or "").strip(),
+                "expected_document_type": str(entry.get("expected_document_type") or "").strip(),
                 "image_path": image_path,
                 "image_exists": image_path.is_file(),
                 "sidecar": sidecar_name,
@@ -205,7 +284,34 @@ def select_manifest_samples(sample_dir: Path, limit: int) -> tuple[list[dict[str
             }
         )
 
-    selected = image_entries[:limit]
+    requested_sample_ids = list(sample_ids or DEFAULT_SAMPLE_IDS)
+    if len(requested_sample_ids) > limit:
+        raise RunnerError(
+            f"Requested {len(requested_sample_ids)} sample_ids but --limit is {limit}"
+        )
+
+    image_entries_by_id: dict[str, dict[str, Any]] = {}
+    duplicate_sample_ids: list[str] = []
+    for image_entry in image_entries:
+        sample_id = str(image_entry["sample_id"])
+        if sample_id in image_entries_by_id:
+            duplicate_sample_ids.append(sample_id)
+            continue
+        image_entries_by_id[sample_id] = image_entry
+    if duplicate_sample_ids:
+        raise RunnerError(
+            "Duplicate sample_id entries in manifest: " + ", ".join(sorted(set(duplicate_sample_ids)))
+        )
+
+    missing_sample_ids = [
+        sample_id for sample_id in requested_sample_ids if sample_id not in image_entries_by_id
+    ]
+    if missing_sample_ids:
+        raise RunnerError(
+            "sample_ids not found in manifest: " + ", ".join(missing_sample_ids)
+        )
+
+    selected = [image_entries_by_id[sample_id] for sample_id in requested_sample_ids]
     total_images = manifest.get("total_images")
     manifest_complete = isinstance(total_images, int) and total_images == len(image_entries)
     if missing_images or missing_sidecars or invalid_sidecars:
@@ -217,6 +323,7 @@ def select_manifest_samples(sample_dir: Path, limit: int) -> tuple[list[dict[str
         "declared_total_images": total_images if isinstance(total_images, int) else None,
         "manifest_image_entries": len(image_entries),
         "selected_count": len(selected),
+        "sample_ids": requested_sample_ids,
         "sidecar_complete": all(
             sample["sidecar_exists"] and sample["sidecar_payload"] is not None
             for sample in selected
@@ -296,7 +403,7 @@ def make_row(
     sample_metrics: dict[str, Any] | None,
     latency_ms: int,
     model_calls_per_image: int,
-    cost_per_image: float,
+    cost_per_image: float | None,
     skipped_reason: str,
     dry_run: bool,
     run_real: bool,
@@ -304,11 +411,19 @@ def make_row(
     db_path: Path,
 ) -> dict[str, Any]:
     metrics = metric_bundle(sample_metrics)
+    observed_page_type = str(sample_metrics.get("page_type") or "unknown") if sample_metrics else "unknown"
+    observed_document_type = (
+        str(sample_metrics.get("document_type") or "unknown") if sample_metrics else "unknown"
+    )
     return {
         "sample_id": sample["sample_id"],
         "filename": sample["filename"],
         "intended_use": sample["intended_use"],
+        "expected_document_type": sample["expected_document_type"],
         "status": status,
+        "page_type": observed_page_type,
+        "document_type": observed_document_type,
+        "terminal_status": metrics["terminal_status"],
         "questions_count": metrics["questions_count"],
         "zero_question_completed_rate": metrics["zero_question_completed_rate"],
         "answer_bbox_non_empty_rate": metrics["answer_bbox_non_empty_rate"],
@@ -317,6 +432,7 @@ def make_row(
         "latency_ms": latency_ms,
         "model_calls_per_image": model_calls_per_image,
         "cost_per_image": cost_per_image,
+        "cost_available": cost_per_image is not None,
         "needs_review_count": metrics["needs_review_count"],
         "low_confidence_count": metrics["low_confidence_count"],
         "meta_false_positive_count": metrics["meta_false_positive_count"],
@@ -352,7 +468,7 @@ def build_dry_run_row(sample: dict[str, Any], *, db_path: Path) -> dict[str, Any
         sample_metrics=sample_metrics,
         latency_ms=0,
         model_calls_per_image=0,
-        cost_per_image=0.0,
+        cost_per_image=None,
         skipped_reason=skipped_reason,
         dry_run=True,
         run_real=False,
@@ -429,24 +545,66 @@ def query_job_payload(db_path: Path, job_id: str) -> dict[str, Any]:
 def query_model_call_stats(db_path: Path, job_id: str) -> dict[str, Any]:
     conn = sqlite3.connect(str(db_path))
     conn.row_factory = sqlite3.Row
-    row = conn.execute(
-        """
-        SELECT
-            COUNT(*) AS call_count,
-            COALESCE(SUM(cost_cny), 0) AS total_cost_cny,
-            COALESCE(SUM(latency_ms), 0) AS total_latency_ms
-        FROM model_calls
-        WHERE job_id = ?
-        """,
+    columns = {
+        str(row[1])
+        for row in conn.execute("PRAGMA table_info(model_calls)").fetchall()
+        if len(row) > 1
+    }
+    if not columns or "job_id" not in columns:
+        conn.close()
+        return {
+            "call_count": 0,
+            "cost_available": False,
+            "total_cost_cny": None,
+            "total_latency_ms": 0,
+        }
+
+    select_fields = ["job_id"]
+    if "latency_ms" in columns:
+        select_fields.append("latency_ms")
+    if "cost_cny" in columns:
+        select_fields.append("cost_cny")
+    if "credit_cost" in columns:
+        select_fields.append("credit_cost")
+
+    rows = conn.execute(
+        f"SELECT {', '.join(select_fields)} FROM model_calls WHERE job_id = ?",
         (job_id,),
-    ).fetchone()
+    ).fetchall()
     conn.close()
-    if not row:
-        return {"call_count": 0, "total_cost_cny": 0.0, "total_latency_ms": 0}
+    if not rows:
+        return {
+            "call_count": 0,
+            "cost_available": False,
+            "total_cost_cny": None,
+            "total_latency_ms": 0,
+        }
+
+    total_latency_ms = 0
+    total_cost_cny = 0.0
+    cost_available = False
+    for row in rows:
+        if "latency_ms" in columns:
+            total_latency_ms += int(row["latency_ms"] or 0)
+
+        chosen_cost: float | None = None
+        if "cost_cny" in columns:
+            raw_cost_cny = row["cost_cny"]
+            if raw_cost_cny not in (None, "") and float(raw_cost_cny) != 0.0:
+                chosen_cost = float(raw_cost_cny)
+        if chosen_cost is None and "credit_cost" in columns:
+            raw_credit_cost = row["credit_cost"]
+            if raw_credit_cost not in (None, "") and float(raw_credit_cost) != 0.0:
+                chosen_cost = float(raw_credit_cost)
+        if chosen_cost is not None:
+            total_cost_cny += chosen_cost
+            cost_available = True
+
     return {
-        "call_count": int(row["call_count"] or 0),
-        "total_cost_cny": float(row["total_cost_cny"] or 0.0),
-        "total_latency_ms": int(row["total_latency_ms"] or 0),
+        "call_count": len(rows),
+        "cost_available": cost_available,
+        "total_cost_cny": total_cost_cny if cost_available else None,
+        "total_latency_ms": total_latency_ms,
     }
 
 
@@ -498,6 +656,47 @@ def execute_real_sample(sample: dict[str, Any], *, db_path: Path) -> dict[str, A
     )
 
 
+def summarize_rows(rows: Sequence[dict[str, Any]]) -> dict[str, Any]:
+    sample_count = len(rows)
+    model_calls_total = sum(int(row.get("model_calls_per_image") or 0) for row in rows)
+    model_calls_per_image = (
+        round(model_calls_total / sample_count, 6) if sample_count else 0.0
+    )
+    available_costs = [
+        float(row["cost_per_image"])
+        for row in rows
+        if row.get("cost_available") and row.get("cost_per_image") is not None
+    ]
+    cost_available = bool(available_costs)
+    cost_total = round(sum(available_costs), 6) if cost_available else None
+    cost_per_image = (
+        round(cost_total / sample_count, 6) if cost_available and sample_count else None
+    )
+    non_homework_row = next(
+        (row for row in rows if str(row.get("sample_id")) == NON_HOMEWORK_SAMPLE_ID),
+        None,
+    )
+    non_homework_result = None
+    if non_homework_row is not None:
+        non_homework_result = {
+            "sample_id": non_homework_row["sample_id"],
+            "status": non_homework_row["status"],
+            "terminal_status": non_homework_row["terminal_status"],
+            "page_type": non_homework_row["page_type"],
+            "document_type": non_homework_row["document_type"],
+            "expected_document_type": non_homework_row["expected_document_type"],
+            "questions_count": non_homework_row["questions_count"],
+        }
+    return {
+        "model_calls_total": model_calls_total,
+        "model_calls_per_image": model_calls_per_image,
+        "cost_total": cost_total,
+        "cost_per_image": cost_per_image,
+        "cost_available": cost_available,
+        "non_homework_result": non_homework_result,
+    }
+
+
 def build_report(
     *,
     samples: list[dict[str, Any]],
@@ -506,6 +705,7 @@ def build_report(
     run_real: bool,
     db_path: Path,
     env_state: dict[str, str] | None,
+    qwen_timeout_seconds: int | None,
 ) -> dict[str, Any]:
     rows: list[dict[str, Any]] = []
     for sample in samples:
@@ -520,7 +720,7 @@ def build_report(
                     sample_metrics=None,
                     latency_ms=0,
                     model_calls_per_image=0,
-                    cost_per_image=0.0,
+                    cost_per_image=None,
                     skipped_reason="missing_image",
                     dry_run=False,
                     run_real=True,
@@ -539,7 +739,7 @@ def build_report(
                     sample_metrics=None,
                     latency_ms=0,
                     model_calls_per_image=0,
-                    cost_per_image=0.0,
+                    cost_per_image=None,
                     skipped_reason=f"worker_error:{exc.__class__.__name__}",
                     dry_run=False,
                     run_real=True,
@@ -548,6 +748,7 @@ def build_report(
                 )
             )
 
+    aggregate_summary = summarize_rows(rows)
     return {
         "summary": {
             **manifest_summary,
@@ -559,11 +760,14 @@ def build_report(
             "run_real": run_real,
             "dry_run": dry_run,
             "no_paid": not run_real,
+            "qwen_timeout_seconds": qwen_timeout_seconds,
+            **aggregate_summary,
             "selected_samples": [
                 {
                     "sample_id": sample["sample_id"],
                     "filename": sample["filename"],
                     "intended_use": sample["intended_use"],
+                    "expected_document_type": sample["expected_document_type"],
                     "sidecar_exists": sample["sidecar_exists"],
                     "image_exists": sample["image_exists"],
                 }
@@ -587,6 +791,14 @@ def markdown_status_map(distribution: dict[str, int]) -> str:
     return json.dumps(distribution, ensure_ascii=False, sort_keys=True)
 
 
+def markdown_value(value: Any) -> str:
+    if value in (None, ""):
+        return "n/a"
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, ensure_ascii=False, sort_keys=True)
+    return str(value)
+
+
 def write_markdown_report(path: Path | None, report: dict[str, Any]) -> None:
     if path is None:
         return
@@ -603,6 +815,14 @@ def write_markdown_report(path: Path | None, report: dict[str, Any]) -> None:
         f"- sidecar_complete: `{summary['sidecar_complete']}`",
         f"- call_source: `{summary['call_source']}`",
         f"- db_path: `{summary['db_path']}`",
+        f"- sample_ids: `{markdown_value(summary['sample_ids'])}`",
+        f"- qwen_timeout_seconds: `{markdown_value(summary['qwen_timeout_seconds'])}`",
+        f"- model_calls_total: `{summary['model_calls_total']}`",
+        f"- model_calls_per_image: `{summary['model_calls_per_image']}`",
+        f"- cost_total: `{markdown_value(summary['cost_total'])}`",
+        f"- cost_per_image: `{markdown_value(summary['cost_per_image'])}`",
+        f"- cost_available: `{summary['cost_available']}`",
+        f"- non_homework_result: `{markdown_value(summary['non_homework_result'])}`",
         "",
         "| sample_id | filename | status | questions | model_calls | cost_cny | skipped_reason | terminal_status_distribution |",
         "| --- | --- | --- | ---: | ---: | ---: | --- | --- |",
@@ -616,7 +836,7 @@ def write_markdown_report(path: Path | None, report: dict[str, Any]) -> None:
                 status=row["status"],
                 questions_count=row["questions_count"],
                 model_calls_per_image=row["model_calls_per_image"],
-                cost_per_image=row["cost_per_image"],
+                cost_per_image=markdown_value(row["cost_per_image"]),
                 skipped_reason=row["skipped_reason"] or "-",
                 terminal_status_distribution=markdown_status_map(
                     row["terminal_status_distribution"]
@@ -640,6 +860,15 @@ def print_summary(report: dict[str, Any]) -> None:
                 "dry_run": summary["dry_run"],
                 "run_real": summary["run_real"],
                 "env": summary["env"],
+                "sample_ids": summary["sample_ids"],
+                "selected_samples": summary["selected_samples"],
+                "qwen_timeout_seconds": summary["qwen_timeout_seconds"],
+                "model_calls_total": summary["model_calls_total"],
+                "model_calls_per_image": summary["model_calls_per_image"],
+                "cost_total": summary["cost_total"],
+                "cost_per_image": summary["cost_per_image"],
+                "cost_available": summary["cost_available"],
+                "non_homework_result": summary["non_homework_result"],
             },
             ensure_ascii=False,
             indent=2,
@@ -650,22 +879,30 @@ def print_summary(report: dict[str, Any]) -> None:
 def run(argv: Sequence[str] | None = None) -> dict[str, Any]:
     args = parse_args(argv)
     limit = normalize_limit(args.limit)
+    sample_ids = normalize_sample_ids(args.sample_ids)
+    qwen_timeout_seconds = normalize_qwen_timeout_seconds(args.qwen_timeout_seconds)
     db_path = guard_db_path(args.db_path)
-    samples, manifest_summary = select_manifest_samples(args.sample_dir, limit)
+    samples, manifest_summary = select_manifest_samples(
+        args.sample_dir,
+        limit,
+        sample_ids=sample_ids,
+    )
 
     env_state: dict[str, str] | None = None
-    if args.run_real:
-        os.environ["YOMICALL_SOURCE"] = SAFE_CALL_SOURCE
-        env_state = require_real_env()
+    env_overrides = build_real_run_env_overrides(qwen_timeout_seconds) if args.run_real else {}
+    with temporary_env(env_overrides):
+        if args.run_real:
+            env_state = require_real_env()
 
-    report = build_report(
-        samples=samples,
-        manifest_summary=manifest_summary,
-        dry_run=args.dry_run,
-        run_real=args.run_real,
-        db_path=db_path,
-        env_state=env_state,
-    )
+        report = build_report(
+            samples=samples,
+            manifest_summary=manifest_summary,
+            dry_run=args.dry_run,
+            run_real=args.run_real,
+            db_path=db_path,
+            env_state=env_state,
+            qwen_timeout_seconds=qwen_timeout_seconds,
+        )
     write_json_report(args.output_json, report)
     write_markdown_report(args.output_md, report)
     return report
