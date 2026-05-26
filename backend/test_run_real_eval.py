@@ -454,3 +454,88 @@ def os_environ_value(name: str) -> str | None:
     import os
 
     return os.environ.get(name)
+
+
+# ── OCR env injection tests ──
+
+
+def test_inject_ocr_env_resolves_canonical_present(monkeypatch):
+    """Canonical vars already set → status 'ok', no aliases consulted."""
+    monkeypatch.setenv("ALIBABA_CLOUD_ACCESS_KEY_ID", "sk-123")
+    monkeypatch.setenv("ALIBABA_CLOUD_ACCESS_KEY_SECRET", "sk-456")
+    # Remove aliases to prove they aren't needed
+    for alias in run_real_eval.OCR_ENV_ALIASES:
+        monkeypatch.delenv(alias, raising=False)
+
+    status = run_real_eval._inject_ocr_env(quiet=True)
+
+    assert status["ALIBABA_CLOUD_ACCESS_KEY_ID"] == "ok"
+    assert status["ALIBABA_CLOUD_ACCESS_KEY_SECRET"] == "ok"
+
+
+def test_inject_ocr_env_resolves_alias(monkeypatch):
+    """Canonical missing but alias present → resolved from alias."""
+    # No canonical vars
+    monkeypatch.delenv("ALIBABA_CLOUD_ACCESS_KEY_ID", raising=False)
+    monkeypatch.delenv("ALIBABA_CLOUD_ACCESS_KEY_SECRET", raising=False)
+    # Set aliases
+    monkeypatch.setenv("ALIYUN_ACCESS_KEY_ID", "sk-aliyun-id")
+    monkeypatch.setenv("ALIYUN_ACCESS_KEY_SECRET", "sk-aliyun-secret")
+
+    status = run_real_eval._inject_ocr_env(quiet=True)
+
+    assert status["ALIBABA_CLOUD_ACCESS_KEY_ID"].startswith("ok")
+    assert "ALIYUN_ACCESS_KEY_ID" in status["ALIBABA_CLOUD_ACCESS_KEY_ID"]
+    assert status["ALIBABA_CLOUD_ACCESS_KEY_SECRET"].startswith("ok")
+    assert "ALIYUN_ACCESS_KEY_SECRET" in status["ALIBABA_CLOUD_ACCESS_KEY_SECRET"]
+
+    # Verify actual injection
+    import os
+
+    assert os.environ.get("ALIBABA_CLOUD_ACCESS_KEY_ID") == "sk-aliyun-id"
+    assert os.environ.get("ALIBABA_CLOUD_ACCESS_KEY_SECRET") == "sk-aliyun-secret"
+
+
+def test_inject_ocr_env_missing_safe_error(monkeypatch):
+    """All vars missing → status 'missing', no crash, no values leaked."""
+    for canonical in run_real_eval.OCR_ENV_VARS:
+        monkeypatch.delenv(canonical, raising=False)
+    for alias in run_real_eval.OCR_ENV_ALIASES:
+        monkeypatch.delenv(alias, raising=False)
+
+    status = run_real_eval._inject_ocr_env(quiet=True)
+
+    assert status["ALIBABA_CLOUD_ACCESS_KEY_ID"] == "missing"
+    assert status["ALIBABA_CLOUD_ACCESS_KEY_SECRET"] == "missing"
+
+    # Verify output is safe (no values printed)
+    import io, sys
+
+    captured = io.StringIO()
+    old_stdout = sys.stdout
+    sys.stdout = captured
+    try:
+        run_real_eval._inject_ocr_env(quiet=False)
+    finally:
+        sys.stdout = old_stdout
+    output = captured.getvalue()
+    assert "missing" in output.lower()
+    assert "sk-" not in output  # no values leaked
+    assert "ALIBABA_CLOUD_ACCESS_KEY_ID" in output
+
+
+def test_inject_ocr_env_does_not_overwrite_canonical(monkeypatch):
+    """Canonical already set → aliases ignored (no overwrite)."""
+    monkeypatch.setenv("ALIBABA_CLOUD_ACCESS_KEY_ID", "canonical-id")
+    monkeypatch.delenv("ALIBABA_CLOUD_ACCESS_KEY_SECRET", raising=False)
+    monkeypatch.setenv("ALIYUN_ACCESS_KEY_ID", "alias-id")
+    monkeypatch.setenv("ALIYUN_ACCESS_KEY_SECRET", "alias-secret")
+
+    status = run_real_eval._inject_ocr_env(quiet=True)
+
+    import os
+
+    assert os.environ.get("ALIBABA_CLOUD_ACCESS_KEY_ID") == "canonical-id"
+    assert status["ALIBABA_CLOUD_ACCESS_KEY_ID"] == "ok"
+    # Second key was missing so alias should be used
+    assert status["ALIBABA_CLOUD_ACCESS_KEY_SECRET"].startswith("ok")

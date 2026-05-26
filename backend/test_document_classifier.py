@@ -487,3 +487,62 @@ def test_extract_structured_questions_from_complex_portrait_layout():
     # Verify no question from footer/header blocks
     assert all("班级" not in question.get("question_text", "") for question in questions)
     assert all("第1页" not in question.get("question_text", "") for question in questions)
+
+
+# ── should_extract_questions ocr_blocks fallback tests ──
+
+
+def test_should_extract_unknown_with_empty_ocr_returns_true():
+    """OCR returned 0 blocks → page_type 'unknown' → fallback allows Qwen results."""
+    from document_classifier import should_extract_questions
+
+    result = should_extract_questions(
+        {"page_type": "unknown"}, ocr_blocks=[]
+    )
+    assert result is True
+
+
+def test_should_extract_unknown_without_ocr_arg_preserves_old_behavior():
+    """Default ocr_blocks=None → 'unknown' still rejected (backward compat)."""
+    from document_classifier import should_extract_questions
+
+    result = should_extract_questions({"page_type": "unknown"})
+    assert result is False
+
+
+def test_should_extract_nonhomework_even_with_empty_ocr():
+    """non_homework must ALWAYS be rejected, even when OCR is empty."""
+    from document_classifier import should_extract_questions
+
+    result = should_extract_questions(
+        {"page_type": "non_homework"}, ocr_blocks=[]
+    )
+    assert result is False
+
+
+def test_should_extract_cover_even_with_empty_ocr():
+    """cover_or_instruction_page must ALWAYS be rejected."""
+    from document_classifier import should_extract_questions
+
+    result = should_extract_questions(
+        {"page_type": "cover_or_instruction_page"}, ocr_blocks=[]
+    )
+    assert result is False
+
+
+def test_should_extract_math_homework_always_true():
+    """math_homework returns True regardless of ocr_blocks."""
+    from document_classifier import should_extract_questions
+
+    assert should_extract_questions({"page_type": "math_homework"}, ocr_blocks=[]) is True
+    assert should_extract_questions({"page_type": "math_homework"}) is True
+
+
+def test_should_extract_chinese_homework_not_affected():
+    """chinese_homework goes to structural path, not math path."""
+    from document_classifier import should_extract_questions
+
+    result = should_extract_questions(
+        {"page_type": "chinese_homework"}, ocr_blocks=[]
+    )
+    assert result is False  # Correct: structural questions use separate function

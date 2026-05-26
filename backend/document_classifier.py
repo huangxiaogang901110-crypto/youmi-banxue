@@ -641,7 +641,23 @@ def classify_document(
     )
 
 
-def should_extract_questions(document_classification: dict[str, Any] | DocumentClassification | None) -> bool:
+def should_extract_questions(
+    document_classification: dict[str, Any] | DocumentClassification | None,
+    ocr_blocks: list | None = None,
+) -> bool:
+    """Return True when math homework questions should be extracted.
+
+    Optional ``ocr_blocks`` enables a controlled fallback: when OCR returned
+    zero blocks, the page_type "unknown" is unreliable (classifier had no text).
+    Passing ``ocr_blocks=[]`` signals the caller wants Qwen results to flow
+    through for downstream quality-gate evaluation instead of being silently
+    dropped.  Non-homework / cover / instruction pages remain rejected because
+    they produce a distinct page_type even with non-empty OCR.
+
+    Nota bene: pipeline.py must be updated to pass ``ocr_blocks`` for the
+    fallback to activate.  Until then, the default (``None``) preserves
+    existing behaviour.
+    """
     if not document_classification:
         return False
     page_type = (
@@ -649,7 +665,17 @@ def should_extract_questions(document_classification: dict[str, Any] | DocumentC
         if isinstance(document_classification, DocumentClassification)
         else str(document_classification.get("page_type", "unknown"))
     )
-    return page_type == "math_homework"
+    if page_type == "math_homework":
+        return True
+    # Controlled fallback: OCR empty → classifier guessed "unknown" → route to
+    # Qwen results (which the caller has already confirmed as successful).
+    if (
+        ocr_blocks is not None
+        and len(ocr_blocks) == 0
+        and page_type == "unknown"
+    ):
+        return True
+    return False
 
 
 def should_extract_structural_questions(
