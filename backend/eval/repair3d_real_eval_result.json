@@ -1,0 +1,185 @@
+{
+  "summary": {
+    "manifest_path": "/home/hermes_me/yomi-codex-r1/local_eval_samples/repair3d_user_samples/manifest.json",
+    "manifest_complete": true,
+    "declared_total_images": 13,
+    "manifest_image_entries": 13,
+    "selected_count": 5,
+    "sidecar_complete": true,
+    "missing_image_count": 0,
+    "missing_sidecar_count": 0,
+    "invalid_sidecar_count": 0,
+    "sample_dir": "/home/hermes_me/yomi-codex-r1/local_eval_samples/repair3d_user_samples",
+    "effective_limit": 5,
+    "call_source": "repair3d_real_eval",
+    "db_path": "/tmp/repair3d_real_eval.db",
+    "env": "skipped",
+    "run_real": false,
+    "dry_run": true,
+    "no_paid": true,
+    "selected_samples": [
+      {
+        "sample_id": "horizontal_01",
+        "filename": "horizontal_01.jpg",
+        "intended_use": "横图",
+        "sidecar_exists": true,
+        "image_exists": true
+      },
+      {
+        "sample_id": "english_text_01",
+        "filename": "english_text_01.jpg",
+        "intended_use": "英语文本题",
+        "sidecar_exists": true,
+        "image_exists": true
+      },
+      {
+        "sample_id": "english_text_02",
+        "filename": "english_text_02.jpg",
+        "intended_use": "英语文本题",
+        "sidecar_exists": true,
+        "image_exists": true
+      },
+      {
+        "sample_id": "english_text_03",
+        "filename": "english_text_03.jpg",
+        "intended_use": "英语文本题",
+        "sidecar_exists": true,
+        "image_exists": true
+      },
+      {
+        "sample_id": "vertical_math_01",
+        "filename": "vertical_math_01.jpg",
+        "intended_use": "竖式计算",
+        "sidecar_exists": true,
+        "image_exists": true
+      }
+    ]
+  },
+  "samples": [
+    {
+      "sample_id": "horizontal_01",
+      "filename": "horizontal_01.jpg",
+      "intended_use": "横图",
+      "status": "planned",
+      "questions_count": 0,
+      "zero_question_completed_rate": 0.0,
+      "answer_bbox_non_empty_rate": 0.0,
+      "answer_bbox_false_positive_rate": 0.0,
+      "terminal_status_distribution": {
+        "needs_review": 1
+      },
+      "latency_ms": 0,
+      "model_calls_per_image": 0,
+      "cost_per_image": 0.0,
+      "needs_review_count": 1,
+      "low_confidence_count": 0,
+      "meta_false_positive_count": 0,
+      "skipped_reason": "",
+      "no_paid": true,
+      "dry_run": true,
+      "run_real": false,
+      "call_source": "repair3d_real_eval",
+      "db_path": "/tmp/repair3d_real_eval.db"
+    },
+    {
+      "sample_id": "english_text_01",
+      "filename": "english_text_01.jpg",
+      "intended_use": "英语文本题",
+      "status": "planned",
+      "questions_count": 0,
+      "zero_question_completed_rate": 0.0,
+      "answer_bbox_non_empty_rate": 0.0,
+      "answer_bbox_false_positive_rate": 0.0,
+      "terminal_status_distribution": {
+        "needs_review": 1
+      },
+      "latency_ms": 0,
+      "model_calls_per_image": 0,
+      "cost_per_image": 0.0,
+      "needs_review_count": 1,
+      "low_confidence_count": 0,
+      "meta_false_positive_count": 0,
+      "skipped_reason": "",
+      "no_paid": true,
+      "dry_run": true,
+      "run_real": false,
+      "call_source": "repair3d_real_eval",
+      "db_path": "/tmp/repair3d_real_eval.db"
+    },
+    {
+      "sample_id": "english_text_02",
+      "filename": "english_text_02.jpg",
+      "intended_use": "英语文本题",
+      "status": "planned",
+      "questions_count": 0,
+      "zero_question_completed_rate": 0.0,
+      "answer_bbox_non_empty_rate": 0.0,
+      "answer_bbox_false_positive_rate": 0.0,
+      "terminal_status_distribution": {
+        "needs_review": 1
+      },
+      "latency_ms": 0,
+      "model_calls_per_image": 0,
+      "cost_per_image": 0.0,
+      "needs_review_count": 1,
+      "low_confidence_count": 0,
+      "meta_false_positive_count": 0,
+      "skipped_reason": "",
+      "no_paid": true,
+      "dry_run": true,
+      "run_real": false,
+      "call_source": "repair3d_real_eval",
+      "db_path": "/tmp/repair3d_real_eval.db"
+    },
+    {
+      "sample_id": "english_text_03",
+      "filename": "english_text_03.jpg",
+      "intended_use": "英语文本题",
+      "status": "planned",
+      "questions_count": 0,
+      "zero_question_completed_rate": 0.0,
+      "answer_bbox_non_empty_rate": 0.0,
+      "answer_bbox_false_positive_rate": 0.0,
+      "terminal_status_distribution": {
+        "needs_review": 1
+      },
+      "latency_ms": 0,
+      "model_calls_per_image": 0,
+      "cost_per_image": 0.0,
+      "needs_review_count": 1,
+      "low_confidence_count": 0,
+      "meta_false_positive_count": 0,
+      "skipped_reason": "",
+      "no_paid": true,
+      "dry_run": true,
+      "run_real": false,
+      "call_source": "repair3d_real_eval",
+      "db_path": "/tmp/repair3d_real_eval.db"
+    },
+    {
+      "sample_id": "vertical_math_01",
+      "filename": "vertical_math_01.jpg",
+      "intended_use": "竖式计算",
+      "status": "planned",
+      "questions_count": 0,
+      "zero_question_completed_rate": 0.0,
+      "answer_bbox_non_empty_rate": 0.0,
+      "answer_bbox_false_positive_rate": 0.0,
+      "terminal_status_distribution": {
+        "needs_review": 1
+      },
+      "latency_ms": 0,
+      "model_calls_per_image": 0,
+      "cost_per_image": 0.0,
+      "needs_review_count": 1,
+      "low_confidence_count": 0,
+      "meta_false_positive_count": 0,
+      "skipped_reason": "",
+      "no_paid": true,
+      "dry_run": true,
+      "run_real": false,
+      "call_source": "repair3d_real_eval",
+      "db_path": "/tmp/repair3d_real_eval.db"
+    }
+  ]
+}
