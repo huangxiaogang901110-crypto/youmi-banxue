@@ -57,6 +57,56 @@ def test_evaluate_questions_filters_legacy_meta_and_pseudo():
     assert metrics["suspicious_question_count"] == 0
 
 
+def test_build_evaluator_recognition_document_uses_recognition_contracts():
+    recognition_document, legacy_field_break_count = cached_eval._build_evaluator_recognition_document(
+        [
+            {
+                "question_id": "q-1",
+                "question_number": 1,
+                "QuestionText": "1. 5 + 3 = ___",
+                "bbox": ["10", "20", "30", "40"],
+            },
+            {
+                "question_text": "2. 6 + 1 = ___",
+            },
+        ],
+        sample_name="fixture.jpg",
+    )
+
+    assert recognition_document.questions[0].question_text == "1. 5 + 3 = ___"
+    assert recognition_document.questions[0].bbox == [10.0, 20.0, 30.0, 40.0]
+    assert recognition_document.questions[1].question_id == "fixture.jpg-question-2"
+    assert recognition_document.questions[1].question_number == 2
+    assert legacy_field_break_count == 1
+
+
+def test_evaluate_questions_respects_recognition_contract_drop_rules():
+    document = DocumentClassification(page_type="chinese_homework").model_dump()
+    metrics = cached_eval.evaluate_questions(
+        [
+            {
+                "question_id": "section-1",
+                "question_number": 1,
+                "QuestionText": "一、看拼音写词语",
+                "SectionTitle": "一、看拼音写词语",
+            },
+            {
+                "question_id": "q-2",
+                "question_number": 2,
+                "QuestionText": "1. chūn tiān——（    ）",
+                "SectionTitle": "一、看拼音写词语",
+            },
+        ],
+        document,
+    )
+
+    assert metrics["kept_question_count"] == 1
+    assert metrics["filtered_question_count"] == 1
+    assert metrics["meta_filtered_count"] == 1
+    assert metrics["pseudo_filtered_count"] == 0
+    assert metrics["section_count"] == 1
+
+
 def test_load_fixture_samples_reads_json_sidecar_with_aliases(tmp_path):
     image_path = tmp_path / "chinese.jpg"
     _write_sidecar_fixture(

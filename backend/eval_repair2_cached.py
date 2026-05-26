@@ -18,6 +18,13 @@ from document_classifier import (
     is_pseudo_or_garbled_question,
     should_drop_candidate_question,
 )
+from schemas.recognition import (
+    RecognitionDocument,
+    RecognitionQuestionContract,
+    build_recognition_document,
+    normalize_bbox,
+    should_drop_question_payload,
+)
 
 ROOT = Path(__file__).resolve().parent.parent
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
@@ -244,6 +251,83 @@ def normalize_fixture_question(question: dict[str, Any]) -> dict[str, Any]:
     if section_title is not MISSING:
         normalized["section_title"] = section_title
     return normalized
+
+
+def _question_payload(raw_question: Any) -> dict[str, Any]:
+    if isinstance(raw_question, RecognitionQuestionContract):
+        payload = raw_question.model_dump()
+    elif hasattr(raw_question, "model_dump"):
+        payload = raw_question.model_dump()
+    elif isinstance(raw_question, dict):
+        payload = dict(raw_question)
+    else:
+        return {}
+    return normalize_fixture_question(payload)
+
+
+def _coerce_question_number(value: Any, *, fallback: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return fallback
+
+
+def _build_evaluator_recognition_document(
+    raw_questions: list[Any],
+    *,
+    sample_name: str,
+) -> tuple[RecognitionDocument, int]:
+    question_contracts: list[RecognitionQuestionContract] = []
+    legacy_field_break_count = 0
+
+    for index, raw_question in enumerate(raw_questions, start=1):
+        payload = _question_payload(raw_question)
+        question_id = payload.get("question_id") or payload.get("id")
+        question_number = payload.get("question_number")
+        if not question_id or question_number is None:
+            legacy_field_break_count += 1
+
+        question_contracts.append(
+            RecognitionQuestionContract(
+                question_id=str(question_id or f"{sample_name}-question-{index}"),
+                question_number=_coerce_question_number(question_number, fallback=index),
+                question_text=str(payload.get("question_text") or payload.get("content") or ""),
+                kind=str(payload.get("kind") or payload.get("type") or payload.get("question_type") or "question"),
+                question_role=payload.get("question_role"),
+                context_text=payload.get("context_text"),
+                options=payload.get("options") if isinstance(payload.get("options"), list) else None,
+                blank_count=payload.get("blank_count")
+                if isinstance(payload.get("blank_count"), int) and payload.get("blank_count") >= 0
+                else None,
+                bbox=normalize_bbox(payload.get("bbox")),
+                answer_bbox=normalize_bbox(payload.get("answer_bbox")),
+                image_url=payload.get("image_url"),
+                crop_url=payload.get("crop_url"),
+                visual_description=payload.get("visual_description"),
+                status=str(payload.get("status") or "completed"),
+                student_answer=payload.get("student_answer"),
+                is_correct=payload.get("is_correct"),
+                grading_explanation=payload.get("grading_explanation"),
+                section_title=payload.get("section_title"),
+                section_index=payload.get("section_index"),
+                sub_index=payload.get("sub_index"),
+                source=str(payload.get("source") or "unknown"),
+                confidence=payload.get("confidence"),
+                parent_id=payload.get("parent_id"),
+                error_code=payload.get("error_code"),
+            )
+        )
+
+    recognition_document = build_recognition_document(
+        image={
+            "id": f"eval-image-{sample_name or 'sample'}",
+            "file_path": sample_name,
+            "source": "eval_repair2_cached",
+        },
+        raw_questions=question_contracts,
+        meta={"source_kind": "evaluator"},
+    )
+    return recognition_document, legacy_field_break_count
 
 
 def sample_path_label(image_path: Path | None) -> str:
@@ -497,16 +581,16 @@ def looks_garbled(text: str) -> bool:
     return is_pseudo_or_garbled_question(text)
 
 
-def build_question_texts(questions: list[dict[str, Any]]) -> tuple[list[str], str]:
+def build_question_texts(questions: list[RecognitionQuestionContract]) -> tuple[list[str], str]:
     section_titles: list[str] = []
     question_texts: list[str] = []
     seen_sections: set[str] = set()
     for question in questions:
-        section_title = str(question.get("section_title") or "").strip()
+        section_title = str(question.section_title or "").strip()
         if section_title and section_title not in seen_sections:
             seen_sections.add(section_title)
             section_titles.append(section_title)
-        text = str(question.get("question_text") or "").strip()
+        text = str(question.question_text or "").strip()
         if text:
             question_texts.append(text)
     merged = "\n".join(section_titles + question_texts)
@@ -515,7 +599,7 @@ def build_question_texts(questions: list[dict[str, Any]]) -> tuple[list[str], st
 
 def infer_document_classification(
     payload: dict[str, Any],
-    questions: list[dict[str, Any]],
+    questions: list[RecognitionQuestionContract],
 ) -> dict[str, Any]:
     stored = payload.get("document_classification")
     question_texts, raw_text = build_question_texts(questions)
@@ -541,9 +625,11 @@ def infer_document_classification(
     return merged
 
 
-def evaluate_questions(
-    questions: list[dict[str, Any]],
+def _evaluate_recognition_questions(
+    recognition_document: RecognitionDocument,
     document_classification: dict[str, Any],
+    *,
+    legacy_field_break_count: int,
 ) -> dict[str, int]:
     meta_filtered_count = 0
     pseudo_filtered_count = 0
@@ -553,19 +639,19 @@ def evaluate_questions(
     kept_question_count = 0
     residual_meta_like_count = 0
     suspicious_question_count = 0
-    legacy_field_break_count = 0
 
-    for question in questions:
-        if not question.get("question_id") or question.get("question_number") is None:
-            legacy_field_break_count += 1
-
-        raw_text = str(question.get("question_text") or "")
+    for question in recognition_document.questions:
+        raw_text = str(question.question_text or "")
         cleaned = clean_question_text(raw_text, document_classification)
-        bbox = question.get("bbox") if isinstance(question.get("bbox"), list) else None
         diagnostic_text = cleaned or raw_text
-        is_meta_like = is_meta_instruction_or_footer_text(raw_text) or is_meta_instruction_or_footer_text(cleaned)
+        contract_drop = should_drop_question_payload(question.model_dump())
+        is_meta_like = (
+            contract_drop
+            or is_meta_instruction_or_footer_text(raw_text)
+            or is_meta_instruction_or_footer_text(cleaned)
+        )
         is_pseudo_like = looks_garbled(diagnostic_text)
-        if should_drop_candidate_question(cleaned, bbox, document_classification):
+        if contract_drop or should_drop_candidate_question(cleaned, question.bbox, document_classification):
             if is_pseudo_like and not is_meta_like:
                 pseudo_filtered_count += 1
             else:
@@ -578,16 +664,16 @@ def evaluate_questions(
         if is_pseudo_like:
             suspicious_question_count += 1
 
-        section_title = str(question.get("section_title") or "").strip()
-        section_index = question.get("section_index")
+        section_title = str(question.section_title or "").strip()
+        section_index = question.section_index
         if section_title or section_index is not None:
             section_keys.add((section_index, section_title))
 
-        blank_count = question.get("blank_count")
+        blank_count = question.blank_count
         if not isinstance(blank_count, int) or blank_count < 0:
             blank_count = count_blanks(cleaned)
         blanks_count += blank_count
-        options_count += count_options(question, cleaned)
+        options_count += count_options(question.model_dump(), cleaned)
 
     return {
         "kept_question_count": kept_question_count,
@@ -603,6 +689,21 @@ def evaluate_questions(
     }
 
 
+def evaluate_questions(
+    questions: list[dict[str, Any]],
+    document_classification: dict[str, Any],
+) -> dict[str, int]:
+    recognition_document, legacy_field_break_count = _build_evaluator_recognition_document(
+        questions,
+        sample_name="evaluate_questions",
+    )
+    return _evaluate_recognition_questions(
+        recognition_document,
+        document_classification,
+        legacy_field_break_count=legacy_field_break_count,
+    )
+
+
 def sample_from_payload(
     *,
     source_kind: str,
@@ -615,8 +716,16 @@ def sample_from_payload(
     questions = payload.get("questions")
     if not isinstance(questions, list):
         questions = []
-    document_classification = infer_document_classification(payload, questions)
-    metrics = evaluate_questions(questions, document_classification)
+    recognition_document, legacy_field_break_count = _build_evaluator_recognition_document(
+        questions,
+        sample_name=sample_name,
+    )
+    document_classification = infer_document_classification(payload, recognition_document.questions)
+    metrics = _evaluate_recognition_questions(
+        recognition_document,
+        document_classification,
+        legacy_field_break_count=legacy_field_break_count,
+    )
     page_type = str(document_classification.get("page_type") or "unknown")
     document_type = str(
         document_classification.get("doc_family")
