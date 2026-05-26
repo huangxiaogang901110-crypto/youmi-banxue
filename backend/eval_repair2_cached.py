@@ -37,6 +37,9 @@ DEFAULT_FIXTURE_DIRS = [
     ROOT / "e2e" / "fixtures",
     ROOT / "backend" / "tests" / "fixtures",
 ]
+DEFAULT_EXCLUDED_FIXTURE_SUBDIRS = [
+    ROOT / "local_eval_samples" / "repair3d_user_samples",
+]
 OPTION_MARKER = re.compile(r"(?:^|[\s(（])([A-DＡ-Ｄ])(?:[.．、)]|[)）])")
 BLANK_UNDERSCORE = re.compile(r"_{2,}")
 BLANK_PARENS = re.compile(r"(?:（\s*）|\(\s*\)|\[\s*\])")
@@ -190,11 +193,25 @@ def load_fixture_images(sample_dirs: list[Path], limit: int | None = None) -> li
     images: list[Path] = []
     for directory in sample_dirs:
         for path in sorted(directory.rglob("*")):
+            if _is_excluded_default_fixture_path(directory, path):
+                continue
             if path.is_file() and path.suffix.lower() in IMAGE_SUFFIXES:
                 images.append(path)
                 if limit is not None and len(images) >= limit:
                     return images
     return images
+
+
+def _is_excluded_default_fixture_path(directory: Path, path: Path) -> bool:
+    if directory != ROOT / "local_eval_samples":
+        return False
+    for excluded_dir in DEFAULT_EXCLUDED_FIXTURE_SUBDIRS:
+        try:
+            path.relative_to(excluded_dir)
+            return True
+        except ValueError:
+            continue
+    return False
 
 
 def connect_readonly(db_path: Path) -> sqlite3.Connection:
