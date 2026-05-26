@@ -4,6 +4,7 @@
 """
 import asyncio
 import json
+import os as _os
 import re
 import time
 
@@ -42,6 +43,23 @@ import oss_client as _oss
 
 
 # ═══════════════════════════════════════════════════════════════
+
+def _get_qwen_full_timeout_seconds(default: int = 30) -> int:
+    for key in (
+        "QWENVLTIMEOUT",
+        "YOMIQWENVLTIMEOUTSECONDS",
+        "YOMIQWENFULLTIMEOUTSECONDS",
+        "YOMIQWENFULLTIMEOUT_SECONDS",
+    ):
+        value = _os.getenv(key)
+        if not value:
+            continue
+        try:
+            return int(value)
+        except ValueError:
+            continue
+    return default
+
 
 def enqueue_parse_job(jid: str, job_entry: dict):
     """将任务注册到内存队列 + SQLite 持久化。"""
@@ -648,8 +666,7 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
     import os as _os_env
     SLA_ENABLED = _os_env.getenv("YOMI_RECOGNITION_10S_SLA", "true").lower() in ("1", "true", "yes")
     SLA_DEADLINE_S = int(_os_env.getenv("YOMI_SYNC_JOB_TIMEOUT_SECONDS", "10"))
-    QWEN_FULL_TIMEOUT_S = int(_os_env.getenv("YOMI_QWEN_FULL_TIMEOUT_SECONDS",
-                              _os_env.getenv("YOMI_QWEN_FULL_TIMEOUT_SECONDS", "9")))
+    QWEN_FULL_TIMEOUT_S = _get_qwen_full_timeout_seconds()
     OCR_TIMEOUT_S = int(_os_env.getenv("YOMI_GENERAL_OCR_TIMEOUT_SECONDS",
                         _os_env.getenv("YOMI_GENERAL_OCR_TIMEOUT_SECONDS", "3")))
     DISABLE_PER_Q_VISION = _os_env.getenv("YOMI_DISABLE_SYNC_PER_QUESTION_VISION", "true").lower() in ("1", "true", "yes")
