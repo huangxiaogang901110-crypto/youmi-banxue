@@ -18,6 +18,8 @@ from db import get_active_pricing
 from deepseek_client import DeepSeekClient
 from vision_client import QwenVLClient
 from ocr_client import AliyunOCRClient
+from ocr_block_export import export_ocr_blocks_if_enabled
+from math_ocr_first import math_ocr_first_extract
 from question_cutter import cut_to_questions
 from document_classifier import (
     DocumentClassification,
@@ -673,6 +675,7 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
     PER_Q_VISION_LIMIT = int(_os_env.getenv("YOMI_PER_QUESTION_VISION_SYNC_LIMIT", "0"))
     BPLUS_ENABLED = _os_env.getenv("YOMI_BPLUS_RECOGNITION", "false").lower() in ("1", "true", "yes")
     BPLUSPLUS_ENABLED = _os_env.getenv("YOMI_BPLUSPLUS_RECOGNITION", "false").lower() in ("1", "true", "yes")
+    MATH_OCR_FIRST_ENABLED = _os_env.getenv("YOMI_MATH_OCR_FIRST", "false").lower() in ("1", "true", "yes")
     TEST_FAKE_RECOGNITION = _os_env.getenv("YOMI_TEST_FAKE_RECOGNITION", "false").lower() in ("1", "true", "yes")
     import uuid as _uuid
     trace_id = _uuid.uuid4().hex
@@ -804,6 +807,7 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
         # ── Phase 1: Qwen-VL 全图 + 通用 OCR 并行 ──
         _jobs[jid]["job"].status = JobStatus.ocr_running
         use_qwen_vl = False
+        math_ocr_first_used = False
         qwen_parse_call_id = ""
         questions = []
         ocr_blocks = []
@@ -862,6 +866,7 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
         ocr_latency = ocr_raw.get("latency_ms", 0)
         ocr_blocks = ocr_raw.get("blocks", [])
         _jobs[jid]["ocr_blocks"] = ocr_blocks
+        export_ocr_blocks_if_enabled(jid, ocr_blocks)
         _jobs[jid]["ocr_block_source"] = "aliyun_general_ocr"
         image_payload = _jobs[jid].get("recognition_image") or {}
         image_width = image_payload.get("width")
@@ -964,7 +969,45 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
                 _jobs[jid]["questions"] = []
                 return
 
-            if _is_homework_image(ocr_blocks):
+            # ── 数学 OCR-first 路径（灰度） ──
+            if MATH_OCR_FIRST_ENABLED:
+                doc_family = str(document_classification.get("doc_family", "")).strip()
+                page_type = str(document_classification.get("page_type", "unknown")).strip()
+                math_families = {"math_arithmetic", "math_vertical", "math_comparison_logic", "math_word_problem"}
+                blocked_types = {"non_homework", "cover_or_instruction_page"}
+                if doc_family in math_families and page_type not in blocked_types:
+                    info(f"[BG] Math OCR-first route: doc_family={doc_family}")
+                    _math_result = math_ocr_first_extract(ocr_blocks, document_classification)
+                    if _math_result["quality_gate_passed"]:
+                        _math_questions = _build_questions_from_raw(
+                            jid=jid,
+                            raw_questions=_math_result["questions"],
+                            document_classification=document_classification,
+                            shared_vd="Math OCR-first 识别结果",
+                            aid=aid,
+                            page_id=page_id,
+                            source_call_id=f"mathocr_{jid}",
+                            parse_cost_per_q=0.0,
+                            source="math_ocr_first",
+                            image_url=result_image_url,
+                        )
+                        if _math_questions:
+                            use_qwen_vl = True
+                            math_ocr_first_used = True
+                            questions = _math_questions
+                            qwen_parse_call_id = f"mathocr_{jid}"
+                            info(
+                                f"[BG] Math OCR-first: {len(questions)}q, "
+                                f"answer_bbox_ratio={_math_result['stats'].get('answer_bbox_ratio', 0)}"
+                            )
+                        else:
+                            info("[BG] Math OCR-first produced 0 questions after normalization")
+                    else:
+                        info(f"[BG] Math OCR-first quality gate failed: {_math_result.get('reason', 'unknown')}")
+
+            if use_qwen_vl:
+                pass
+            elif _is_homework_image(ocr_blocks):
                 # 答案区定位
                 _qpat = __import__("re").compile(r'^\s*(\d{1,3})[.、．)）\s]')
                 _bs = sorted(ocr_blocks, key=lambda b: (b["y"], b["x"]))
@@ -1266,6 +1309,8 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
                                     q.status = QuestionStatus.failed
                     if _deferred_vision_tasks:
                         error(f"[BG] {len(_deferred_vision_tasks)} deferred tasks abandoned after {MAX_DEFERRED_RETRIES} batch retries")
+        elif math_ocr_first_used:
+            info("[BG] Math OCR-first mode: skipping per-question vision review")
         else:
             info("[BG] Qwen-VL full-page mode: skipping per-question vision review")
 
@@ -1316,9 +1361,14 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
             else:
                 info(f"[BG] OCR-only non-homework image → needs_review for {jid}")
         # 存储解析元数据供 save_result 写入 parse_jobs
-        _jobs[jid]["parse_mode"] = "qwen_vl"
-        _jobs[jid]["parser_provider"] = "aliyun_dashscope"
-        _jobs[jid]["parser_model"] = "qwen-vl-max"
+        if math_ocr_first_used:
+            _jobs[jid]["parse_mode"] = "math_ocr_first"
+            _jobs[jid]["parser_provider"] = "local"
+            _jobs[jid]["parser_model"] = "math_ocr_first"
+        else:
+            _jobs[jid]["parse_mode"] = "qwen_vl"
+            _jobs[jid]["parser_provider"] = "aliyun_dashscope"
+            _jobs[jid]["parser_model"] = "qwen-vl-max"
         _jobs[jid]["qwen_parse_call_id"] = qwen_parse_call_id
         _jobs[jid]["total_parse_cost_cny"] = total_parse_cost
         # ── Stage: grading ── DeepSeek 批量判对错 ──
