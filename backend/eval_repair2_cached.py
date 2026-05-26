@@ -83,6 +83,8 @@ QUALITY_GATE_EXPECTATIONS = {
         "fixture_only_effective_count": 0,
     },
 }
+TERMINAL_STATUS_ORDER = ("completed", "low_confidence", "needs_review", "failed")
+ANSWER_BBOX_FALSE_POSITIVE_KINDS = {"meta", "section", "ignored", "ignore"}
 
 
 def parse_args() -> argparse.Namespace:
@@ -641,27 +643,19 @@ def _evaluate_recognition_questions(
     suspicious_question_count = 0
 
     for question in recognition_document.questions:
-        raw_text = str(question.question_text or "")
-        cleaned = clean_question_text(raw_text, document_classification)
-        diagnostic_text = cleaned or raw_text
-        contract_drop = should_drop_question_payload(question.model_dump())
-        is_meta_like = (
-            contract_drop
-            or is_meta_instruction_or_footer_text(raw_text)
-            or is_meta_instruction_or_footer_text(cleaned)
-        )
-        is_pseudo_like = looks_garbled(diagnostic_text)
-        if contract_drop or should_drop_candidate_question(cleaned, question.bbox, document_classification):
-            if is_pseudo_like and not is_meta_like:
+        diagnostics = _question_diagnostics(question, document_classification)
+        cleaned = diagnostics["cleaned"]
+        if diagnostics["should_drop"]:
+            if diagnostics["is_pseudo_like"] and not diagnostics["is_meta_like"]:
                 pseudo_filtered_count += 1
             else:
                 meta_filtered_count += 1
             continue
 
         kept_question_count += 1
-        if is_meta_like:
+        if diagnostics["is_meta_like"]:
             residual_meta_like_count += 1
-        if is_pseudo_like:
+        if diagnostics["is_pseudo_like"]:
             suspicious_question_count += 1
 
         section_title = str(question.section_title or "").strip()
@@ -686,6 +680,127 @@ def _evaluate_recognition_questions(
         "residual_meta_like_count": residual_meta_like_count,
         "suspicious_question_count": suspicious_question_count,
         "legacy_field_break_count": legacy_field_break_count,
+    }
+
+
+def _question_diagnostics(
+    question: RecognitionQuestionContract,
+    document_classification: dict[str, Any],
+) -> dict[str, Any]:
+    raw_text = str(question.question_text or "")
+    cleaned = clean_question_text(raw_text, document_classification)
+    diagnostic_text = cleaned or raw_text
+    contract_drop = should_drop_question_payload(question.model_dump())
+    is_meta_like = (
+        contract_drop
+        or is_meta_instruction_or_footer_text(raw_text)
+        or is_meta_instruction_or_footer_text(cleaned)
+    )
+    is_pseudo_like = looks_garbled(diagnostic_text)
+    should_drop = contract_drop or should_drop_candidate_question(
+        cleaned,
+        question.bbox,
+        document_classification,
+    )
+    return {
+        "cleaned": cleaned,
+        "is_meta_like": is_meta_like,
+        "is_pseudo_like": is_pseudo_like,
+        "should_drop": should_drop,
+    }
+
+
+def _normalize_terminal_status(value: Any) -> str:
+    status = str(value or "").strip().lower()
+    if status in TERMINAL_STATUS_ORDER:
+        return status
+    return ""
+
+
+def _infer_terminal_status(payload: dict[str, Any], *, question_count: int) -> str:
+    explicit_status = (
+        _normalize_terminal_status(payload.get("status"))
+        or _normalize_terminal_status(payload.get("final_status"))
+    )
+    if explicit_status:
+        return explicit_status
+    if question_count == 0:
+        return "needs_review"
+    return "completed"
+
+
+def _normalize_question_marker(payload: dict[str, Any], *keys: str) -> str:
+    for key in keys:
+        value = payload.get(key)
+        if isinstance(value, str):
+            marker = value.strip().lower()
+            if marker:
+                return marker
+    return ""
+
+
+def _classify_answer_bbox(raw_answer_bbox: Any) -> str:
+    if raw_answer_bbox in (None, "", []):
+        return "empty"
+    if isinstance(raw_answer_bbox, list) and len(raw_answer_bbox) == 4:
+        try:
+            bbox = [float(value) for value in raw_answer_bbox]
+        except (TypeError, ValueError):
+            return "invalid"
+        if bbox == [0.0, 0.0, 0.0, 0.0]:
+            return "all_zero"
+    if normalize_bbox(raw_answer_bbox) is not None:
+        return "valid"
+    return "invalid"
+
+
+def _evaluate_answer_bbox_metrics(
+    raw_questions: list[Any],
+    recognition_questions: list[RecognitionQuestionContract],
+    document_classification: dict[str, Any],
+) -> dict[str, int]:
+    valid_count = 0
+    empty_count = 0
+    all_zero_count = 0
+    invalid_count = 0
+    false_positive_count = 0
+    false_positive_candidate_count = 0
+
+    for index, raw_question in enumerate(raw_questions):
+        if index >= len(recognition_questions):
+            break
+        payload = _question_payload(raw_question)
+        question = recognition_questions[index]
+        diagnostics = _question_diagnostics(question, document_classification)
+        bbox_bucket = _classify_answer_bbox(payload.get("answer_bbox"))
+        kind_marker = _normalize_question_marker(payload, "kind", "type", "question_type")
+        role_marker = _normalize_question_marker(payload, "question_role")
+        if (
+            kind_marker in ANSWER_BBOX_FALSE_POSITIVE_KINDS
+            or role_marker in ANSWER_BBOX_FALSE_POSITIVE_KINDS
+        ):
+            false_positive_candidate_count += 1
+            if bbox_bucket != "empty":
+                false_positive_count += 1
+
+        if diagnostics["should_drop"]:
+            continue
+        if bbox_bucket == "valid":
+            valid_count += 1
+        elif bbox_bucket == "all_zero":
+            all_zero_count += 1
+        elif bbox_bucket == "invalid":
+            invalid_count += 1
+        else:
+            empty_count += 1
+
+    return {
+        "valid_count": valid_count,
+        "empty_count": empty_count,
+        "all_zero_count": all_zero_count,
+        "invalid_count": invalid_count,
+        "false_positive_count": false_positive_count,
+        "false_positive_candidate_count": false_positive_candidate_count,
     }
 
 
@@ -726,11 +841,20 @@ def sample_from_payload(
         document_classification,
         legacy_field_break_count=legacy_field_break_count,
     )
+    answer_bbox_metrics = _evaluate_answer_bbox_metrics(
+        questions,
+        recognition_document.questions,
+        document_classification,
+    )
     page_type = str(document_classification.get("page_type") or "unknown")
     document_type = str(
         document_classification.get("doc_family")
         or document_classification.get("document_type")
         or "unknown"
+    )
+    terminal_status = _infer_terminal_status(
+        payload,
+        question_count=metrics["kept_question_count"],
     )
     image_metadata = read_image_metadata(image_path)
     coverage_flags = infer_coverage_flags(
@@ -753,6 +877,7 @@ def sample_from_payload(
         "coverage_flags": coverage_flags,
         "page_type": page_type,
         "document_type": document_type,
+        "terminal_status": terminal_status,
         "question_count": metrics["kept_question_count"],
         "raw_question_count": len(questions),
         "filtered_question_count": metrics["filtered_question_count"],
@@ -765,6 +890,14 @@ def sample_from_payload(
         "_suspicious_question_count": metrics["suspicious_question_count"],
         "_residual_meta_like_count": metrics["residual_meta_like_count"],
         "_legacy_field_break_count": metrics["legacy_field_break_count"],
+        "_answer_bbox_valid_count": answer_bbox_metrics["valid_count"],
+        "_answer_bbox_empty_count": answer_bbox_metrics["empty_count"],
+        "_answer_bbox_all_zero_count": answer_bbox_metrics["all_zero_count"],
+        "_answer_bbox_invalid_count": answer_bbox_metrics["invalid_count"],
+        "_answer_bbox_false_positive_count": answer_bbox_metrics["false_positive_count"],
+        "_answer_bbox_false_positive_candidate_count": answer_bbox_metrics[
+            "false_positive_candidate_count"
+        ],
     }
 
 
@@ -921,6 +1054,7 @@ def load_fixture_samples(
                 "coverage_flags": coverage_flags,
                 "page_type": "unknown",
                 "document_type": "unknown",
+                "terminal_status": "skipped",
                 "question_count": 0,
                 "raw_question_count": 0,
                 "filtered_question_count": 0,
@@ -933,6 +1067,12 @@ def load_fixture_samples(
                 "_suspicious_question_count": 0,
                 "_residual_meta_like_count": 0,
                 "_legacy_field_break_count": 0,
+                "_answer_bbox_valid_count": 0,
+                "_answer_bbox_empty_count": 0,
+                "_answer_bbox_all_zero_count": 0,
+                "_answer_bbox_invalid_count": 0,
+                "_answer_bbox_false_positive_count": 0,
+                "_answer_bbox_false_positive_candidate_count": 0,
             }
         )
         if seen_sample_names is not None:
@@ -993,6 +1133,52 @@ def build_summary(
     )
     legacy_field_break_count = sum(
         int(sample["_legacy_field_break_count"]) for sample in effective_samples
+    )
+    answer_bbox_valid_count = sum(
+        int(sample["_answer_bbox_valid_count"]) for sample in effective_samples
+    )
+    answer_bbox_empty_count = sum(
+        int(sample["_answer_bbox_empty_count"]) for sample in effective_samples
+    )
+    answer_bbox_all_zero_count = sum(
+        int(sample["_answer_bbox_all_zero_count"]) for sample in effective_samples
+    )
+    answer_bbox_invalid_count = sum(
+        int(sample["_answer_bbox_invalid_count"]) for sample in effective_samples
+    )
+    answer_bbox_false_positive_count = sum(
+        int(sample["_answer_bbox_false_positive_count"]) for sample in effective_samples
+    )
+    answer_bbox_false_positive_candidate_count = sum(
+        int(sample["_answer_bbox_false_positive_candidate_count"]) for sample in effective_samples
+    )
+    terminal_status_distribution = {
+        status: sum(1 for sample in effective_samples if sample.get("terminal_status") == status)
+        for status in TERMINAL_STATUS_ORDER
+    }
+    zero_question_sample_count = sum(1 for sample in samples if int(sample["question_count"]) == 0)
+    completed_sample_count = terminal_status_distribution["completed"]
+    zero_question_completed_count = sum(
+        1
+        for sample in effective_samples
+        if sample.get("terminal_status") == "completed" and int(sample["question_count"]) == 0
+    )
+    zero_question_completed_rate = (
+        zero_question_completed_count / completed_sample_count if completed_sample_count else 0.0
+    )
+    answer_bbox_total = (
+        answer_bbox_valid_count
+        + answer_bbox_empty_count
+        + answer_bbox_all_zero_count
+        + answer_bbox_invalid_count
+    )
+    answer_bbox_non_empty_rate = (
+        answer_bbox_valid_count / answer_bbox_total if answer_bbox_total else 0.0
+    )
+    answer_bbox_false_positive_rate = (
+        answer_bbox_false_positive_count / answer_bbox_false_positive_candidate_count
+        if answer_bbox_false_positive_candidate_count
+        else 0.0
     )
     conservative_total = sum(
         1
@@ -1080,6 +1266,56 @@ def build_summary(
                 default=0,
             ),
         },
+        "metrics": {
+            "no_paid": True,
+            "questions_count": {
+                "total": kept_question_total,
+                "per_image": [
+                    {
+                        "sample_name": str(sample["sample_name"]),
+                        "source_kind": str(sample["source_kind"]),
+                        "terminal_status": str(sample.get("terminal_status") or ""),
+                        "question_count": int(sample["question_count"]),
+                        "skipped_reason": str(sample.get("skipped_reason") or ""),
+                    }
+                    for sample in samples
+                ],
+                "zero_question_sample_count": zero_question_sample_count,
+            },
+            "zero_question_completed_rate": {
+                "value": zero_question_completed_rate,
+                "completed_sample_count": completed_sample_count,
+                "zero_question_completed_count": zero_question_completed_count,
+            },
+            "answer_bbox_non_empty_rate": {
+                "value": answer_bbox_non_empty_rate,
+                "question_count": answer_bbox_total,
+                "valid_count": answer_bbox_valid_count,
+                "empty_count": answer_bbox_empty_count,
+                "all_zero_count": answer_bbox_all_zero_count,
+                "invalid_count": answer_bbox_invalid_count,
+            },
+            "answer_bbox_false_positive_rate": {
+                "value": answer_bbox_false_positive_rate,
+                "candidate_count": answer_bbox_false_positive_candidate_count,
+                "false_positive_count": answer_bbox_false_positive_count,
+            },
+            "terminal_status_distribution": terminal_status_distribution,
+            "latency": {
+                "per_image_ms": None,
+                "estimated": False,
+                "no_paid": True,
+            },
+            "model_calls_per_image": {
+                "value": 0,
+                "no_paid": True,
+            },
+            "cost_per_image": {
+                "value": 0,
+                "currency": "cny",
+                "no_paid": True,
+            },
+        },
         "filter_metadata": {
             "skipped_reason_counts": dict(skipped_reasons),
             "filtered_sample_count": sum(
@@ -1152,6 +1388,11 @@ def build_quality_gate(
 ) -> dict[str, Any]:
     mode = "only_json_fixtures" if only_json_fixtures else "no_paid"
     expected = QUALITY_GATE_EXPECTATIONS[mode]
+    metrics = dict(summary.get("metrics") or {})
+    zero_question_completed_metric = dict(metrics.get("zero_question_completed_rate") or {})
+    answer_bbox_false_positive_metric = dict(metrics.get("answer_bbox_false_positive_rate") or {})
+    model_calls_metric = dict(metrics.get("model_calls_per_image") or {})
+    cost_metric = dict(metrics.get("cost_per_image") or {})
     observed_effective_source_kinds = dict(summary.get("source_kind_counts", {}))
     observed_skipped_source_kinds = dict(
         ((summary.get("skipped_samples") or {}).get("source_kind_counts") or {})
@@ -1202,9 +1443,32 @@ def build_quality_gate(
             "expected": len(effective_samples) + len(skipped_samples),
             "observed": int(summary.get("loaded_sample_count", 0)),
         },
+        "zero_question_completed_rate": {
+            "expected": 0.0,
+            "observed": float(zero_question_completed_metric.get("value", -1.0)),
+        },
+        "answer_bbox_false_positive_rate": {
+            "expected": 0.0,
+            "observed": float(answer_bbox_false_positive_metric.get("value", -1.0)),
+        },
+        "no_paid": {
+            "expected": True,
+            "observed": bool(metrics.get("no_paid")),
+        },
+        "model_calls_per_image": {
+            "expected": 0,
+            "observed": model_calls_metric.get("value"),
+        },
+        "cost_per_image": {
+            "expected": [0, None],
+            "observed": cost_metric.get("value"),
+        },
     }
-    for check in checks.values():
-        check["passed"] = check["observed"] == check["expected"]
+    for name, check in checks.items():
+        if name == "cost_per_image":
+            check["passed"] = check["observed"] in check["expected"]
+        else:
+            check["passed"] = check["observed"] == check["expected"]
     return {
         "mode": mode,
         "passed": all(check["passed"] for check in checks.values()),

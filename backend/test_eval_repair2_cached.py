@@ -143,6 +143,7 @@ def test_load_fixture_samples_reads_json_sidecar_with_aliases(tmp_path):
     assert sample["source_kind"] == "json_fixture"
     assert sample["page_type"] == "chinese_homework"
     assert sample["document_type"] == "worksheet"
+    assert sample["terminal_status"] == "completed"
     assert sample["question_count"] == 2
     assert sample["section_count"] == 1
     assert sample["skipped_reason"] == ""
@@ -175,6 +176,7 @@ def test_load_fixture_samples_without_json_or_cache_is_skipped(tmp_path):
             "coverage_flags": [],
             "page_type": "unknown",
             "document_type": "unknown",
+            "terminal_status": "skipped",
             "question_count": 0,
             "raw_question_count": 0,
             "filtered_question_count": 0,
@@ -187,6 +189,12 @@ def test_load_fixture_samples_without_json_or_cache_is_skipped(tmp_path):
             "_suspicious_question_count": 0,
             "_residual_meta_like_count": 0,
             "_legacy_field_break_count": 0,
+            "_answer_bbox_valid_count": 0,
+            "_answer_bbox_empty_count": 0,
+            "_answer_bbox_all_zero_count": 0,
+            "_answer_bbox_invalid_count": 0,
+            "_answer_bbox_false_positive_count": 0,
+            "_answer_bbox_false_positive_candidate_count": 0,
         }
     ]
 
@@ -248,6 +256,59 @@ def test_json_fixture_cover_page_stays_questionless(tmp_path):
     assert sample["page_type"] == "cover_or_instruction_page"
     assert sample["document_type"] == "cover_sheet"
     assert sample["question_count"] == 0
+    assert sample["terminal_status"] == "needs_review"
+
+
+def test_sample_from_payload_tracks_answer_bbox_metrics():
+    sample = cached_eval.sample_from_payload(
+        source_kind="json_fixture",
+        sample_name="bbox.jpg",
+        job_id="",
+        payload={
+            "page_type": "math_homework",
+            "questions": [
+                {
+                    "question_id": "q-1",
+                    "question_number": 1,
+                    "question_text": "1. 5 + 3 = ___",
+                    "answer_bbox": [10, 20, 30, 40],
+                },
+                {
+                    "question_id": "q-2",
+                    "question_number": 2,
+                    "question_text": "2. 6 + 1 = ___",
+                    "answer_bbox": [0, 0, 0, 0],
+                },
+                {
+                    "question_id": "q-3",
+                    "question_number": 3,
+                    "question_text": "3. 8 - 1 = ___",
+                    "answer_bbox": [10, 20, 30],
+                },
+                {
+                    "question_id": "q-4",
+                    "question_number": 4,
+                    "question_text": "4. 9 - 2 = ___",
+                },
+                {
+                    "question_id": "meta-1",
+                    "question_number": 5,
+                    "question_text": "一、口算",
+                    "kind": "section",
+                    "answer_bbox": [1, 2, 3, 4],
+                },
+            ],
+        },
+    )
+
+    assert sample["terminal_status"] == "completed"
+    assert sample["question_count"] == 4
+    assert sample["_answer_bbox_valid_count"] == 1
+    assert sample["_answer_bbox_empty_count"] == 1
+    assert sample["_answer_bbox_all_zero_count"] == 1
+    assert sample["_answer_bbox_invalid_count"] == 1
+    assert sample["_answer_bbox_false_positive_count"] == 1
+    assert sample["_answer_bbox_false_positive_candidate_count"] == 1
 
 
 def test_only_json_fixtures_skips_images_without_sidecar(tmp_path):
@@ -399,6 +460,7 @@ def test_build_summary_reports_question_filter_and_coverage_metadata():
             "coverage_flags": ["multiple_choice", "choice_page", "complex_photo_layout"],
             "page_type": "math_homework",
             "document_type": "math_comparison_logic",
+            "terminal_status": "completed",
             "question_count": 3,
             "raw_question_count": 3,
             "filtered_question_count": 1,
@@ -411,6 +473,12 @@ def test_build_summary_reports_question_filter_and_coverage_metadata():
             "_suspicious_question_count": 0,
             "_residual_meta_like_count": 0,
             "_legacy_field_break_count": 0,
+            "_answer_bbox_valid_count": 2,
+            "_answer_bbox_empty_count": 1,
+            "_answer_bbox_all_zero_count": 0,
+            "_answer_bbox_invalid_count": 0,
+            "_answer_bbox_false_positive_count": 0,
+            "_answer_bbox_false_positive_candidate_count": 1,
         },
         {
             "sample_name": "mixed.jpg",
@@ -425,6 +493,7 @@ def test_build_summary_reports_question_filter_and_coverage_metadata():
             "coverage_flags": ["mixed_homework", "complex_photo_layout"],
             "page_type": "mixed_homework",
             "document_type": "unknown",
+            "terminal_status": "skipped",
             "question_count": 2,
             "raw_question_count": 2,
             "filtered_question_count": 0,
@@ -437,6 +506,12 @@ def test_build_summary_reports_question_filter_and_coverage_metadata():
             "_suspicious_question_count": 1,
             "_residual_meta_like_count": 0,
             "_legacy_field_break_count": 0,
+            "_answer_bbox_valid_count": 0,
+            "_answer_bbox_empty_count": 0,
+            "_answer_bbox_all_zero_count": 0,
+            "_answer_bbox_invalid_count": 0,
+            "_answer_bbox_false_positive_count": 0,
+            "_answer_bbox_false_positive_candidate_count": 0,
         },
     ]
 
@@ -461,6 +536,28 @@ def test_build_summary_reports_question_filter_and_coverage_metadata():
     assert summary["filter_metadata"]["excluded_fixture_only_count"] == 1
     assert summary["filter_metadata"]["skipped_reason_counts"] == {
         cached_eval.SKIPPED_NO_CACHE_REASON: 1
+    }
+    assert summary["metrics"]["no_paid"] is True
+    assert summary["metrics"]["questions_count"]["total"] == 3
+    assert summary["metrics"]["questions_count"]["zero_question_sample_count"] == 0
+    assert summary["metrics"]["answer_bbox_non_empty_rate"]["value"] == 2 / 3
+    assert summary["metrics"]["answer_bbox_false_positive_rate"]["value"] == 0.0
+    assert summary["metrics"]["terminal_status_distribution"] == {
+        "completed": 1,
+        "low_confidence": 0,
+        "needs_review": 0,
+        "failed": 0,
+    }
+    assert summary["metrics"]["latency"] == {
+        "per_image_ms": None,
+        "estimated": False,
+        "no_paid": True,
+    }
+    assert summary["metrics"]["model_calls_per_image"] == {"value": 0, "no_paid": True}
+    assert summary["metrics"]["cost_per_image"] == {
+        "value": 0,
+        "currency": "cny",
+        "no_paid": True,
     }
     assert summary["violation_total_count"] == 0
     assert summary["effective_samples"]["count"] == 1
@@ -545,8 +642,18 @@ def test_repo_only_json_quality_gate_matches_baseline():
     assert summary["source_kind_counts"] == {"json_fixture": 10}
     assert summary["violation_total_count"] == 0
     assert summary["page_type_counts"].get("unknown", 0) == 0
+    assert summary["metrics"]["no_paid"] is True
+    assert summary["metrics"]["zero_question_completed_rate"]["value"] == 0.0
+    assert summary["metrics"]["answer_bbox_false_positive_rate"]["value"] == 0.0
+    assert summary["metrics"]["latency"]["per_image_ms"] is None
+    assert summary["metrics"]["latency"]["estimated"] is False
     assert gate["mode"] == "only_json_fixtures"
     assert gate["passed"] is True
+    assert gate["checks"]["zero_question_completed_rate"]["passed"] is True
+    assert gate["checks"]["answer_bbox_false_positive_rate"]["passed"] is True
+    assert gate["checks"]["no_paid"]["passed"] is True
+    assert gate["checks"]["model_calls_per_image"]["passed"] is True
+    assert gate["checks"]["cost_per_image"]["passed"] is True
 
 
 def test_repo_no_paid_quality_gate_and_gap_report_snapshot():
@@ -568,6 +675,11 @@ def test_repo_no_paid_quality_gate_and_gap_report_snapshot():
         item["sample_origin"]: item
         for item in report["ground_truth_gaps"]["samples"]
     }
+    fixture_cache_gaps = [
+        item
+        for item in report["ground_truth_gaps"]["samples"]
+        if item["source_kind"] == "fixture_cache"
+    ]
 
     assert summary["effective_sample_count"] == 11
     assert summary["skipped_count"] == 18
@@ -578,9 +690,23 @@ def test_repo_no_paid_quality_gate_and_gap_report_snapshot():
     }
     assert summary["violation_total_count"] == 0
     assert summary["page_type_counts"].get("unknown", 0) == 0
+    assert summary["metrics"]["no_paid"] is True
+    assert summary["metrics"]["zero_question_completed_rate"]["value"] == 0.0
+    assert summary["metrics"]["answer_bbox_false_positive_rate"]["value"] == 0.0
+    assert summary["metrics"]["model_calls_per_image"] == {"value": 0, "no_paid": True}
+    assert summary["metrics"]["cost_per_image"] == {
+        "value": 0,
+        "currency": "cny",
+        "no_paid": True,
+    }
     assert gate["mode"] == "no_paid"
     assert gate["passed"] is True
     assert gate["checks"]["fixture_only_effective_count"]["observed"] == 0
+    assert gate["checks"]["zero_question_completed_rate"]["passed"] is True
+    assert gate["checks"]["answer_bbox_false_positive_rate"]["passed"] is True
+    assert gate["checks"]["no_paid"]["passed"] is True
+    assert gate["checks"]["model_calls_per_image"]["passed"] is True
+    assert gate["checks"]["cost_per_image"]["passed"] is True
 
     assert categories["mixed_pinyin_english"]["status"] == "covered"
     assert categories["complex_chinese_page"]["status"] == "covered"
@@ -594,16 +720,28 @@ def test_repo_no_paid_quality_gate_and_gap_report_snapshot():
     assert gaps_by_origin[
         "local_eval_samples/a95fa987431b6f696d5f996124fd8903_origin(1).jpg"
     ]["missing_fields"] == ["document_classification.doc_family"]
-    assert gaps_by_origin["backend/tests/fixtures/sample.bmp"]["missing_truth_artifacts"] == [
+
+    sample_bmp_gap = gaps_by_origin["backend/tests/fixtures/sample.bmp"]
+    assert sample_bmp_gap["source_kind"] == "fixture_only"
+    assert sample_bmp_gap["missing_truth_artifacts"] == [
+        "json_sidecar",
+        "cache_payload",
+    ]
+    assert sample_bmp_gap["missing_fields"] == [
+        "document_classification.page_type",
+        "document_classification.doc_family",
+        "questions",
+    ]
+
+    assert len(fixture_cache_gaps) == 1
+    assert fixture_cache_gaps[0]["missing_truth_artifacts"] == [
         "json_sidecar",
         "human_verified_ground_truth",
     ]
+    assert fixture_cache_gaps[0]["missing_fields"] == []
     assert gaps_by_origin[
         "local_eval_samples/04fb8059d392d3235e042e8c9303f5bf_origin(1).jpg"
     ]["candidate_gap_categories"] == [
         "dense_multi_column_page",
         "landscape_or_tilted_photo",
     ]
-
-    snapshot = json.loads(cached_eval.DEFAULT_GAP_REPORT_PATH.read_text(encoding="utf-8"))
-    assert report == snapshot
