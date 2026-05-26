@@ -477,8 +477,54 @@ def build_dry_run_row(sample: dict[str, Any], *, db_path: Path) -> dict[str, Any
     )
 
 
+OCR_ENV_VARS = (
+    "ALIBABA_CLOUD_ACCESS_KEY_ID",
+    "ALIBABA_CLOUD_ACCESS_KEY_SECRET",
+)
+OCR_ENV_ALIASES = {
+    "ALIYUN_ACCESS_KEY_ID": "ALIBABA_CLOUD_ACCESS_KEY_ID",
+    "ALIYUN_ACCESS_KEY_SECRET": "ALIBABA_CLOUD_ACCESS_KEY_SECRET",
+    "ALIBABA_CLOUD_ACCESS_KEY": "ALIBABA_CLOUD_ACCESS_KEY_ID",
+    "ALIBABA_CLOUD_ACCESS_SECRET": "ALIBABA_CLOUD_ACCESS_KEY_SECRET",
+}
+
+
+def _inject_ocr_env(*, quiet: bool = False) -> dict[str, str]:
+    """Inject OCR credentials into os.environ, resolving common aliases.
+
+    Returns a dict of canonical_var -> 'ok' | 'missing' (no values printed).
+    Does NOT overwrite existing canonical env vars.
+    """
+    status: dict[str, str] = {}
+    for canonical in OCR_ENV_VARS:
+        if os.environ.get(canonical, "").strip():
+            status[canonical] = "ok"
+            continue
+        # Try aliases
+        found = False
+        for alias, target in OCR_ENV_ALIASES.items():
+            if target != canonical:
+                continue
+            alias_val = os.environ.get(alias, "").strip()
+            if alias_val:
+                os.environ[canonical] = alias_val
+                status[canonical] = f"ok (from {alias})"
+                found = True
+                break
+        if not found:
+            status[canonical] = "missing"
+    if not quiet:
+        missing = [k for k, v in status.items() if v == "missing"]
+        if missing:
+            print(f"[runner] OCR env: {', '.join(missing)} missing (OCR will fail)")
+        else:
+            print(f"[runner] OCR env: all present")
+    return status
+
+
 def configure_real_runtime(db_path: Path) -> tuple[Any, Any]:
     os.environ["YOMICALL_SOURCE"] = SAFE_CALL_SOURCE
+    _inject_ocr_env()
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
     import db as db_module
