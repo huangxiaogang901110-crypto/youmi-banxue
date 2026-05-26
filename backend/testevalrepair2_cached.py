@@ -35,9 +35,23 @@ def test_repo_no_paid_quality_gate_and_gap_report_snapshot():
     }
     assert summary["violation_total_count"] == 0
     assert summary["page_type_counts"].get("unknown", 0) == 0
+    assert summary["metrics"]["no_paid"] is True
+    assert summary["metrics"]["zero_question_completed_rate"]["value"] == 0.0
+    assert summary["metrics"]["answer_bbox_false_positive_rate"]["value"] == 0.0
+    assert summary["metrics"]["model_calls_per_image"] == {"value": 0, "no_paid": True}
+    assert summary["metrics"]["cost_per_image"] == {
+        "value": 0,
+        "currency": "cny",
+        "no_paid": True,
+    }
     assert gate["mode"] == "no_paid"
     assert gate["passed"] is True
     assert gate["checks"]["fixture_only_effective_count"]["observed"] == 0
+    assert gate["checks"]["zero_question_completed_rate"]["passed"] is True
+    assert gate["checks"]["answer_bbox_false_positive_rate"]["passed"] is True
+    assert gate["checks"]["no_paid"]["passed"] is True
+    assert gate["checks"]["model_calls_per_image"]["passed"] is True
+    assert gate["checks"]["cost_per_image"]["passed"] is True
 
     assert categories["mixed_pinyin_english"]["status"] == "covered"
     assert categories["complex_chinese_page"]["status"] == "covered"
