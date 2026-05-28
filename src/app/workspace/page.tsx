@@ -5,7 +5,8 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Upload, ArrowRight, Clock, Loader2, X, Image, Camera, FileText } from "lucide-react";
 import ProcessingStatus from "@/components/processing/ProcessingStatus";
-import BboxOverlay from "@/components/question-list/BboxOverlay";
+import GradingOverlay from "@/components/GradingOverlay";
+import type { OverlayMark, GroupBox } from "@/components/GradingOverlay";
 import QuestionGroup, { calcGroupSize, groupQuestions } from "@/components/question-list/QuestionGroup";
 import { useParseJobPolling } from "@/hooks/useParseJobPolling";
 import { useJobHistory } from "@/hooks/useJobHistory";
@@ -17,7 +18,6 @@ import { uuidv4 } from "@/lib/uuid";
 import { authApi, parseJobApi } from "@/lib/api";
 import { getToken } from "@/lib/api";
 import type { QuestionSnapshot } from "@/lib/localCache";
-import type { Bbox } from "@/components/question-list/BboxOverlay";
 import type { DocumentClassification, ParseJob, Question, RecentJob } from "@/lib/types";
 
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp", "application/pdf"];
@@ -172,7 +172,7 @@ function RecognitionHintCard({
 }
 
 function WorkspaceContent() {
-  const { job, questions, status, error } = useParseJobPolling();
+  const { job, questions, status, error, overlay, group_boxes } = useParseJobPolling();
   const searchParams = useSearchParams();
   const [activeIndex, setActiveIndex] = useState(-1);
   const router = useRouter();
@@ -876,18 +876,6 @@ function WorkspaceContent() {
     return [x, y, w, h].every((value) => Number.isFinite(value)) && w > 0 && h > 0;
   };
   const overlayImageUrl = job?.image_url || qs.find((q) => q.image_url)?.image_url || undefined;
-  const overlayBboxes: Bbox[] = qs
-    .filter((q) => (q.kind || "question") === "question")
-    .map((q) => {
-      const bbox = isRenderableBbox(q.answer_bbox) ? q.answer_bbox : isRenderableBbox(q.bbox) ? q.bbox : null;
-      if (!bbox) return null;
-      return {
-        question_id: q.question_id,
-        bbox,
-        question_number: q.question_number,
-      };
-    })
-    .filter((item): item is Bbox => item !== null);
 
   // 诊断：渲染前检查 grading 字段
   const _render_wg = qs.filter(q => q.is_correct !== null && q.is_correct !== undefined).length;
@@ -1002,7 +990,7 @@ function WorkspaceContent() {
         </div>
       </div>
 
-      <BboxOverlay bboxes={overlayBboxes} activeIndex={activeIndex} imageUrl={overlayImageUrl} />
+      <GradingOverlay marks={overlay || []} groups={group_boxes || []} imageUrl={overlayImageUrl} />
 
       <div className="space-y-3">
         {groups.map((g, gi) => {
