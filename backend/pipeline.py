@@ -1431,6 +1431,8 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
                 _mt = "correct"
             elif _ic is False:
                 _mt = "incorrect"
+            else:
+                continue  # skip: no grading available, don't draw tick/circle
             overlay_marks.append({
                 "question_id": getattr(q, "question_id", ""),
                 "mark_type": _mt,
