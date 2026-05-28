@@ -85,6 +85,11 @@ class Question(BaseModel):
     section_title: Optional[str] = None
     section_index: Optional[int] = None
     sub_index: Optional[int] = None
+    answer_bbox_source: Optional[str] = None
+    answer_bbox_score: Optional[float] = None
+    layout_row_index: Optional[int] = None
+    layout_column_index: Optional[int] = None
+    layout_group_index: Optional[int] = None
     source: Optional[str] = None
     confidence: Optional[float] = None
     error_code: Optional[str] = None

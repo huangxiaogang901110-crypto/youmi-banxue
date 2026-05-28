@@ -39,7 +39,7 @@ from document_classifier import (
     should_extract_questions,
     should_extract_structural_questions,
 )
-from pipeline import _drop_questions_for_conservative_page_type
+from pipeline import _build_questions_from_raw, _drop_questions_for_conservative_page_type
 
 
 # ── 1. meta/footer 不进入 question ──
@@ -402,6 +402,40 @@ def test_should_drop_pseudo_visual_question():
     assert should_drop_candidate_question("▲ - ● →", None, doc) == True
     assert should_drop_candidate_question("△ - □ → [ ] - [ ] = [ ]", None, doc) == True
     assert should_drop_candidate_question("□ + 3 = 7", None, doc) == False
+
+
+def test_build_questions_from_raw_keeps_math_ocr_first_question_inside_broad_header():
+    """math_ocr_first 自带几何约束，不应再被过宽 header region 二次误杀"""
+    mock_db.create_question_item.reset_mock()
+    doc = {
+        "page_type": "math_homework",
+        "layout_regions": [{"label": "header", "bbox": [7.0, 266.0, 463.0, 350.0]}],
+    }
+    raw_questions = [
+        {
+            "number": 1,
+            "content": "4x5=",
+            "bbox": [134.0, 387.0, 23.0, 105.0],
+            "answer_bbox": [162.0, 389.0, 20.0, 96.0],
+        }
+    ]
+
+    questions = _build_questions_from_raw(
+        jid="job-1",
+        raw_questions=raw_questions,
+        document_classification=doc,
+        shared_vd="Math OCR-first 识别结果",
+        aid="aid-1",
+        page_id="page-1",
+        source_call_id="mathocr_job-1",
+        parse_cost_per_q=0.0,
+        source="math_ocr_first",
+        image_url=None,
+    )
+
+    assert len(questions) == 1
+    assert questions[0].question_text == "4x5="
+    assert questions[0].answer_bbox == [162.0, 389.0, 20.0, 96.0]
 
 
 def test_structural_signal():

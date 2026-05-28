@@ -150,6 +150,11 @@ class RecognitionQuestionContract(BaseModel):
     section_title: Optional[str] = None
     section_index: Optional[int] = None
     sub_index: Optional[int] = None
+    answer_bbox_source: Optional[str] = None
+    answer_bbox_score: Optional[float] = None
+    layout_row_index: Optional[int] = None
+    layout_column_index: Optional[int] = None
+    layout_group_index: Optional[int] = None
     source: str = Field(default="unknown")
     confidence: Optional[float] = None
     parent_id: Optional[str] = None
@@ -236,6 +241,11 @@ def build_question_contract(
     section_title: str | None = None,
     section_index: int | None = None,
     sub_index: int | None = None,
+    answer_bbox_source: str | None = None,
+    answer_bbox_score=None,
+    layout_row_index: int | None = None,
+    layout_column_index: int | None = None,
+    layout_group_index: int | None = None,
     visual_description: str | None = None,
     status: str = "completed",
 ) -> RecognitionQuestionContract:
@@ -253,6 +263,11 @@ def build_question_contract(
         section_title=section_title,
         section_index=section_index,
         sub_index=sub_index,
+        answer_bbox_source=answer_bbox_source,
+        answer_bbox_score=answer_bbox_score,
+        layout_row_index=layout_row_index,
+        layout_column_index=layout_column_index,
+        layout_group_index=layout_group_index,
         visual_description=visual_description,
         status=status,
     )
@@ -476,6 +491,11 @@ def build_recognition_document(
             section_title=payload.get("section_title"),
             section_index=payload.get("section_index"),
             sub_index=payload.get("sub_index"),
+            answer_bbox_source=payload.get("answer_bbox_source"),
+            answer_bbox_score=payload.get("answer_bbox_score"),
+            layout_row_index=payload.get("layout_row_index"),
+            layout_column_index=payload.get("layout_column_index"),
+            layout_group_index=payload.get("layout_group_index"),
             source=payload.get("source", "unknown"),
             confidence=payload.get("confidence"),
             parent_id=payload.get("parent_id"),

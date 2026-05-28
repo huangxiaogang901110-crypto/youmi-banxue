@@ -48,7 +48,7 @@ _SMOKE_FIXTURE_GZ_B64 = (
 
 
 def _annotate_blocks(raw_blocks):
-    blocks, page_height = _normalize_blocks(raw_blocks)
+    blocks, _, page_height = _normalize_blocks(raw_blocks)
     for block in blocks:
         block["is_meta"] = _is_meta_block(block, page_height)
         block["is_instruction"] = _is_instruction_block(block)
@@ -117,7 +117,7 @@ def test_needs_review_not_correct():
         "student_answer": "",
     }
 
-    question = _make_question(seed, None, None, True, 0.0)
+    question = _make_question(seed, None, True, 0.0, {})
 
     assert question["needs_review"] is True
     assert question["is_correct"] is None
@@ -146,3 +146,46 @@ def test_non_math_blocks_skipped():
     assert result["stats"]["candidate_seed_count"] == 0
     assert result["quality_gate_passed"] is False
     assert result["questions"] == []
+
+
+def test_adjacent_page_roi_excludes_right_column_noise():
+    result = math_ocr_first_extract(
+        [
+            {"text": "1.直接写出得数。", "x": 100, "y": 100, "w": 30, "h": 120},
+            {"text": "2+7", "x": 120, "y": 220, "w": 40, "h": 24},
+            {"text": "9", "x": 178, "y": 220, "w": 18, "h": 24},
+            {"text": "1.直接写", "x": 650, "y": 110, "w": 60, "h": 22},
+            {"text": "1×3=", "x": 655, "y": 220, "w": 50, "h": 20},
+        ],
+        {"doc_family": "math_vertical", "page_type": "math_homework"},
+    )
+
+    assert result["quality_gate_passed"] is False
+    assert result["stats"]["roi_bbox"][0] == 88.0
+    assert result["stats"]["roi_bbox"][2] < 560.0
+    assert result["stats"]["roi_result"]["reject_rules"] == ["exclude_right_adjacent_page_cluster"]
+
+
+def test_vertical_group_stays_in_same_column_result_zone():
+    result = math_ocr_first_extract(
+        [
+            {"text": "2.用竖式计算。", "x": 100, "y": 620, "w": 24, "h": 120},
+            {"text": "34+46=80", "x": 120, "y": 742, "w": 96, "h": 20},
+            {"text": "52+19", "x": 240, "y": 740, "w": 68, "h": 19},
+            {"text": "7", "x": 330, "y": 736, "w": 18, "h": 24},
+            {"text": "61-34", "x": 408, "y": 742, "w": 66, "h": 20},
+            {"text": "27", "x": 484, "y": 740, "w": 28, "h": 24},
+            {"text": "52", "x": 292, "y": 760, "w": 28, "h": 36},
+            {"text": "9", "x": 308, "y": 796, "w": 20, "h": 20},
+            {"text": "71", "x": 286, "y": 828, "w": 28, "h": 30},
+            {"text": "43-37+49", "x": 132, "y": 870, "w": 102, "h": 22},
+            {"text": "55", "x": 248, "y": 868, "w": 28, "h": 24},
+            {"text": "8+1=9", "x": 360, "y": 904, "w": 64, "h": 22},
+        ],
+        {"doc_family": "math_vertical", "page_type": "math_homework"},
+    )
+
+    assert result["quality_gate_passed"] is True
+    target = next(question for question in result["questions"] if question["question_text"] == "52+19")
+    assert target["answer_bbox_source"] == "vertical_result"
+    assert target["answer_bbox"] == [286.0, 828.0, 28.0, 30.0]

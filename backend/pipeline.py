@@ -28,6 +28,8 @@ from document_classifier import (
     clean_question_text,
     extract_structured_questions_from_ocr,
     filter_ocr_blocks_for_question_region,
+    is_meta_instruction_or_footer_text,
+    is_pseudo_or_garbled_question,
     should_drop_candidate_question,
     should_extract_questions,
     should_extract_structural_questions,
@@ -143,6 +145,7 @@ def save_result(jid: str, questions: list, now: str, file, status: JobStatus):
         "document_classification": document_classification,
         "overlay": _jobs[jid].get("overlay", []),
         "group_boxes": _jobs[jid].get("group_boxes", []),
+        "roi_result": _jobs[jid].get("roi_result"),
         "preprocess_versions": _jobs[jid].get("preprocess_versions", []),
         "ocr_blocks": _jobs[jid].get("ocr_blocks", []),
         "ocr_block_source": _jobs[jid].get("ocr_block_source", "ocr_unknown"),
@@ -181,6 +184,7 @@ def save_result(jid: str, questions: list, now: str, file, status: JobStatus):
                             "document_classification": document_classification,
                             "overlay": _jobs[jid].get("overlay", []),
                             "group_boxes": _jobs[jid].get("group_boxes", []),
+                            "roi_result": _jobs[jid].get("roi_result"),
                             "preprocess_versions": _jobs[jid].get("preprocess_versions", []),
                             "ocr_blocks": _jobs[jid].get("ocr_blocks", []),
                             "ocr_block_source": _jobs[jid].get("ocr_block_source", "ocr_unknown"),
@@ -612,11 +616,27 @@ def _build_questions_from_raw(
             section_title=section_title,
             section_index=section_index,
             sub_index=sub_index,
+            answer_bbox_source=rq.get("answer_bbox_source"),
+            answer_bbox_score=rq.get("answer_bbox_score"),
+            layout_row_index=rq.get("layout_row_index"),
+            layout_column_index=rq.get("layout_column_index"),
+            layout_group_index=rq.get("layout_group_index"),
             source=source,
             confidence=normalize_confidence(rq.get("confidence")),
             error_code=None,
         )
-        if should_drop_candidate_question(payload.question_text, payload.bbox, document_classification):
+        drop_candidate = should_drop_candidate_question(payload.question_text, payload.bbox, document_classification)
+        if (
+            drop_candidate
+            and source == "math_ocr_first"
+            and not is_meta_instruction_or_footer_text(payload.question_text)
+            and not is_pseudo_or_garbled_question(payload.question_text)
+        ):
+            # Arithmetic pages can receive an over-broad header region that overlaps the
+            # upper oral-calculation rows. math_ocr_first already enforced its own ROI
+            # and row/column/group constraints, so keep non-meta arithmetic seeds here.
+            drop_candidate = False
+        if drop_candidate:
             info(f"[BG] Drop meta-like question #{raw_index} for {jid}: {payload.question_text[:80]}")
             continue
         question = Question(**payload.model_dump())
@@ -982,6 +1002,7 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
                 if doc_family in math_families and page_type not in blocked_types:
                     info(f"[BG] Math OCR-first route: doc_family={doc_family}")
                     _math_result = math_ocr_first_extract(ocr_blocks, document_classification)
+                    _jobs[jid]["roi_result"] = _math_result["stats"].get("roi_result")
                     if _math_result["quality_gate_passed"]:
                         _math_questions = _build_questions_from_raw(
                             jid=jid,
@@ -1443,30 +1464,44 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
         # ── Generate group boxes from section groupings ──
         from schemas.recognition import _union_bboxes
         group_boxes = []
-        section_map: dict = {}
-        for q in questions:
-            _si = getattr(q, "section_index", None)
-            if _si is None:
-                _si = 0
-            _st = getattr(q, "section_title", None)
-            _bid = f"group-{_si}"
-            if _bid not in section_map:
-                section_map[_bid] = {"bboxes": [], "question_ids": [], "title": _st, "index": _si}
-            _qb = getattr(q, "bbox", None)
-            if _qb and isinstance(_qb, (list, tuple)) and len(_qb) == 4:
-                section_map[_bid]["bboxes"].append([float(v) for v in _qb])
-            section_map[_bid]["question_ids"].append(getattr(q, "question_id", ""))
-        for _gid, _gdata in sorted(section_map.items(), key=lambda x: x[1]["index"]):
-            _union = _union_bboxes(_gdata["bboxes"])
-            if _union:
+        if math_ocr_first_used:
+            for _idx, q in enumerate(questions, start=1):
+                _qb = getattr(q, "bbox", None)
+                if not _qb or not isinstance(_qb, (list, tuple)) or len(_qb) != 4:
+                    continue
                 group_boxes.append({
-                    "group_id": _gid,
-                    "group_index": _gdata["index"],
-                    "label": str(_gdata["index"]) if _gdata["index"] > 0 else "Q",
-                    "title": _gdata["title"],
-                    "bbox": _union,
-                    "question_ids": _gdata["question_ids"],
+                    "group_id": f"group-{getattr(q, 'question_id', _idx)}",
+                    "group_index": _idx,
+                    "label": str(getattr(q, "question_number", _idx)),
+                    "title": getattr(q, "section_title", None),
+                    "bbox": [float(v) for v in _qb],
+                    "question_ids": [getattr(q, "question_id", "")],
                 })
+        else:
+            section_map: dict = {}
+            for q in questions:
+                _si = getattr(q, "section_index", None)
+                if _si is None:
+                    _si = 0
+                _st = getattr(q, "section_title", None)
+                _bid = f"group-{_si}"
+                if _bid not in section_map:
+                    section_map[_bid] = {"bboxes": [], "question_ids": [], "title": _st, "index": _si}
+                _qb = getattr(q, "bbox", None)
+                if _qb and isinstance(_qb, (list, tuple)) and len(_qb) == 4:
+                    section_map[_bid]["bboxes"].append([float(v) for v in _qb])
+                section_map[_bid]["question_ids"].append(getattr(q, "question_id", ""))
+            for _gid, _gdata in sorted(section_map.items(), key=lambda x: x[1]["index"]):
+                _union = _union_bboxes(_gdata["bboxes"])
+                if _union:
+                    group_boxes.append({
+                        "group_id": _gid,
+                        "group_index": _gdata["index"],
+                        "label": str(_gdata["index"]) if _gdata["index"] > 0 else "Q",
+                        "title": _gdata["title"],
+                        "bbox": _union,
+                        "question_ids": _gdata["question_ids"],
+                    })
         _jobs[jid]["group_boxes"] = group_boxes
         info(f"[BG] overlay={len(overlay_marks)} group_boxes={len(group_boxes)} for {jid}")
         save_result(jid, questions, now, file, final_status)
