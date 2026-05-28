@@ -6,6 +6,7 @@ import asyncio
 import uuid
 import time
 
+import os
 from fastapi import APIRouter, Request, Depends, File, UploadFile, Form, BackgroundTasks, HTTPException
 
 from models import ParseJob, Question, JobStatus, QuestionStatus, TutorRequest, TutorResponse
@@ -209,42 +210,47 @@ async def create_parse_job(
         t2 = time.time()
         _log_info(f"api_after_file_read jid={jid} bytes={len(contents)} elapsed_ms={int((t2-t0)*1000)}")
 
-        # ── Step 2: 同图去重 — 指纹命中后复用历史 job，跳过 OCR/Qwen ──
-        try:
-            from image_fingerprint import compute_fingerprints
-            fp = compute_fingerprints(contents)
-            fp["parent_id"] = parent_id
-            fp["child_id"] = child_id
-            fp["job_id"] = jid
-            reusable = _db.find_reusable_job_by_fingerprint(
-                parent_id, child_id,
-                fp.get("original_sha256"), fp.get("ahash"), fp.get("dhash"),
-                fp.get("aspect_ratio"),
-            )
-            if reusable:
-                source_job_id, source_status, source_qcount, ah_dist, dh_dist = reusable
-                _log_info(
-                    f"DEDUP_HIT jid={jid} source_job_id={source_job_id} "
-                    f"source_status={source_status} qcount={source_qcount} "
-                    f"ahash_dist={ah_dist} dhash_dist={dh_dist}"
+        # ── Step 2: dedup bypass for codex test validation ──
+        _disable_dedup_for = os.environ.get("YOMI_DISABLE_DEDUP_FOR_CALL_SOURCE", "")
+        _call_source = os.environ.get("YOMICALL_SOURCE", "prod")
+        _bypass_dedup = bool(_disable_dedup_for and _call_source == _disable_dedup_for)
+        if not _bypass_dedup:
+            try:
+                from image_fingerprint import compute_fingerprints
+                fp = compute_fingerprints(contents)
+                fp["parent_id"] = parent_id
+                fp["child_id"] = child_id
+                fp["job_id"] = jid
+                reusable = _db.find_reusable_job_by_fingerprint(
+                    parent_id, child_id,
+                    fp.get("original_sha256"), fp.get("ahash"), fp.get("dhash"),
+                    fp.get("aspect_ratio"),
                 )
-                # Save fingerprint for this new upload too (links jid to same image)
-                _db.save_image_fingerprint(fp)
-                return {
-                    "ok": True,
-                    "data": {
-                        "job_id": source_job_id,
-                        "status": source_status,
-                        "file_name": file.filename,
-                        "reused": True,
-                        "source_job_id": source_job_id,
-                    },
-                    "request_id": uuid.uuid4().hex,
-                }
-            else:
-                _log_info(f"DEDUP_MISS jid={jid} reason=new_image")
-        except Exception as e:
-            _log_warn(f"dedup_check_fail jid={jid} err={type(e).__name__}:{e} (fallthrough to normal)")
+                if reusable:
+                    source_job_id, source_status, source_qcount, ah_dist, dh_dist = reusable
+                    _log_info(
+                        f"DEDUP_HIT jid={jid} source_job_id={source_job_id} "
+                        f"source_status={source_status} qcount={source_qcount} "
+                        f"ahash_dist={ah_dist} dhash_dist={dh_dist}"
+                    )
+                    _db.save_image_fingerprint(fp)
+                    return {
+                        "ok": True,
+                        "data": {
+                            "job_id": source_job_id,
+                            "status": source_status,
+                            "file_name": file.filename,
+                            "reused": True,
+                            "source_job_id": source_job_id,
+                        },
+                        "request_id": uuid.uuid4().hex,
+                    }
+                else:
+                    _log_info(f"DEDUP_MISS jid={jid} reason=new_image")
+            except Exception as e:
+                _log_warn(f"dedup_check_fail jid={jid} err={type(e).__name__}:{e} (fallthrough to normal)")
+        else:
+            _log_info(f"DEDUP_BYPASS jid={jid} call_source={_call_source} — codex test validation")
         # ── end dedup ──
 
         # ── 注册任务到内存 + DB（file.read 成功后立即落库）──
