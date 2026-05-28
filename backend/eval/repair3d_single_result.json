@@ -1,0 +1,76 @@
+{
+  "summary": {
+    "manifest_path": "/home/hermes_me/yomi-codex-r1/local_eval_samples/repair3d_user_samples/manifest.json",
+    "manifest_complete": true,
+    "declared_total_images": 13,
+    "manifest_image_entries": 13,
+    "selected_count": 1,
+    "sample_ids": [
+      "vertical_math_01"
+    ],
+    "sidecar_complete": true,
+    "missing_image_count": 0,
+    "missing_sidecar_count": 0,
+    "invalid_sidecar_count": 0,
+    "sample_dir": "/home/hermes_me/yomi-codex-r1/local_eval_samples/repair3d_user_samples",
+    "effective_limit": 1,
+    "call_source": "repair3d_real_eval",
+    "db_path": "/tmp/repair3d_real_eval_single.db",
+    "env": {
+      "QWEN_DASHSCOPE_API_KEY": "present",
+      "DEEPSEEK_API_KEY": "present"
+    },
+    "run_real": true,
+    "dry_run": false,
+    "no_paid": false,
+    "qwen_timeout_seconds": 90,
+    "model_calls_total": 1,
+    "model_calls_per_image": 1.0,
+    "cost_total": null,
+    "cost_per_image": null,
+    "cost_available": false,
+    "non_homework_result": null,
+    "selected_samples": [
+      {
+        "sample_id": "vertical_math_01",
+        "filename": "vertical_math_01.jpg",
+        "intended_use": "竖式计算",
+        "expected_document_type": "homework",
+        "sidecar_exists": true,
+        "image_exists": true
+      }
+    ]
+  },
+  "samples": [
+    {
+      "sample_id": "vertical_math_01",
+      "filename": "vertical_math_01.jpg",
+      "intended_use": "竖式计算",
+      "expected_document_type": "homework",
+      "status": "completed",
+      "page_type": "math_homework",
+      "document_type": "math_vertical",
+      "terminal_status": "completed",
+      "questions_count": 34,
+      "zero_question_completed_rate": 0.0,
+      "answer_bbox_non_empty_rate": 0.0,
+      "answer_bbox_false_positive_rate": 0.0,
+      "terminal_status_distribution": {
+        "completed": 1
+      },
+      "latency_ms": 54898,
+      "model_calls_per_image": 1,
+      "cost_per_image": null,
+      "cost_available": false,
+      "needs_review_count": 0,
+      "low_confidence_count": 0,
+      "meta_false_positive_count": 0,
+      "skipped_reason": "",
+      "no_paid": false,
+      "dry_run": false,
+      "run_real": true,
+      "call_source": "repair3d_real_eval",
+      "db_path": "/tmp/repair3d_real_eval_single.db"
+    }
+  ]
+}

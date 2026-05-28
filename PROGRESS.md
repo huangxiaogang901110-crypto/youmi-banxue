@@ -2,16 +2,20 @@
 
 > 由 Hermes me 维护。洁癖式存档，仅保留当前基准。
 
-## 当前基准（2026-05-15）
+## 当前基准（2026-05-27）
 
 | 维度 | 数值 |
 |------|------|
+| 仓库 | `huangxiaogang901110-crypto/youmi-banxue` |
+| origin/master | `0eb36d5` — merge: repair3d math OCR-first grayscale path |
+| 本地 master | `0eb36d5` — 与 origin/master 完全同步 |
+| Codex 专项领先公共区 | 41 提交（公共区 `~/yomi/` 停在 `33e9293`，05-22） |
 | 后端代码 | 5,310 行 / 17 文件（FastAPI） |
 | 前端代码 | 7,052 行 / 50 文件（Next.js 14 + React 19） |
 | 数据库 | SQLite 33 表，`question_item` 1,747 条 |
 | 用户 | 3 位家长 + 3 个孩子 |
 | 测试 | v4 后端基础 8 + v5 主链路 1 + v6 前端 E2E 8 = **9/9 全绿** |
-| 运行时 | 后端 :8001 ✅ / 前端 :3001 ✅ / 公共区 :8000 :3000 |
+| 运行时 | 后端 :8000 ✅ / :8001 ❌ 未运行 |
 | DeepSeek | 悠米 Key ¥99.61 / Hermes 开发 Key ¥9.67 ⚠️ 低于 ¥10 |
 | 折扣到期 | 2026-05-31（75% 折扣结束 → 4 倍价） |
 
@@ -40,6 +44,45 @@
 - 用户侧成本汇总表
 - 上传白屏修复 + 处理进度防回退
 - 密集无题号算式切题
+
+---
+
+## Codex 专项 — Repair 系列（2026-05-27）
+
+### Repair 进展：3A → 3J 已全入 master
+
+| 阶段 | 内容 | 状态 |
+|------|------|------|
+| 3A | JSON fixture 基础 + loader | ✅ merged |
+| 3B | 文档分类器质量改善 | ✅ merged |
+| 3C | Fixture 覆盖扩展 + 统计卫生修复 | ✅ merged |
+| 3D | Real eval runner + math OCR-first grayscale | ✅ merged |
+| 3G/3H | 真实样本计划 + preprod review | ✅ merged |
+| 3I | Qwen-VL timeout 修复 | ✅ merged |
+| 3J | Evaluator 契约 + 安全门指标 | ✅ merged |
+
+### Math OCR-first B++ 灰度路径
+
+- 数学竖式计算优先走 OCR 规则判题（零 API 成本）
+- 通用 OCR blocks → 数学 block 过滤 → 答案区定位 → 质量门验证
+- 当前处于候选状态，待公共区部署后实装
+
+### 3D Math OCR Probe 质量门
+
+| 指标 | 数值 | 阈值 | 通过 |
+|------|------|------|------|
+| Candidate questions | 29 | ≥28 | ✅ |
+| Answer bbox | 25 / 29 (86.2%) | ≥80% | ✅ |
+| Meta 误判 | 0 | ≤2 | ✅ |
+| Header 当题 | False | False | ✅ |
+| **质量门** | — | — | **✅ 全部通过** |
+
+### 边界说明
+
+- 公共区 `~/yomi/` 仍落后 Codex master 41 提交，不等于 GitHub 未 push
+- GitHub master = `0eb36d5`，与本地完全同步
+- 未部署生产、未重启服务、本轮未触发真实模型调用
+- 本轮仅做文档/评估报告收口
 
 ---
 
@@ -135,4 +178,4 @@ TypeScript 类型安全 ⭐⭐⭐⭐⭐（仅 1 个 `:any`），但模块化 ⭐
 
 ---
 
-*最后更新：2026-05-15 — Hermes me 1110 存档*
+*最后更新：2026-05-27 — Hermes me 文档收口*
