@@ -141,6 +141,8 @@ def save_result(jid: str, questions: list, now: str, file, status: JobStatus):
         "questions": [q.model_dump() for q in questions],
         "recognition": recognition_snapshot,
         "document_classification": document_classification,
+        "overlay": _jobs[jid].get("overlay", []),
+        "group_boxes": _jobs[jid].get("group_boxes", []),
         "preprocess_versions": _jobs[jid].get("preprocess_versions", []),
         "ocr_blocks": _jobs[jid].get("ocr_blocks", []),
         "ocr_block_source": _jobs[jid].get("ocr_block_source", "ocr_unknown"),
@@ -177,6 +179,8 @@ def save_result(jid: str, questions: list, now: str, file, status: JobStatus):
                             "questions": [q.model_dump() for q in questions],
                             "recognition": recognition_snapshot,
                             "document_classification": document_classification,
+                            "overlay": _jobs[jid].get("overlay", []),
+                            "group_boxes": _jobs[jid].get("group_boxes", []),
                             "preprocess_versions": _jobs[jid].get("preprocess_versions", []),
                             "ocr_blocks": _jobs[jid].get("ocr_blocks", []),
                             "ocr_block_source": _jobs[jid].get("ocr_block_source", "ocr_unknown"),
@@ -1408,6 +1412,61 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
         if len(questions) == 0 and final_status not in (JobStatus.failed, JobStatus.needs_review, JobStatus.low_confidence):
             _log_info(f"[BG] Zero-question gate: 0q -> needs_review for {jid}")
             final_status = JobStatus.needs_review
+        # ── Generate overlay marks for frontend grading overlay ──
+        overlay_marks = []
+        for q in questions:
+            if getattr(q, "kind", "question") != "question":
+                continue
+            _ab = getattr(q, "answer_bbox", None)
+            if not _ab or not isinstance(_ab, (list, tuple)) or len(_ab) != 4:
+                continue
+            _ax, _ay, _aw, _ah = float(_ab[0]), float(_ab[1]), float(_ab[2]), float(_ab[3])
+            if _aw <= 0 or _ah <= 0:
+                continue
+            if _aw * _ah > image_width * image_height * 0.5:
+                continue  # bbox too large, likely noise
+            _mt = "unknown"
+            _ic = getattr(q, "is_correct", None)
+            if _ic is True:
+                _mt = "correct"
+            elif _ic is False:
+                _mt = "incorrect"
+            overlay_marks.append({
+                "question_id": getattr(q, "question_id", ""),
+                "mark_type": _mt,
+                "mark_bbox": [_ax, _ay, _aw, _ah],
+                "question_number": getattr(q, "question_number", 0),
+            })
+        _jobs[jid]["overlay"] = overlay_marks
+        # ── Generate group boxes from section groupings ──
+        from schemas.recognition import _union_bboxes
+        group_boxes = []
+        section_map: dict = {}
+        for q in questions:
+            _si = getattr(q, "section_index", None)
+            if _si is None:
+                _si = 0
+            _st = getattr(q, "section_title", None)
+            _bid = f"group-{_si}"
+            if _bid not in section_map:
+                section_map[_bid] = {"bboxes": [], "question_ids": [], "title": _st, "index": _si}
+            _qb = getattr(q, "bbox", None)
+            if _qb and isinstance(_qb, (list, tuple)) and len(_qb) == 4:
+                section_map[_bid]["bboxes"].append([float(v) for v in _qb])
+            section_map[_bid]["question_ids"].append(getattr(q, "question_id", ""))
+        for _gid, _gdata in sorted(section_map.items(), key=lambda x: x[1]["index"]):
+            _union = _union_bboxes(_gdata["bboxes"])
+            if _union:
+                group_boxes.append({
+                    "group_id": _gid,
+                    "group_index": _gdata["index"],
+                    "label": str(_gdata["index"]) if _gdata["index"] > 0 else "Q",
+                    "title": _gdata["title"],
+                    "bbox": _union,
+                    "question_ids": _gdata["question_ids"],
+                })
+        _jobs[jid]["group_boxes"] = group_boxes
+        info(f"[BG] overlay={len(overlay_marks)} group_boxes={len(group_boxes)} for {jid}")
         save_result(jid, questions, now, file, final_status)
         # 诊断：判对错保存统计
         _with_g = sum(1 for q in questions if (getattr(q, "is_correct", None) is not None) or (isinstance(q, dict) and q.get("is_correct") is not None))

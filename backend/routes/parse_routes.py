@@ -471,6 +471,8 @@ async def get_parse_job_status(job_id: str, request: Request, user: tuple = Depe
             j.get("document_classification")
             or (j.get("recognition") or {}).get("meta", {}).get("document_classification", {})
         )
+        data["overlay"] = j.get("overlay", [])
+        data["group_boxes"] = j.get("group_boxes", [])
         # 附加调试信息：error_code / progress
         data["error_code"] = j.get("error_code", "")
         data["progress"] = j.get("progress", "")
@@ -499,11 +501,11 @@ async def get_parse_job_questions(job_id: str, request: Request, user: tuple = D
             _with_g = sum(1 for d in data if d.get("is_correct") is not None)
             _with_sa = sum(1 for d in data if d.get("student_answer"))
             debug("[diag] questions_return jid={job_id} source=memory qcount={len(data)} with_grading={_with_g} with_child_answer={_with_sa}")
-            return {"ok": True, "data": data, "request_id": uuid.uuid4().hex}
+            return {"ok": True, "data": data, "overlay": _jobs[job_id].get("overlay", []), "group_boxes": _jobs[job_id].get("group_boxes", []), "request_id": uuid.uuid4().hex}
         # 2) DB 回退（跨重启 / 历史记录）— data 列存的是 JSON dict，直接返回
         db_data = _db.get_job_data(job_id)
         if db_data and db_data.get("questions"):
-            return {"ok": True, "data": db_data["questions"], "request_id": uuid.uuid4().hex}
+            return {"ok": True, "data": db_data["questions"], "overlay": db_data.get("overlay", []), "group_boxes": db_data.get("group_boxes", []), "request_id": uuid.uuid4().hex}
         if db_data:
             return {"ok": True, "data": [], "request_id": uuid.uuid4().hex}
         raise HTTPException(status_code=404, detail={"ok": False, "code": "not_found", "message": "任务不存在", "request_id": uuid.uuid4().hex})
