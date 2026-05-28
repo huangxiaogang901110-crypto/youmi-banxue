@@ -669,6 +669,8 @@ def load_all():
                 "questions": entry.get("questions", []),
                 "recognition": entry.get("recognition"),
                 "document_classification": entry.get("document_classification", {}),
+                "overlay": entry.get("overlay", []),
+                "group_boxes": entry.get("group_boxes", []),
                 "preprocess_versions": entry.get("preprocess_versions", []),
                 "ocr_blocks": entry.get("ocr_blocks", []),
                 "ocr_block_source": entry.get("ocr_block_source", "ocr_unknown"),

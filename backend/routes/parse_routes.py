@@ -473,12 +473,15 @@ async def get_parse_job_status(job_id: str, request: Request, user: tuple = Depe
             data = job_obj
         data["job_id"] = data.get("job_id") or job_id
         data["image_url"] = data.get("image_url") or j.get("image_url", "")
+        # Codex test fallback: if no OSS URL, serve local image via static path
+        if not data.get("image_url") and os.path.isfile(f"/tmp/yomi/{job_id}.jpg"):
+            data["image_url"] = f"/job-images/{job_id}.jpg"
         data["document_classification"] = (
             j.get("document_classification")
             or (j.get("recognition") or {}).get("meta", {}).get("document_classification", {})
         )
-        data["overlay"] = j.get("overlay", [])
-        data["group_boxes"] = j.get("group_boxes", [])
+        data["overlay"] = data.get("overlay") or j.get("overlay", [])
+        data["group_boxes"] = data.get("group_boxes") or j.get("group_boxes", [])
         # 附加调试信息：error_code / progress
         data["error_code"] = j.get("error_code", "")
         data["progress"] = j.get("progress", "")
