@@ -25,6 +25,20 @@ _OP_NORMALIZATION = str.maketrans({
     "＝": "=",
     "？": "?",
 })
+_ANSWER_NORMALIZATION = str.maketrans({
+    "O": "0",
+    "o": "0",
+    "Q": "0",
+    "D": "0",
+    "I": "1",
+    "l": "1",
+    "|": "1",
+    "S": "5",
+    "s": "5",
+    "B": "8",
+    "e": "5",
+    "E": "5",
+})
 _ALLOWED_TEXT = re.compile(r"[0-9+\-*/().=\s?]+")
 _ANSWER_RE = re.compile(r"-?\d+(?:\.\d+)?")
 _BINARY_OPS = {
@@ -57,7 +71,8 @@ def _extract_expression(question_text: str) -> Optional[str]:
 
 
 def _extract_numeric_answer(student_answer: str) -> Optional[float]:
-    match = _ANSWER_RE.search(_normalize_text(student_answer))
+    normalized = _normalize_text(student_answer).translate(_ANSWER_NORMALIZATION)
+    match = _ANSWER_RE.search(normalized)
     if not match:
         return None
     try:

@@ -76,6 +76,8 @@ const SUPPORT_LEVEL_LABELS: Record<NonNullable<DocumentClassification["support_l
   unsupported: "暂不支持",
 };
 
+const API_BASE_URL = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/$/, "");
+
 function getDocumentFamilyLabel(docFamily?: string | null): string {
   if (!docFamily) return DOCUMENT_FAMILY_LABELS.unknown;
   return DOCUMENT_FAMILY_LABELS[docFamily] || DOCUMENT_FAMILY_LABELS.unknown;
@@ -83,6 +85,13 @@ function getDocumentFamilyLabel(docFamily?: string | null): string {
 
 function getClassificationKey(classification?: DocumentClassification | null): string | null {
   return classification?.page_type || classification?.doc_family || null;
+}
+
+function resolveImageUrl(url?: string | null): string | undefined {
+  if (!url) return undefined;
+  if (url.startsWith("data:") || /^https?:\/\//.test(url)) return url;
+  if (url.startsWith("/") && API_BASE_URL) return `${API_BASE_URL}${url}`;
+  return url;
 }
 
 function getRecognitionHint(
@@ -875,7 +884,7 @@ function WorkspaceContent() {
     const [x, y, w, h] = bbox;
     return [x, y, w, h].every((value) => Number.isFinite(value)) && w > 0 && h > 0;
   };
-  const overlayImageUrl = job?.image_url || qs.find((q) => q.image_url)?.image_url || undefined;
+  const overlayImageUrl = resolveImageUrl(job?.image_url || qs.find((q) => q.image_url)?.image_url || undefined);
 
   // 诊断：渲染前检查 grading 字段
   const _render_wg = qs.filter(q => q.is_correct !== null && q.is_correct !== undefined).length;

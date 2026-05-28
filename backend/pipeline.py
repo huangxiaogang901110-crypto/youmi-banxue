@@ -19,6 +19,12 @@ from deepseek_client import DeepSeekClient
 from vision_client import QwenVLClient
 from ocr_client import AliyunOCRClient
 from ocr_block_export import export_ocr_blocks_if_enabled
+from grading_unit import (
+    apply_grading_unit_metadata,
+    build_grading_units,
+    build_group_boxes,
+    run_grading_unit_review,
+)
 from math_ocr_first import math_ocr_first_extract
 from question_cutter import cut_to_questions
 from document_classifier import (
@@ -145,6 +151,7 @@ def save_result(jid: str, questions: list, now: str, file, status: JobStatus):
         "document_classification": document_classification,
         "overlay": _jobs[jid].get("overlay", []),
         "group_boxes": _jobs[jid].get("group_boxes", []),
+        "grading_units": _jobs[jid].get("grading_units", []),
         "roi_result": _jobs[jid].get("roi_result"),
         "preprocess_versions": _jobs[jid].get("preprocess_versions", []),
         "ocr_blocks": _jobs[jid].get("ocr_blocks", []),
@@ -184,6 +191,7 @@ def save_result(jid: str, questions: list, now: str, file, status: JobStatus):
                             "document_classification": document_classification,
                             "overlay": _jobs[jid].get("overlay", []),
                             "group_boxes": _jobs[jid].get("group_boxes", []),
+                            "grading_units": _jobs[jid].get("grading_units", []),
                             "roi_result": _jobs[jid].get("roi_result"),
                             "preprocess_versions": _jobs[jid].get("preprocess_versions", []),
                             "ocr_blocks": _jobs[jid].get("ocr_blocks", []),
@@ -197,7 +205,15 @@ def save_result(jid: str, questions: list, now: str, file, status: JobStatus):
                         client_upload_id=_jobs[jid].get("client_upload_id", _jobs[jid].get("client_task_id", "")))
 
 
-async def grade_answers(jid: str, questions: list, trace_id: str, parent_id: str, child_id: str) -> float:
+async def grade_answers(
+    jid: str,
+    questions: list,
+    grading_units: list[dict],
+    image_bytes: bytes,
+    trace_id: str,
+    parent_id: str,
+    child_id: str,
+) -> float:
     """DeepSeek 批量判对错。返回 grading 总成本 CNY。
     失败时所有题 is_correct=null, grading_explanation='暂未判定'。
     数学口算/加减乘除/比大小/填空优先规则判题，减少 DeepSeek 耗时。
@@ -221,6 +237,34 @@ async def grade_answers(jid: str, questions: list, trace_id: str, parent_id: str
     if _rule_graded > 0:
         info(f"[BG] Math rule graded {_rule_graded}/{len(questions)} questions for {jid}")
 
+    grading_cost = await run_grading_unit_review(
+        jid=jid,
+        questions=questions,
+        units=grading_units,
+        image_bytes=image_bytes,
+        trace_id=trace_id,
+        parent_id=parent_id,
+        child_id=child_id,
+    )
+
+    # Qwen 补判后再跑一轮规则判题，吃掉新识别出的答案。
+    _rule_graded_after_unit = 0
+    for q in questions:
+        _sa = q.student_answer if hasattr(q, "student_answer") else q.get("student_answer") if isinstance(q, dict) else None
+        _qt = q.question_text if hasattr(q, "question_text") else q.get("question_text", "") if isinstance(q, dict) else ""
+        if _sa and _qt:
+            _result = _try_math_rule_grading(_qt, str(_sa))
+            if _result is not None:
+                if hasattr(q, "is_correct"):
+                    q.is_correct = _result["is_correct"]
+                    q.grading_explanation = _result["explanation"]
+                else:
+                    q["is_correct"] = _result["is_correct"]
+                    q["grading_explanation"] = _result["explanation"]
+                _rule_graded_after_unit += 1
+    if _rule_graded_after_unit > _rule_graded:
+        info(f"[BG] Grading-unit rule graded {_rule_graded_after_unit}/{len(questions)} questions for {jid}")
+
     # 只对有 student_answer 且未被规则判题的题走 DeepSeek
     gradable = [(i, q) for i, q in enumerate(questions)
                  if (hasattr(q, "student_answer") and q.student_answer or
@@ -230,7 +274,7 @@ async def grade_answers(jid: str, questions: list, trace_id: str, parent_id: str
     with open("/tmp/grade_diag.log", "a") as _f:
         _f.write(f"{_ts()} | grade_answers START jid={jid} total_q={len(questions)} gradable={len(gradable)}\n")
     if not gradable:
-        return 0.0
+        return grading_cost
 
     # 构建批量判题 prompt
     items = []
@@ -255,7 +299,6 @@ async def grade_answers(jid: str, questions: list, trace_id: str, parent_id: str
     )
 
     ds = DeepSeekClient()
-    grading_cost = 0.0
     try:
         _log_info(f"grading_start jid={jid} count={len(gradable)}", trace_id=trace_id, parent_id=parent_id, child_id=child_id)
         t_start = time.time()
@@ -285,7 +328,7 @@ async def grade_answers(jid: str, questions: list, trace_id: str, parent_id: str
             billing_status="free_tier" if result["success"] else "failed",
             pricing=pricing, question_count=len(gradable),
         )
-        grading_cost = glog.get("cost_cny", 0.0)
+        grading_cost += glog.get("cost_cny", 0.0)
         _model_calls.append(glog)
         _db.save_model_call(glog)
 
@@ -1376,6 +1419,13 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
             image_height=image_height,
         )
         _jobs[jid]["document_classification"] = document_classification
+        grading_units = build_grading_units(
+            questions,
+            image_width=image_width,
+            image_height=image_height,
+        )
+        apply_grading_unit_metadata(questions, grading_units, ocr_blocks)
+        _jobs[jid]["grading_units"] = grading_units
 
         final_status = _decide_final_status(questions, has_failures, _ocr_only)
         # ── Quality gate: OCR-only 路径缺少答案识别 → needs_review ──
@@ -1399,7 +1449,7 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
         # ── Stage: grading ── DeepSeek 批量判对错 ──
         grading_cost = 0.0
         try:
-            grading_cost = await grade_answers(jid, questions, trace_id, parent_id, child_id)
+            grading_cost = await grade_answers(jid, questions, grading_units, contents, trace_id, parent_id, child_id)
         except Exception as _ge:
             error(f"[BG] Grading stage failed (non-blocking): {_ge}")
         total_parse_cost += grading_cost
@@ -1461,47 +1511,8 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
                 "question_number": getattr(q, "question_number", 0),
             })
         _jobs[jid]["overlay"] = overlay_marks
-        # ── Generate group boxes from section groupings ──
-        from schemas.recognition import _union_bboxes
-        group_boxes = []
-        if math_ocr_first_used:
-            for _idx, q in enumerate(questions, start=1):
-                _qb = getattr(q, "bbox", None)
-                if not _qb or not isinstance(_qb, (list, tuple)) or len(_qb) != 4:
-                    continue
-                group_boxes.append({
-                    "group_id": f"group-{getattr(q, 'question_id', _idx)}",
-                    "group_index": _idx,
-                    "label": str(getattr(q, "question_number", _idx)),
-                    "title": getattr(q, "section_title", None),
-                    "bbox": [float(v) for v in _qb],
-                    "question_ids": [getattr(q, "question_id", "")],
-                })
-        else:
-            section_map: dict = {}
-            for q in questions:
-                _si = getattr(q, "section_index", None)
-                if _si is None:
-                    _si = 0
-                _st = getattr(q, "section_title", None)
-                _bid = f"group-{_si}"
-                if _bid not in section_map:
-                    section_map[_bid] = {"bboxes": [], "question_ids": [], "title": _st, "index": _si}
-                _qb = getattr(q, "bbox", None)
-                if _qb and isinstance(_qb, (list, tuple)) and len(_qb) == 4:
-                    section_map[_bid]["bboxes"].append([float(v) for v in _qb])
-                section_map[_bid]["question_ids"].append(getattr(q, "question_id", ""))
-            for _gid, _gdata in sorted(section_map.items(), key=lambda x: x[1]["index"]):
-                _union = _union_bboxes(_gdata["bboxes"])
-                if _union:
-                    group_boxes.append({
-                        "group_id": _gid,
-                        "group_index": _gdata["index"],
-                        "label": str(_gdata["index"]) if _gdata["index"] > 0 else "Q",
-                        "title": _gdata["title"],
-                        "bbox": _union,
-                        "question_ids": _gdata["question_ids"],
-                    })
+        # ── Generate group boxes from grading units ──
+        group_boxes = build_group_boxes(grading_units)
         _jobs[jid]["group_boxes"] = group_boxes
         info(f"[BG] overlay={len(overlay_marks)} group_boxes={len(group_boxes)} for {jid}")
         save_result(jid, questions, now, file, final_status)

@@ -93,6 +93,11 @@ class Question(BaseModel):
     source: Optional[str] = None
     confidence: Optional[float] = None
     error_code: Optional[str] = None
+    grading_unit_id: Optional[str] = None
+    grading_unit_type: Optional[str] = None
+    grading_unit_bbox: Optional[List[float]] = None
+    child_answer_source: Optional[str] = None
+    process_bboxes: Optional[List[List[float]]] = None
 
 
 class TutorRequest(BaseModel):

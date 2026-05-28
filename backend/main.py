@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from fastapi import FastAPI, Request, HTTPException, File, UploadFile, Form, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from typing import TypeVar, Generic, Optional, List
 import os
@@ -83,7 +84,19 @@ app = FastAPI(title="悠米伴学 API", version="0.1.0")
 # ─── CORS ──────────────────────────────────────────────────
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:3001", "http://39.107.119.136:3000", "http://39.107.119.136:3001", "https://youmi.xyz"],
+    allow_origins=[
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "http://localhost:3002",
+        "http://localhost:3003",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:3001",
+        "http://127.0.0.1:3002",
+        "http://127.0.0.1:3003",
+        "http://39.107.119.136:3000",
+        "http://39.107.119.136:3001",
+        "https://youmi.xyz",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -91,6 +104,7 @@ app.add_middleware(
 
 # ─── 限流 ──────────────────────────────────────────────────
 app.state.limiter = limiter
+app.mount("/job-images", StaticFiles(directory="/tmp/yomi"), name="job-images")
 app.include_router(parse_router)
 app.include_router(mistakes_router)
 app.include_router(homework_router)
@@ -185,4 +199,3 @@ def health_check():
     except Exception:
         pass
     return {"ok": True, "message": "悠米伴学 API 运行中", "qwen_vl": qwen_ok}
-

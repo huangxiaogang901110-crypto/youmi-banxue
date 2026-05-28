@@ -85,10 +85,6 @@ export default function GradingOverlay({ marks, groups, imageUrl }: Props) {
             return (
               <div key={g.group_id} className="absolute pointer-events-none" style={pos}>
                 <div className="absolute inset-0 rounded-xl border-2 border-gray-400/30 bg-gray-400/8" />
-                {/* Layer 3: 黑色题号标签 */}
-                <span className="absolute -left-1 top-0 -translate-x-full text-xs font-bold bg-black/75 text-white rounded-full w-5 h-5 flex items-center justify-center">
-                  {g.label || g.group_index || "?"}
-                </span>
               </div>
             );
           })}

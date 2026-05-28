@@ -13,8 +13,8 @@ echo "=== Codex Overlay P0 测试后端启动 ==="
 echo "端口: 8002"
 echo "数据库: $(pwd)/yomi.db"
 
-export YOMICALL_SOURCE=grading_overlay_p0
-export YOMI_DISABLE_DEDUP_FOR_CALL_SOURCE=grading_overlay_p0
+export YOMICALL_SOURCE="${YOMICALL_SOURCE:-grading_overlay_p0}"
+export YOMI_DISABLE_DEDUP_FOR_CALL_SOURCE="${YOMI_DISABLE_DEDUP_FOR_CALL_SOURCE:-$YOMICALL_SOURCE}"
 export YOMI_RECOGNITION_10S_SLA=false
 export YOMI_SYNC_JOB_TIMEOUT_SECONDS=60
 export YOMI_MATH_OCR_FIRST=true

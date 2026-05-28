@@ -671,6 +671,7 @@ def load_all():
                 "document_classification": entry.get("document_classification", {}),
                 "overlay": entry.get("overlay", []),
                 "group_boxes": entry.get("group_boxes", []),
+                "grading_units": entry.get("grading_units", []),
                 "preprocess_versions": entry.get("preprocess_versions", []),
                 "ocr_blocks": entry.get("ocr_blocks", []),
                 "ocr_block_source": entry.get("ocr_block_source", "ocr_unknown"),

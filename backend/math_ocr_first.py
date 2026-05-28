@@ -278,6 +278,7 @@ def _answer_tail_bbox_from_block(block):
         "confidence": confidence,
         "marker": marker_char,
         "tail_text": tail_text,
+        "answer_text": tail_text,
         "answer_length": _answer_text_length(tail_text),
         "block_index": block["index"],
         "block_text": block["text"],
@@ -707,6 +708,9 @@ def _build_layout_context(candidate_seeds, all_blocks, roi_bbox):
                     if next_point is not None
                     else section["bottom"]
                 )
+                if section["kind"] == "oral":
+                    group_bottom = max(group_bottom, seed["bottom"] + 8.0)
+                    group_top = min(group_top, max(section["top"], seed["top"] - 8.0))
                 row_index = 1
                 if row_anchors:
                     row_index = min(
