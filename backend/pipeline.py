@@ -1404,6 +1404,10 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
                 f"({document_classification.get('support_level', 'partial')}) -> {gated_status.value} for {jid}"
             )
             final_status = gated_status
+        # ── Zero-question safety gate: 0 questions must never complete ──
+        if len(questions) == 0 and final_status not in (JobStatus.failed, JobStatus.needs_review, JobStatus.low_confidence):
+            _log_info(f"[BG] Zero-question gate: 0q -> needs_review for {jid}")
+            final_status = JobStatus.needs_review
         save_result(jid, questions, now, file, final_status)
         # 诊断：判对错保存统计
         _with_g = sum(1 for q in questions if (getattr(q, "is_correct", None) is not None) or (isinstance(q, dict) and q.get("is_correct") is not None))
