@@ -4,6 +4,7 @@ model_call_log 工厂函数 — 基准 Table 12 统一字段
 支持真实成本计算：tokens × pricing_snapshot → cost_cny
 """
 
+import os
 import uuid
 from typing import Optional, Any
 
@@ -69,7 +70,7 @@ def make_log_entry(
     estimated_cost: float = 0.0,
     credit_cost: int = 0,
     billing_status: str = "billed",
-    call_source: Optional[str] = None,
+    call_source: Optional[str] = os.environ.get("YOMICALL_SOURCE", "prod"),
     error_code: Optional[str] = None,
     retry_count: int = 0,
     pricing: Optional[dict] = None,

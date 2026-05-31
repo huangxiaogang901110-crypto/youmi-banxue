@@ -1173,7 +1173,8 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
                 trace_id=trace_id, latency_ms=ocr_latency,
                 success=len(ocr_blocks) > 0,
                 parent_user_id=parent_id, child_id=child_id,
-                billing_status="billed", image_count=1, estimated_cost=0.003,
+                billing_status="billed", image_count=1, credit_cost=0.004,
+                call_source=_os.environ.get("YOMICALL_SOURCE", "prod"),
                 blocks_count=len(ocr_blocks),
             )
             _model_calls.append(_ocr_log)
@@ -1536,6 +1537,7 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
             child_id=child_id,
             error_code=str(e)[:100],
             billing_status="failed",
+            call_source=_os.environ.get("YOMICALL_SOURCE", "prod"),
         )
         _model_calls.append(_flog)
         _db.save_model_call(_flog)

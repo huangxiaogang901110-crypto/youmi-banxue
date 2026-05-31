@@ -28,16 +28,16 @@ class TestOCRLedger(unittest.TestCase):
         self.assertEqual(entry["billing_status"], "billed")
 
     def test_ocr_cost_cny_nonzero(self):
-        """OCR call with estimated_cost=0.003 and image_count=1 yields cost_cny > 0."""
+        """OCR call with credit_cost=0.004 and image_count=1 yields cost_cny > 0."""
         entry = make_log_entry(
             task_id="t2", provider_name="aliyun_ocr", model_name="ocr_general",
             feature_code="ocr_general", latency_ms=150, success=True,
-            image_count=1, estimated_cost=0.003,
+            image_count=1, credit_cost=0.004,
         )
         self.assertGreater(entry["cost_cny"], 0.0,
                            f"cost_cny should be > 0, got {entry['cost_cny']}")
 
-    def test_call_source_in_entry(self):
+    def test_ocr_call_source_writable(self):
         """call_source passed to make_log_entry must appear in returned dict."""
         entry = make_log_entry(
             task_id="t3", provider_name="aliyun_ocr", model_name="ocr_general",
@@ -47,15 +47,15 @@ class TestOCRLedger(unittest.TestCase):
         self.assertIn("call_source", entry)
         self.assertEqual(entry["call_source"], "mock_source")
 
-    def test_no_http_calls(self):
-        """make_log_entry must not trigger any HTTP/network calls."""
-        # Patch urllib and requests at module level to detect any outbound calls
+    def test_no_real_api_triggered(self):
+        """make_log_entry must not trigger any HTTP/network calls (no real OCR/Qwen/DeepSeek)."""
+        # Patch urllib at module level to detect any outbound calls
         with patch("urllib.request.urlopen") as mock_urlopen, \
              patch("urllib.request.urlretrieve") as mock_urlretrieve:
             entry = make_log_entry(
                 task_id="t4", provider_name="aliyun_ocr", model_name="ocr_general",
                 feature_code="ocr_general", latency_ms=120, success=True,
-                image_count=1, estimated_cost=0.003,
+                image_count=1, credit_cost=0.004,
             )
             mock_urlopen.assert_not_called()
             mock_urlretrieve.assert_not_called()
