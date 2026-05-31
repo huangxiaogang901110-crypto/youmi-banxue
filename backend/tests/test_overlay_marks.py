@@ -160,3 +160,54 @@ def test_mark_when_has_student_answer_false_with_bbox():
     assert mark is not None, "Expected a mark when student_answer is set and is_correct=False with answer_bbox"
     assert mark.mark_type == "incorrect"
     assert mark.mark_bbox == ab, f"mark_bbox should equal answer_bbox {ab}, got {mark.mark_bbox}"
+
+
+# ── Tests 11-14: dict question compatibility ──────────────────────────────────
+
+def _make_dict_q(
+    *,
+    answer_bbox=None,
+    is_correct=None,
+    bbox=None,
+    student_answer=None,
+    question_id="q1",
+):
+    return {
+        "question_id": question_id,
+        "question_number": 1,
+        "question_text": "1+1=",
+        "kind": "question",
+        "bbox": bbox,
+        "answer_bbox": answer_bbox,
+        "is_correct": is_correct,
+        "student_answer": student_answer,
+        "source": "test",
+    }
+
+
+class TestDictQuestionOverlay:
+    def test_correct_mark_for_dict_question_no_bbox(self):
+        """dict question + is_correct=True + student_answer set + no bbox → returns None (no position info)."""
+        q = _make_dict_q(is_correct=True, student_answer="1017", bbox=None, answer_bbox=None)
+        mark = build_overlay_mark(q)
+        assert mark is None, "Expected None when dict question has no bbox/answer_bbox"
+
+    def test_no_mark_for_dict_question_no_answer(self):
+        """dict question + is_correct=True + student_answer="" → no mark."""
+        q = _make_dict_q(is_correct=True, student_answer="")
+        assert build_overlay_mark(q) is None
+
+    def test_no_mark_for_dict_question_no_grading(self):
+        """dict question + is_correct=None + student_answer set → no mark."""
+        q = _make_dict_q(is_correct=None, student_answer="1017")
+        assert build_overlay_mark(q) is None
+
+    def test_dict_question_with_answer_bbox(self):
+        """dict question + is_correct=True + answer_bbox → generates correct mark."""
+        ab = [50.0, 50.0, 60.0, 20.0]
+        qb = [10.0, 10.0, 200.0, 80.0]
+        q = _make_dict_q(is_correct=True, student_answer="46", answer_bbox=ab, bbox=qb)
+        mark = build_overlay_mark(q)
+        assert mark is not None, "Expected a mark for dict question with answer_bbox"
+        assert mark.mark_type == "correct"
+        assert mark.mark_bbox == ab, f"Expected mark_bbox={ab}, got {mark.mark_bbox}"

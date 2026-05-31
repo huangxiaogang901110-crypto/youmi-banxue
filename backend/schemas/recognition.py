@@ -273,38 +273,47 @@ def build_question_contract(
     )
 
 
-def build_overlay_mark(question: RecognitionQuestionContract) -> RecognitionOverlayMark | None:
+def _get_question_field(question, field_name: str, default=None):
+    """安全读取 question 字段（兼容 dict 和 RecognitionQuestionContract 对象）。"""
+    if isinstance(question, dict):
+        return question.get(field_name, default)
+    return getattr(question, field_name, default)
+
+
+def build_overlay_mark(question: Any) -> RecognitionOverlayMark | None:
     # is_correct=None → no grading available, don't draw any mark
-    if question.is_correct is None:
+    _ic = _get_question_field(question, "is_correct")
+    if _ic is None:
         return None
     # student_answer empty → no evidence of student work, don't draw any mark
-    _sa = getattr(question, "student_answer", None)
+    _sa = _get_question_field(question, "student_answer")
     if not _sa:
         return None
-    overlay_bbox = normalize_bbox(question.answer_bbox)
+    overlay_bbox = normalize_bbox(_get_question_field(question, "answer_bbox"))
     if overlay_bbox is None:
-        if question.is_correct is not True:
+        if _ic is not True:
             # is_correct=False with no answer_bbox → don't draw (avoid mis-marking stem area)
             return None
         # is_correct=True with no answer_bbox → small anchor at bottom-right of question.bbox
-        qb = normalize_bbox(question.bbox)
+        qb = normalize_bbox(_get_question_field(question, "bbox"))
         if qb is None:
             return None
         _size = 40.0
         overlay_bbox = [qb[0] + qb[2] - _size, qb[1] + qb[3] - _size, _size, _size]
-    mark_type = "correct" if question.is_correct is True else "incorrect"
+    mark_type = "correct" if _ic is True else "incorrect"
+    _qid = _get_question_field(question, "question_id", "")
     return RecognitionOverlayMark(
-        id=f"overlay-{question.question_id}",
-        question_id=question.question_id,
-        text=question.question_text,
+        id=f"overlay-{_qid}",
+        question_id=_qid,
+        text=_get_question_field(question, "question_text", ""),
         bbox=overlay_bbox,
         mark_bbox=overlay_bbox,
-        confidence=question.confidence,
-        source=question.source,
+        confidence=_get_question_field(question, "confidence"),
+        source=_get_question_field(question, "source", "unknown"),
         mark_type=mark_type,
-        parent_id=question.id,
-        status=question.status,
-        error_code=question.error_code,
+        parent_id=_get_question_field(question, "id") or _qid,
+        status=_get_question_field(question, "status", "completed"),
+        error_code=_get_question_field(question, "error_code"),
     )
 
 
