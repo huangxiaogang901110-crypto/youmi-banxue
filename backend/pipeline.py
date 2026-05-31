@@ -1490,22 +1490,29 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
         for q in questions:
             if getattr(q, "kind", "question") != "question":
                 continue
-            _ab = getattr(q, "answer_bbox", None)
-            if not _ab or not isinstance(_ab, (list, tuple)) or len(_ab) != 4:
-                continue
-            _ax, _ay, _aw, _ah = float(_ab[0]), float(_ab[1]), float(_ab[2]), float(_ab[3])
-            if _aw <= 0 or _ah <= 0:
-                continue
-            if _aw * _ah > image_width * image_height * 0.5:
-                continue  # bbox too large, likely noise
-            _mt = "unknown"
             _ic = getattr(q, "is_correct", None)
-            if _ic is True:
-                _mt = "correct"
-            elif _ic is False:
-                _mt = "incorrect"
-            else:
-                continue  # skip: no grading available, don't draw tick/circle
+            if _ic is None:
+                continue  # no grading available, don't draw
+            _ab = getattr(q, "answer_bbox", None)
+            _ax = _ay = _aw = _ah = None
+            if _ab and isinstance(_ab, (list, tuple)) and len(_ab) == 4:
+                _ax, _ay, _aw, _ah = float(_ab[0]), float(_ab[1]), float(_ab[2]), float(_ab[3])
+                if _aw <= 0 or _ah <= 0:
+                    _ax = _ay = _aw = _ah = None
+                elif image_width and image_height and _aw * _ah > image_width * image_height * 0.5:
+                    _ax = _ay = _aw = _ah = None  # bbox too large, likely noise
+            if _ax is None:
+                if _ic is not True:
+                    continue  # is_correct=False, no answer_bbox → don't draw
+                # is_correct=True, no answer_bbox → small anchor at bottom-right of question.bbox
+                _qb = getattr(q, "bbox", None)
+                if not _qb or not isinstance(_qb, (list, tuple)) or len(_qb) != 4:
+                    continue
+                _size = 40.0
+                _ax = float(_qb[0]) + float(_qb[2]) - _size
+                _ay = float(_qb[1]) + float(_qb[3]) - _size
+                _aw = _ah = _size
+            _mt = "correct" if _ic is True else "incorrect"
             overlay_marks.append({
                 "question_id": getattr(q, "question_id", ""),
                 "mark_type": _mt,

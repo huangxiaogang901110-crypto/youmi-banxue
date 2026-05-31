@@ -274,15 +274,21 @@ def build_question_contract(
 
 
 def build_overlay_mark(question: RecognitionQuestionContract) -> RecognitionOverlayMark | None:
-    overlay_bbox = question.answer_bbox or question.bbox
-    overlay_bbox = normalize_bbox(overlay_bbox)
-    if overlay_bbox is None:
+    # is_correct=None → no grading available, don't draw any mark
+    if question.is_correct is None:
         return None
-    mark_type = "unknown"
-    if question.is_correct is True:
-        mark_type = "correct"
-    elif question.is_correct is False:
-        mark_type = "incorrect"
+    overlay_bbox = normalize_bbox(question.answer_bbox)
+    if overlay_bbox is None:
+        if question.is_correct is not True:
+            # is_correct=False with no answer_bbox → don't draw (avoid mis-marking stem area)
+            return None
+        # is_correct=True with no answer_bbox → small anchor at bottom-right of question.bbox
+        qb = normalize_bbox(question.bbox)
+        if qb is None:
+            return None
+        _size = 40.0
+        overlay_bbox = [qb[0] + qb[2] - _size, qb[1] + qb[3] - _size, _size, _size]
+    mark_type = "correct" if question.is_correct is True else "incorrect"
     return RecognitionOverlayMark(
         id=f"overlay-{question.question_id}",
         question_id=question.question_id,
