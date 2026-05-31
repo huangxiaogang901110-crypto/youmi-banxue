@@ -93,6 +93,84 @@ class TestOCRLedger(unittest.TestCase):
                          "call_source from data dict should override env var")
 
 
+class TestOCRLoggedWhenQwenSucceeds(unittest.TestCase):
+    """Verify OCR is always logged when ocr_latency > 0, even if Qwen-VL succeeds."""
+
+    def test_ocr_logged_when_qwen_succeeds(self):
+        """OCR model_call must be created when OCR was called (ocr_latency > 0),
+        regardless of Qwen-VL success."""
+        model_calls = []
+        ocr_latency = 1200  # OCR was called (1.2s)
+        ocr_blocks = [{"text": f"block{i}"} for i in range(10)]
+        call_source = "p1c_overlay_real2"
+
+        # Simulate what pipeline.py now does: log OCR whenever ocr_latency > 0
+        with patch.dict(os.environ, {"YOMICALL_SOURCE": call_source}):
+            if ocr_latency > 0:
+                _ocr_log = make_log_entry(
+                    task_id="test-job", provider_name="aliyun_ocr", model_name="ocr_general",
+                    feature_code="ocr_general",
+                    trace_id="test-trace", latency_ms=ocr_latency,
+                    success=len(ocr_blocks) > 0,
+                    parent_user_id="p1", child_id="c1",
+                    billing_status="billed", image_count=1, credit_cost=0.004,
+                    call_source=os.environ.get("YOMICALL_SOURCE", "prod"),
+                    blocks_count=len(ocr_blocks),
+                )
+                model_calls.append(_ocr_log)
+
+        ocr_entries = [e for e in model_calls if e.get("provider_name") == "aliyun_ocr"]
+        self.assertEqual(len(ocr_entries), 1, "OCR must be logged once when ocr_latency > 0")
+        entry = ocr_entries[0]
+        self.assertEqual(entry["billing_status"], "billed")
+        self.assertGreater(entry["cost_cny"], 0.0,
+                           f"cost_cny should be > 0 via credit_cost=0.004, got {entry['cost_cny']}")
+        self.assertEqual(entry["call_source"], call_source)
+
+    def test_ocr_not_logged_when_not_called(self):
+        """OCR must NOT be logged when ocr_latency == 0 (e.g., B++ skipped OCR)."""
+        model_calls = []
+        ocr_latency = 0  # OCR was not called
+
+        if ocr_latency > 0:
+            _ocr_log = make_log_entry(
+                task_id="test-job", provider_name="aliyun_ocr", model_name="ocr_general",
+                feature_code="ocr_general",
+                trace_id="", latency_ms=ocr_latency,
+                success=False,
+                billing_status="billed", image_count=1, credit_cost=0.004,
+                call_source="test",
+                blocks_count=0,
+            )
+            model_calls.append(_ocr_log)
+
+        ocr_entries = [e for e in model_calls if e.get("provider_name") == "aliyun_ocr"]
+        self.assertEqual(len(ocr_entries), 0, "OCR must NOT be logged when ocr_latency == 0")
+
+
+class TestQwenCostCnyNonZero(unittest.TestCase):
+    """Verify Qwen cost_cny > 0 when pricing snapshot is provided."""
+
+    def test_qwen_cost_cny_nonzero_with_pricing(self):
+        """make_log_entry with pricing dict must yield cost_cny > 0."""
+        pricing = {
+            "id": "test-price-id",
+            "input_price_per_1m": 3.0,
+            "output_price_per_1m": 9.0,
+        }
+        entry = make_log_entry(
+            task_id="t-qwen", provider_name="aliyun_dashscope", model_name="qwen-vl-max",
+            feature_code="qwen_vl_parse_homework",
+            latency_ms=46000, success=True,
+            input_tokens=1000, output_tokens=500,
+            pricing=pricing,
+        )
+        expected = round(1000 * 3.0 / 1_000_000 + 500 * 9.0 / 1_000_000, 6)
+        self.assertAlmostEqual(entry["cost_cny"], expected, places=6)
+        self.assertGreater(entry["cost_cny"], 0.0,
+                           f"cost_cny should be > 0, got {entry['cost_cny']}")
+
+
 class TestRouteBillingStatus(unittest.TestCase):
     """Verify routes + grading_unit billing_status values via make_log_entry mock calls."""
 

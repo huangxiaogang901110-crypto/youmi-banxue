@@ -946,6 +946,22 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
         )
         _jobs[jid]["document_classification"] = document_classification
         info(f"[BG] Parallel done: Qwen={'OK' if qwen_result.get('success') else 'FAIL'}({qwen_latency}ms) OCR={len(ocr_blocks)}blocks({ocr_latency}ms)")
+
+        # ── OCR call logging (always log if OCR was called) ──
+        if ocr_latency > 0:
+            _ocr_log = make_log_entry(
+                task_id=jid, provider_name="aliyun_ocr", model_name="ocr_general",
+                feature_code="ocr_general",
+                trace_id=trace_id, latency_ms=ocr_latency,
+                success=len(ocr_blocks) > 0,
+                parent_user_id=parent_id, child_id=child_id,
+                billing_status="billed", image_count=1, credit_cost=0.004,
+                call_source=_os.environ.get("YOMICALL_SOURCE", "prod"),
+                blocks_count=len(ocr_blocks),
+            )
+            _model_calls.append(_ocr_log)
+            _db.save_model_call(_ocr_log)
+
         usage = qwen_result.get("usage", {}) if qwen_result.get("success") else {}
         input_tokens = usage.get("prompt_tokens", 0) if isinstance(usage, dict) else 0
         output_tokens = usage.get("completion_tokens", 0) if isinstance(usage, dict) else 0
@@ -1166,19 +1182,6 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
         # ── OCR fallback: use pre-fetched blocks (already obtained in parallel) ──
         if not use_qwen_vl:
             _jobs[jid]["job"].status = JobStatus.cutting
-            # Log OCR call
-            _ocr_log = make_log_entry(
-                task_id=jid, provider_name="aliyun_ocr", model_name="ocr_general",
-                feature_code="ocr_general",
-                trace_id=trace_id, latency_ms=ocr_latency,
-                success=len(ocr_blocks) > 0,
-                parent_user_id=parent_id, child_id=child_id,
-                billing_status="billed", image_count=1, credit_cost=0.004,
-                call_source=_os.environ.get("YOMICALL_SOURCE", "prod"),
-                blocks_count=len(ocr_blocks),
-            )
-            _model_calls.append(_ocr_log)
-            _db.save_model_call(_ocr_log)
 
             if ocr_blocks:
                 if should_extract_questions(document_classification):
