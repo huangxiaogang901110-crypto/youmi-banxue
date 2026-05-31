@@ -286,7 +286,7 @@ def test_qwen_timeout_seconds_only_applies_in_run_real(monkeypatch, tmp_path):
         captured["require_real_env"] = os_environ_value(run_real_eval.QWEN_TIMEOUT_ENV_VAR)
         return {"QWEN_DASHSCOPE_API_KEY": "present", "DEEPSEEK_API_KEY": "present"}
 
-    def _fake_execute_real_sample(sample: dict, *, db_path: Path) -> dict:
+    def _fake_execute_real_sample(sample: dict, *, db_path: Path, call_source: str) -> dict:
         captured["execute_real_sample"] = os_environ_value(run_real_eval.QWEN_TIMEOUT_ENV_VAR)
         sample_metrics = run_real_eval.derive_cached_metrics(sample, sample["sidecar_payload"])
         return run_real_eval.make_row(
@@ -335,6 +335,21 @@ def test_call_source_is_fixed(tmp_path, monkeypatch):
     assert report["summary"]["call_source"] == run_real_eval.SAFE_CALL_SOURCE
     assert report["samples"][0]["call_source"] == run_real_eval.SAFE_CALL_SOURCE
     assert os_environ_value("YOMICALL_SOURCE") == "prod"
+
+
+def test_call_source_custom_param(tmp_path):
+    sample_dir = _make_sample_dir(tmp_path)
+    _write_fixture_sample(sample_dir, name="sample_a")
+    _write_manifest(
+        sample_dir,
+        [{"filename": "sample_a.jpg", "sidecar": "sample_a.json", "intended_use": "A"}],
+    )
+
+    report = _run(sample_dir, "--call-source", "custom_eval", sample_ids=["sample_a"])
+
+    assert report["summary"]["call_source"] == "custom_eval"
+    assert report["samples"][0]["call_source"] == "custom_eval"
+    assert report["summary"]["call_source"] != run_real_eval.SAFE_CALL_SOURCE
 
 
 def test_db_path_default_is_tmp(tmp_path):
