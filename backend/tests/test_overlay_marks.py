@@ -24,6 +24,7 @@ def _make_q(
     answer_bbox=None,
     is_correct=None,
     bbox=None,
+    student_answer=None,
 ) -> RecognitionQuestionContract:
     return RecognitionQuestionContract(
         question_id="q1",
@@ -32,6 +33,7 @@ def _make_q(
         bbox=bbox or [10.0, 20.0, 200.0, 80.0],
         answer_bbox=answer_bbox,
         is_correct=is_correct,
+        student_answer=student_answer,
         source="test",
     )
 
@@ -74,7 +76,7 @@ def test_no_mark_for_null_grading():
 def test_correct_mark_without_answer_bbox():
     """is_correct=True with no answer_bbox → small green tick anchored at bottom-right of question.bbox."""
     qbbox = [10.0, 20.0, 200.0, 80.0]  # right-bottom corner at (210, 100)
-    q = _make_q(is_correct=True, bbox=qbbox, answer_bbox=None)
+    q = _make_q(is_correct=True, bbox=qbbox, answer_bbox=None, student_answer="2")
 
     mark = build_overlay_mark(q)
 
@@ -103,7 +105,7 @@ def test_no_incorrect_mark_without_answer_bbox():
 def test_incorrect_mark_uses_answer_bbox():
     """is_correct=False with a valid answer_bbox → mark uses that answer_bbox exactly."""
     ab = [50.0, 60.0, 80.0, 30.0]
-    q = _make_q(is_correct=False, answer_bbox=ab)
+    q = _make_q(is_correct=False, answer_bbox=ab, student_answer="3")
 
     mark = build_overlay_mark(q)
 
@@ -112,3 +114,49 @@ def test_incorrect_mark_uses_answer_bbox():
     assert mark.mark_bbox == ab, (
         f"mark_bbox should equal answer_bbox {ab}, got {mark.mark_bbox}"
     )
+
+
+# ── Tests 6-10: answer evidence gate (student_answer required) ────────────────
+
+def test_no_mark_when_no_student_answer_true():
+    """No student_answer + is_correct=True + no answer_bbox → no mark."""
+    q = _make_q(is_correct=True, answer_bbox=None, student_answer=None)
+    assert build_overlay_mark(q) is None
+
+
+def test_no_mark_when_no_student_answer_false():
+    """No student_answer + is_correct=False + has answer_bbox → no mark."""
+    q = _make_q(is_correct=False, answer_bbox=[50.0, 60.0, 80.0, 30.0], student_answer=None)
+    assert build_overlay_mark(q) is None
+
+
+def test_no_mark_when_no_student_answer_true_with_bbox():
+    """No student_answer + is_correct=True + has answer_bbox → no mark."""
+    q = _make_q(is_correct=True, answer_bbox=[50.0, 60.0, 80.0, 30.0], student_answer=None)
+    assert build_overlay_mark(q) is None
+
+
+def test_mark_when_has_student_answer_true_no_bbox():
+    """Has student_answer + is_correct=True + no answer_bbox → 40×40 green tick at bottom-right."""
+    qbbox = [10.0, 20.0, 200.0, 80.0]
+    q = _make_q(is_correct=True, bbox=qbbox, answer_bbox=None, student_answer="2")
+
+    mark = build_overlay_mark(q)
+
+    assert mark is not None, "Expected a mark when student_answer is set and is_correct=True"
+    assert mark.mark_type == "correct"
+    mb = mark.mark_bbox
+    assert mb is not None and len(mb) == 4
+    assert mb[2] == 40.0 and mb[3] == 40.0, f"Expected 40×40 fallback tick, got {mb[2]}×{mb[3]}"
+
+
+def test_mark_when_has_student_answer_false_with_bbox():
+    """Has student_answer + is_correct=False + has answer_bbox → red circle on answer_bbox."""
+    ab = [50.0, 60.0, 80.0, 30.0]
+    q = _make_q(is_correct=False, answer_bbox=ab, student_answer="3")
+
+    mark = build_overlay_mark(q)
+
+    assert mark is not None, "Expected a mark when student_answer is set and is_correct=False with answer_bbox"
+    assert mark.mark_type == "incorrect"
+    assert mark.mark_bbox == ab, f"mark_bbox should equal answer_bbox {ab}, got {mark.mark_bbox}"

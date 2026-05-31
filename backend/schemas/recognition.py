@@ -277,6 +277,10 @@ def build_overlay_mark(question: RecognitionQuestionContract) -> RecognitionOver
     # is_correct=None → no grading available, don't draw any mark
     if question.is_correct is None:
         return None
+    # student_answer empty → no evidence of student work, don't draw any mark
+    _sa = getattr(question, "student_answer", None)
+    if not _sa:
+        return None
     overlay_bbox = normalize_bbox(question.answer_bbox)
     if overlay_bbox is None:
         if question.is_correct is not True:

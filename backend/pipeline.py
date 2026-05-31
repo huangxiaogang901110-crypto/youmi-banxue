@@ -1493,6 +1493,9 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
             _ic = getattr(q, "is_correct", None)
             if _ic is None:
                 continue  # no grading available, don't draw
+            _sa = getattr(q, "student_answer", None)
+            if not _sa:
+                continue  # no student answer evidence, don't draw
             _ab = getattr(q, "answer_bbox", None)
             _ax = _ay = _aw = _ah = None
             if _ab and isinstance(_ab, (list, tuple)) and len(_ab) == 4:
