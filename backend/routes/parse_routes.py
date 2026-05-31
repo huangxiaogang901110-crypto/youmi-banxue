@@ -745,7 +745,7 @@ async def tutor_question(question_id: str, body: TutorRequest, request: Request,
             latency_ms=result.get("latency_ms", latency_ms),
             success=result["success"],
             error_code=result.get("error"),
-            billing_status="free_tier" if result["success"] else "failed",
+            billing_status="billed" if result["success"] else "failed",
             prompt_name=f"tutor_{body.mode}",
             input_tokens=in_tok,
             output_tokens=out_tok,
@@ -765,7 +765,7 @@ async def tutor_question(question_id: str, body: TutorRequest, request: Request,
                                          feature_code=feat_code, job_id=question_id,
                                          question_id=question_id, call_id=call_id,
                                          actual_cost_cny=actual_cost, credit_delta=-1,
-                                         billing_status="free_tier")
+                                         billing_status="billed")
             # 同步更新 model_calls.credit_cost
             call_cid = _tlog.get("id", "")
             if call_cid and actual_cost > 0:
@@ -886,7 +886,7 @@ async def vision_retry(question_id: str, request: Request = None, user: tuple = 
             latency_ms=vl_ms,
             success=vl_result["success"],
             error_code=vl_result.get("error"),
-            billing_status="free_tier" if vl_result["success"] else "failed",
+            billing_status="billed" if vl_result["success"] else "failed",
             prompt_name="qwen_vl_vision_retry",
             input_tokens=usage.get("prompt_tokens", 0) if isinstance(usage, dict) else 0,
             output_tokens=usage.get("completion_tokens", 0) if isinstance(usage, dict) else 0,

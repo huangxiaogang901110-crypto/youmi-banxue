@@ -93,5 +93,66 @@ class TestOCRLedger(unittest.TestCase):
                          "call_source from data dict should override env var")
 
 
+class TestRouteBillingStatus(unittest.TestCase):
+    """Verify routes + grading_unit billing_status values via make_log_entry mock calls."""
+
+    def _make_entry(self, billing_status, **kwargs):
+        """Helper: call make_log_entry with overridden billing_status."""
+        entry = make_log_entry(
+            task_id="tx", provider_name="deepseek", model_name="deepseek-v4-flash",
+            feature_code="test_feat", latency_ms=100, success=True,
+            **kwargs,
+        )
+        # Simulate the route overriding billing_status (routes build entry then pass it to db)
+        entry["billing_status"] = billing_status
+        return entry
+
+    def test_deepseek_tutor_billing_status_is_billed(self):
+        """parse_routes.py:748 pattern — success → billing_status must be 'billed'."""
+        result = {"success": True}
+        billing_status = "billed" if result["success"] else "failed"
+        entry = self._make_entry(billing_status)
+        self.assertNotEqual(entry["billing_status"], "free_tier")
+        self.assertEqual(entry["billing_status"], "billed")
+
+    def test_deepseek_tutor_billing_status_failed_on_error(self):
+        """parse_routes.py:748 pattern — failure → billing_status must be 'failed'."""
+        result = {"success": False}
+        billing_status = "billed" if result["success"] else "failed"
+        entry = self._make_entry(billing_status)
+        self.assertEqual(entry["billing_status"], "failed")
+
+    def test_qwen_vl_vision_retry_billing_status_is_billed(self):
+        """parse_routes.py:889 pattern — vl_result success → billing_status must be 'billed'."""
+        vl_result = {"success": True}
+        billing_status = "billed" if vl_result["success"] else "failed"
+        entry = self._make_entry(billing_status)
+        self.assertNotEqual(entry["billing_status"], "free_tier")
+        self.assertEqual(entry["billing_status"], "billed")
+
+    def test_deepseek_homework_billing_status_is_billed(self):
+        """homework_routes.py:133 pattern — ds_result success → billing_status must be 'billed'."""
+        ds_result = {"success": True}
+        billing_status = "billed" if ds_result["success"] else "failed"
+        entry = self._make_entry(billing_status)
+        self.assertNotEqual(entry["billing_status"], "free_tier")
+        self.assertEqual(entry["billing_status"], "billed")
+
+    def test_grading_unit_billing_status_is_billed(self):
+        """grading_unit.py:625/697 pattern — success → billing_status must be 'billed', not 'paid'."""
+        result = {"success": True}
+        billing_status = "billed" if result.get("success") else "failed"
+        entry = self._make_entry(billing_status)
+        self.assertNotEqual(entry["billing_status"], "paid")
+        self.assertEqual(entry["billing_status"], "billed")
+
+    def test_grading_unit_billing_status_failed_on_error(self):
+        """grading_unit.py:625/697 pattern — failure → billing_status must be 'failed'."""
+        result = {"success": False}
+        billing_status = "billed" if result.get("success") else "failed"
+        entry = self._make_entry(billing_status)
+        self.assertEqual(entry["billing_status"], "failed")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -130,7 +130,7 @@ async def parse_homework(body: HomeworkParseRequest, request: Request = None):
                 output_tokens=usage.get("completion_tokens", 0) if isinstance(usage, dict) else 0,
                 cache_hit_tokens=usage.get("prompt_cache_hit_tokens", 0) if isinstance(usage, dict) else 0,
                 cache_miss_tokens=usage.get("prompt_cache_miss_tokens", 0) if isinstance(usage, dict) else 0,
-                billing_status="free_tier" if ds_result["success"] else "failed",
+                billing_status="billed" if ds_result["success"] else "failed",
                 pricing=pricing,
                 subjects_count=len(ds_result.get("subjects", [])),
             )
