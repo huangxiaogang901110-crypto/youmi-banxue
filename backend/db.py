@@ -589,7 +589,7 @@ def save_model_call(data: dict):
     trace_id = data.get("trace_id", "")
     parent_trace_id = data.get("parent_trace_id", "")
     sub_stage = data.get("sub_stage", "")
-    call_source = os.environ.get("YOMICALL_SOURCE", "prod")
+    call_source = data.get("call_source") or os.environ.get("YOMICALL_SOURCE", "prod")
     c.execute(
         "INSERT OR REPLACE INTO model_calls "
         "(id, task_id, feature_code, job_id, question_id, provider, model_name, "

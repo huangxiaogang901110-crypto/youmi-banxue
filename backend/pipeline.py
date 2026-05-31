@@ -325,7 +325,7 @@ async def grade_answers(
             cache_miss_tokens=usage.get("cache_miss_tokens", 0),
             parent_user_id=parent_id, child_id=child_id,
             error_code=result.get("error"),
-            billing_status="free_tier" if result["success"] else "failed",
+            billing_status="billed" if result["success"] else "failed",
             pricing=pricing, question_count=len(gradable),
         )
         grading_cost += glog.get("cost_cny", 0.0)
@@ -968,7 +968,7 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
             image_total_bytes=len(contents),
             parent_user_id=parent_id,
             child_id=child_id,
-            billing_status="free_tier" if qwen_result["success"] else "failed",
+            billing_status="billed" if qwen_result["success"] else "failed",
             pricing=pricing,
             blocks_count=len(qwen_result.get("questions", [])),
         )
@@ -1173,7 +1173,8 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
                 trace_id=trace_id, latency_ms=ocr_latency,
                 success=len(ocr_blocks) > 0,
                 parent_user_id=parent_id, child_id=child_id,
-                billing_status="free_tier", blocks_count=len(ocr_blocks),
+                billing_status="billed", image_count=1, estimated_cost=0.003,
+                blocks_count=len(ocr_blocks),
             )
             _model_calls.append(_ocr_log)
             _db.save_model_call(_ocr_log)
@@ -1285,7 +1286,7 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
                                 parent_user_id=parent_id,
                                 child_id=child_id,
                                 error_code=vl_result.get("error"),
-                                billing_status="free_tier" if vl_result["success"] else "failed",
+                                billing_status="billed" if vl_result["success"] else "failed",
                                 prompt_name="qwen_vl_analyze",
                                 retry_count=schema_retries + network_retries,
                             )
@@ -1356,7 +1357,7 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
                                     latency_ms=vl_ms,
                                     success=vl_result["success"], parent_user_id=parent_id,
                                     child_id=child_id, error_code=vl_result.get("error"),
-                                    billing_status="free_tier" if vl_result["success"] else "failed",
+                                    billing_status="billed" if vl_result["success"] else "failed",
                                     prompt_name="qwen_vl_analyze", retry_count=n_retries,
                                 )
                                 _model_calls.append(_vlog)
