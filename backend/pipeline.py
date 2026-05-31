@@ -592,6 +592,121 @@ def _build_test_mode_questions(jid: str) -> list[Question]:
     ]
 
 
+# ── OCR bbox enrichment for Qwen-VL questions ────────────────────────────────
+
+def _extract_digits(text: str) -> str:
+    return "".join(c for c in str(text) if c.isdigit())
+
+
+def _fuzzy_match_digits(ocr_digits: str, answer_digits: str) -> bool:
+    """Allow 1 OCR recognition error in digit matching.
+
+    Single-digit answers must match exactly (no fuzzy) to avoid false positives.
+    For 2+ digit values, allow length diff ≤ 1 and at most 1 mismatched digit.
+    """
+    if not ocr_digits or not answer_digits:
+        return False
+    if ocr_digits == answer_digits:
+        return True
+    # Only apply fuzzy for values with 2+ digits in both to avoid "3" matching "13"
+    if min(len(ocr_digits), len(answer_digits)) < 2:
+        return False
+    if abs(len(ocr_digits) - len(answer_digits)) <= 1:
+        common = sum(1 for a, b in zip(ocr_digits, answer_digits) if a == b)
+        if common >= min(len(ocr_digits), len(answer_digits)) - 1:
+            return True
+    return False
+
+
+def _enrich_questions_with_ocr_bbox(
+    questions: list,
+    ocr_blocks: list,
+    *,
+    image_width: int = 1280,
+    image_height: int = 1280,
+) -> list:
+    """为 Qwen 提取的题目补充 answer_bbox，从 OCR blocks 中匹配。
+
+    匹配策略（按优先级）：
+    1. 在 OCR blocks 中找包含 question_text 的块 → 获取题目参考坐标
+    2. 在题目参考坐标右侧/下方寻找包含 student_answer 数字的块
+    3. 如果找不到题目参考坐标，直接搜索所有 OCR blocks 中包含 student_answer 的块
+    """
+    import copy
+    result = []
+    for q in questions:
+        q = dict(q)
+        if q.get("answer_bbox") is not None:
+            result.append(q)
+            continue
+
+        student_answer = q.get("student_answer") or ""
+        answer_digits = _extract_digits(student_answer)
+        if not answer_digits:
+            result.append(q)
+            continue
+
+        question_text = q.get("question_text") or ""
+        # clean question_text: remove spaces and trailing '='
+        q_text_clean = question_text.replace(" ", "").rstrip("=")
+
+        # Step 1: find question block in OCR
+        q_block = None
+        if q_text_clean:
+            for block in ocr_blocks:
+                block_text = block.get("text", "").replace(" ", "").rstrip("=")
+                if q_text_clean and q_text_clean in block_text:
+                    q_block = block
+                    break
+
+        # Step 2: find answer block among OCR blocks with digits
+        digit_blocks = [
+            b for b in ocr_blocks
+            if _extract_digits(b.get("text", ""))
+        ]
+
+        best_block = None
+        if q_block is not None:
+            qx = q_block["x"]
+            qy = q_block["y"]
+            qw = q_block["w"]
+            qh = q_block["h"]
+            # Look for answer to the right (horizontal layout) or below (vertical layout)
+            # Right side: x > qx and within 200px horizontal offset from right edge of q_block
+            # Below: y > qy + qh and x roughly aligned
+            candidates = []
+            for b in digit_blocks:
+                bx, by = b["x"], b["y"]
+                bd = _extract_digits(b.get("text", ""))
+                # right side: bx >= qx+qw (starts after question block) and within 200px
+                if bx >= qx + qw and bx <= qx + qw + 200:
+                    if _fuzzy_match_digits(bd, answer_digits):
+                        candidates.append((abs(by - qy), b))
+                # below: by > qy+qh, x within question x-range ±50px
+                elif by >= qy + qh and abs(bx - qx) <= max(qw, 50):
+                    if _fuzzy_match_digits(bd, answer_digits):
+                        candidates.append((by - (qy + qh), b))
+            if candidates:
+                candidates.sort(key=lambda t: t[0])
+                best_block = candidates[0][1]
+
+        # Step 3: fallback — search all digit blocks
+        if best_block is None:
+            for b in digit_blocks:
+                bd = _extract_digits(b.get("text", ""))
+                if _fuzzy_match_digits(bd, answer_digits):
+                    best_block = b
+                    break
+
+        if best_block is not None:
+            q["answer_bbox"] = [best_block["x"], best_block["y"], best_block["w"], best_block["h"]]
+            if q.get("bbox") is None and q_block is not None:
+                q["bbox"] = [q_block["x"], q_block["y"], q_block["w"], q_block["h"]]
+
+        result.append(q)
+    return result
+
+
 def _build_questions_from_raw(
     jid: str,
     raw_questions: list[dict],
@@ -1011,6 +1126,9 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
                 source="qwen_vl",
                 image_url=result_image_url,
             )
+            # Enrich Qwen questions with OCR bboxes (Qwen-VL returns no coordinates)
+            if ocr_blocks:
+                questions = _enrich_questions_with_ocr_bbox(questions, ocr_blocks)
             question_count = len(questions)
             if question_count >= 5:
                 use_qwen_vl = True

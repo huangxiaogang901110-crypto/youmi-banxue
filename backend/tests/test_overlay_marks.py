@@ -16,6 +16,7 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from math_ocr_first import _make_question
+from pipeline import _enrich_questions_with_ocr_bbox
 from schemas.recognition import build_overlay_mark, RecognitionQuestionContract
 
 
@@ -211,3 +212,73 @@ class TestDictQuestionOverlay:
         assert mark is not None, "Expected a mark for dict question with answer_bbox"
         assert mark.mark_type == "correct"
         assert mark.mark_bbox == ab, f"Expected mark_bbox={ab}, got {mark.mark_bbox}"
+
+
+# ── Tests 15-18: OCR block matching (_enrich_questions_with_ocr_bbox) ─────────
+
+class TestOCRBlockMatching:
+    def _q(self, question_text="550+467", student_answer="1017", answer_bbox=None):
+        return {
+            "question_id": "q1",
+            "question_text": question_text,
+            "student_answer": student_answer,
+            "answer_bbox": answer_bbox,
+            "is_correct": True,
+        }
+
+    def test_match_simple(self):
+        """1 question + matching OCR blocks → answer_bbox filled."""
+        ocr_blocks = [
+            {"x": 266, "y": 200, "w": 26, "h": 94, "text": "550+467="},
+            {"x": 326, "y": 217, "w": 35, "h": 64, "text": "1017"},
+        ]
+        questions = [self._q()]
+        result = _enrich_questions_with_ocr_bbox(questions, ocr_blocks)
+        assert result[0]["answer_bbox"] == [326, 217, 35, 64], (
+            f"Expected [326, 217, 35, 64], got {result[0]['answer_bbox']}"
+        )
+
+    def test_match_no_ocr_match(self):
+        """student_answer digits not in OCR blocks → answer_bbox stays None."""
+        ocr_blocks = [
+            {"x": 10, "y": 10, "w": 50, "h": 20, "text": "550+467="},
+            {"x": 70, "y": 10, "w": 40, "h": 20, "text": "9999"},
+        ]
+        questions = [self._q(student_answer="1017")]
+        result = _enrich_questions_with_ocr_bbox(questions, ocr_blocks)
+        assert result[0]["answer_bbox"] is None
+
+    def test_match_ocr_garbled(self):
+        """OCR garbled '10l7' (digits: '107') → fuzzy matches answer '1017'.
+
+        zip('107','1017') → ('1','1'),('0','0'),('7','1') → 2 common ≥ min(3,4)-1=2 ✓
+        """
+        ocr_blocks = [
+            {"x": 100, "y": 50, "w": 60, "h": 25, "text": "550+467="},
+            {"x": 170, "y": 52, "w": 38, "h": 22, "text": "10l7"},  # OCR misread: digits "107"
+        ]
+        questions = [self._q(student_answer="1017")]
+        result = _enrich_questions_with_ocr_bbox(questions, ocr_blocks)
+        assert result[0]["answer_bbox"] == [170, 52, 38, 22], (
+            f"Expected [170, 52, 38, 22], got {result[0]['answer_bbox']}"
+        )
+
+    def test_match_multiple_questions(self):
+        """3 questions with distinct answer blocks → all 3 get answer_bbox filled."""
+        ocr_blocks = [
+            {"x": 10,  "y": 10,  "w": 50, "h": 20, "text": "1+2="},
+            {"x": 70,  "y": 12,  "w": 20, "h": 18, "text": "3"},
+            {"x": 10,  "y": 50,  "w": 50, "h": 20, "text": "4+5="},
+            {"x": 70,  "y": 52,  "w": 20, "h": 18, "text": "9"},
+            {"x": 10,  "y": 90,  "w": 50, "h": 20, "text": "6+7="},
+            {"x": 70,  "y": 92,  "w": 20, "h": 18, "text": "13"},
+        ]
+        questions = [
+            {"question_id": "q1", "question_text": "1+2", "student_answer": "3",  "answer_bbox": None, "is_correct": True},
+            {"question_id": "q2", "question_text": "4+5", "student_answer": "9",  "answer_bbox": None, "is_correct": True},
+            {"question_id": "q3", "question_text": "6+7", "student_answer": "13", "answer_bbox": None, "is_correct": True},
+        ]
+        result = _enrich_questions_with_ocr_bbox(questions, ocr_blocks)
+        assert result[0]["answer_bbox"] == [70, 12, 20, 18], f"q1: {result[0]['answer_bbox']}"
+        assert result[1]["answer_bbox"] == [70, 52, 20, 18], f"q2: {result[1]['answer_bbox']}"
+        assert result[2]["answer_bbox"] == [70, 92, 20, 18], f"q3: {result[2]['answer_bbox']}"
