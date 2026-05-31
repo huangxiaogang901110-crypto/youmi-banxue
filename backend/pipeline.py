@@ -665,6 +665,16 @@ def _enrich_questions_with_ocr_bbox(
             if _extract_digits(b.get("text", ""))
         ]
 
+        # Exclude blocks within question stem area (top-left 30% of q_block)
+        if q_block is not None:
+            qx, qy, qw, qh = q_block["x"], q_block["y"], q_block["w"], q_block["h"]
+            stem_right = qx + qw * 0.3
+            stem_bottom = qy + qh * 0.3
+            digit_blocks = [
+                b for b in digit_blocks
+                if not (b["x"] < stem_right and b["y"] < stem_bottom)
+            ]
+
         best_block = None
         if q_block is not None:
             qx = q_block["x"]
@@ -686,17 +696,18 @@ def _enrich_questions_with_ocr_bbox(
                 elif by >= qy + qh and abs(bx - qx) <= max(qw, 50):
                     if _fuzzy_match_digits(bd, answer_digits):
                         candidates.append((by - (qy + qh), b))
-            if candidates:
-                candidates.sort(key=lambda t: t[0])
+            if len(candidates) == 1:
                 best_block = candidates[0][1]
 
-        # Step 3: fallback — search all digit blocks
+        # Step 3: fallback — search all digit blocks, require unique match
         if best_block is None:
+            fallback_matches = []
             for b in digit_blocks:
                 bd = _extract_digits(b.get("text", ""))
                 if _fuzzy_match_digits(bd, answer_digits):
-                    best_block = b
-                    break
+                    fallback_matches.append(b)
+            if len(fallback_matches) == 1:
+                best_block = fallback_matches[0]
 
         if best_block is not None:
             q["answer_bbox"] = [best_block["x"], best_block["y"], best_block["w"], best_block["h"]]

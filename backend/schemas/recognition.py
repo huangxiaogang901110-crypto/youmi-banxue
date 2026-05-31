@@ -290,6 +290,19 @@ def build_overlay_mark(question: Any) -> RecognitionOverlayMark | None:
     if not _sa:
         return None
     overlay_bbox = normalize_bbox(_get_question_field(question, "answer_bbox"))
+    # Reject oversized bboxes (noise / full-page boxes)
+    if overlay_bbox is not None:
+        qb = normalize_bbox(_get_question_field(question, "bbox"))
+        if qb is not None:
+            qb_area = qb[2] * qb[3]
+            ob_area = overlay_bbox[2] * overlay_bbox[3]
+            # answer_bbox > 3x question area → suspicious
+            if qb_area > 0 and ob_area > qb_area * 3:
+                overlay_bbox = None
+        if overlay_bbox is not None:
+            # answer_bbox > 80% of typical image dimension → suspicious
+            if overlay_bbox[2] > 1024 or overlay_bbox[3] > 1024:
+                overlay_bbox = None
     if overlay_bbox is None:
         if _ic is not True:
             # is_correct=False with no answer_bbox → don't draw (avoid mis-marking stem area)

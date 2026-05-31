@@ -282,3 +282,72 @@ class TestOCRBlockMatching:
         assert result[0]["answer_bbox"] == [70, 12, 20, 18], f"q1: {result[0]['answer_bbox']}"
         assert result[1]["answer_bbox"] == [70, 52, 20, 18], f"q2: {result[1]['answer_bbox']}"
         assert result[2]["answer_bbox"] == [70, 92, 20, 18], f"q3: {result[2]['answer_bbox']}"
+
+
+# ── P1-C-4 补测: ambiguity rejection, stem exclusion, oversized filter ───────
+
+def test_repeated_answer_no_cross_borrow():
+    """两题答案同为"5"，一题缺q_block → 不补answer_bbox（全局fallback歧义拒绝）"""
+    ocr_blocks = [
+        {"x": 10, "y": 10, "w": 50, "h": 20, "text": "2+3="},
+        {"x": 70, "y": 12, "w": 20, "h": 18, "text": "5"},
+        {"x": 10, "y": 50, "w": 50, "h": 20, "text": "1+4="},
+        {"x": 70, "y": 52, "w": 20, "h": 18, "text": "5"},
+    ]
+    questions = [
+        {"question_id": "q1", "question_text": "2+3", "student_answer": "5", "answer_bbox": None},
+        {"question_id": "q2", "question_text": "1+4", "student_answer": "5", "answer_bbox": None},
+    ]
+    result = _enrich_questions_with_ocr_bbox(questions, ocr_blocks)
+    # q2 has no unique match (2 blocks both match "5"), fallback should reject
+    assert result[1]["answer_bbox"] is None, (
+        f"Repeated answer '5' with no q_block should return None (ambiguity), got {result[1]['answer_bbox']}"
+    )
+
+
+def test_multiple_candidates_return_none():
+    """多个OCR block fuzzy match同一student_answer → 返回None（歧义拒绝）"""
+    ocr_blocks = [
+        {"x": 10, "y": 10, "w": 50, "h": 20, "text": "12+34="},
+        {"x": 70, "y": 10, "w": 30, "h": 20, "text": "46"},
+        {"x": 120, "y": 10, "w": 30, "h": 20, "text": "46"},
+    ]
+    questions = [{"question_id": "q1", "question_text": "12+34", "student_answer": "46", "answer_bbox": None}]
+    result = _enrich_questions_with_ocr_bbox(questions, ocr_blocks)
+    assert result[0]["answer_bbox"] is None, (
+        f"Multiple candidates should return None (ambiguity), got {result[0]['answer_bbox']}"
+    )
+
+
+def test_stem_digit_not_matched_as_answer():
+    """题干区含数字块但答案在右侧 → 不把题干块当答案，正确匹配右侧答案块"""
+    ocr_blocks = [
+        {"x": 50, "y": 50, "w": 60, "h": 25, "text": "5+3="},   # stem block
+        {"x": 150, "y": 55, "w": 20, "h": 20, "text": "8"},       # answer block (right side)
+    ]
+    questions = [{"question_id": "q1", "question_text": "5+3=", "student_answer": "8", "answer_bbox": None}]
+    result = _enrich_questions_with_ocr_bbox(questions, ocr_blocks)
+    assert result[0]["answer_bbox"] == [150, 55, 20, 20], (
+        f"Expected answer '8' bbox at right, got {result[0]['answer_bbox']}"
+    )
+
+
+def test_oversized_bbox_not_drawn():
+    """answer_bbox超大(>3x题目面积或>1024px) → overlay不绘制"""
+    from schemas.recognition import RecognitionQuestionContract
+    # Case 1: answer_bbox area > 3x question area
+    q = RecognitionQuestionContract(
+        question_id="q1", question_number=1, question_text="1+1=",
+        bbox=[10, 10, 200, 80],  # area=16000
+        answer_bbox=[10, 10, 220, 220],  # area=48400 > 3*16000=48000
+        is_correct=False, student_answer="2", source="test",
+    )
+    assert build_overlay_mark(q) is None, "Oversized answer_bbox (>3x q area) should not draw"
+    # Case 2: answer_bbox width > 1024
+    q2 = RecognitionQuestionContract(
+        question_id="q2", question_number=2, question_text="2+2=",
+        bbox=[10, 10, 200, 80],
+        answer_bbox=[0, 0, 1100, 20],  # width > 1024
+        is_correct=False, student_answer="4", source="test",
+    )
+    assert build_overlay_mark(q2) is None, "Oversized answer_bbox (width > 1024) should not draw"
