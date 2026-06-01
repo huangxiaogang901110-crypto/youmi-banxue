@@ -531,8 +531,6 @@ def init():
         except Exception as e:
             print(f"[db] PG init 异常（不影响 SQLite）: {e}")
 
-    seed_default_pricing()
-
 
 # ═══════════════════════════════════════════════════════════════
 # Phase 0 存量操作（保持兼容）
@@ -1199,33 +1197,11 @@ def get_active_pricing(provider: str, model_name: str) -> dict | None:
 
 
 def seed_default_pricing():
-    """初始化默认基准价格（仅当 model_price_snapshots 表无 active 记录时插入）。
-    ⚠️ 基准价格，实际以厂商报价单为准；外部 Agent 可随时更新。
+    """初始化默认价格。
+    ⚠️ 价格由外部 Agent 每日巡查模型厂商后填入，此处不做硬编码。
+    仅创建表结构，不插入种子数据。
     """
-    import uuid as _uuid
-    from datetime import datetime as _dt
-    now = _dt.utcnow().isoformat()
-    c = _conn()
-    existing = c.execute(
-        "SELECT COUNT(*) FROM model_price_snapshots WHERE is_active=1"
-    ).fetchone()[0]
-    if existing == 0:
-        # 基准价格，实际以厂商报价单为准
-        defaults = [
-            # (provider, model_name, input_price_per_1m, output_price_per_1m)
-            ("aliyun_dashscope", "qwen-vl-max", 3.0, 9.0),   # qwen-vl-max 官方定价约 3/9 CNY per 1M tokens
-            ("aliyun_ocr", "ocr_general", 0.0, 0.0),          # OCR 按次计费，credit_cost=0.004
-        ]
-        for provider, model, in_p, out_p in defaults:
-            c.execute(
-                "INSERT INTO model_price_snapshots "
-                "(id, provider, model_name, input_price_per_1m, output_price_per_1m, "
-                "currency, effective_from, is_active, created_at, updated_at) "
-                "VALUES (?,?,?,?,?,?,?,1,?,?)",
-                (_uuid.uuid4().hex[:16], provider, model, in_p, out_p, "CNY", now, now, now),
-            )
-        c.commit()
-    c.close()
+    pass  # 价格由外部 Agent 维护，不硬编码
 
 
 def get_homework_days(child_id: str) -> list[dict]:
