@@ -631,7 +631,13 @@ def _classify_layout(q_block: dict) -> str:
     return "unknown"
 
 
-def _build_question_cell(q_block: dict, layout: str, img_w: int, img_h: int) -> dict:
+def _build_question_cell(
+    q_block: dict,
+    layout: str,
+    img_w: int,
+    img_h: int,
+    next_q_top: float | None = None,
+) -> dict:
     """Build a question-local search cell based on the OCR anchor block and layout type."""
     qx = q_block.get("x", 0)
     qy = q_block.get("y", 0)
@@ -646,7 +652,10 @@ def _build_question_cell(q_block: dict, layout: str, img_w: int, img_h: int) -> 
         x = max(0, qx - 80)
         y = qy
         x2 = min(img_w, qx + qw + 80)
-        y2 = min(img_h, qy + qh + 400)
+        if next_q_top is not None:
+            y2 = min(img_h, qy + qh + 400, next_q_top)
+        else:
+            y2 = min(img_h, qy + qh + 400)
     else:  # unknown
         x = qx + qw
         y = qy
@@ -746,7 +755,38 @@ def _enrich_questions_with_ocr_bbox(
 
         # Step 3: classify layout, build cell, find answer within cell
         layout = _classify_layout(q_block)
-        cell = _build_question_cell(q_block, layout, image_width, image_height)
+
+        # For vertical layout: find nearest q_block below in the same column to clamp cell bottom
+        next_q_top: float | None = None
+        if layout == "vertical":
+            qx2_self = qx + qw
+            best_y: float | None = None
+            for other_q in questions:
+                other_block = None
+                other_text = (other_q.get("question_text") or "").replace(" ", "").rstrip("=")
+                if not other_text:
+                    continue
+                for block in ocr_blocks:
+                    if other_text in block.get("text", "").replace(" ", "").rstrip("="):
+                        other_block = block
+                        break
+                if other_block is None:
+                    continue
+                oy = other_block.get("y", 0)
+                ox = other_block.get("x", 0)
+                ox2 = ox + other_block.get("w", 0)
+                # Must be strictly below current question
+                if oy <= qy:
+                    continue
+                # x-axis overlap: intervals [qx, qx2_self] and [ox, ox2] overlap, or centers within 200px
+                x_overlap = ox < qx2_self and ox2 > qx
+                center_close = abs((qx + qx2_self) / 2 - (ox + ox2) / 2) < 200
+                if x_overlap or center_close:
+                    if best_y is None or oy < best_y:
+                        best_y = oy
+            next_q_top = best_y
+
+        cell = _build_question_cell(q_block, layout, image_width, image_height, next_q_top)
         best_block = _find_answer_in_cell(cell, digit_blocks, layout, answer_digits, q_block)
 
         # Oversized safety gate: reject answer_bbox > 3x question area or > 1024px
