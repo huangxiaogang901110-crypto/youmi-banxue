@@ -123,20 +123,25 @@ export default function GradingOverlay({ marks, groups, imageUrl }: Props) {
             }
 
             if (isWrong) {
-              // 红圈 — 只圈 answer_bbox
+              // 红圈 — 只圈 answer_bbox，外扩 8px
+              const pad = 8;
+              const pw = m.mark_bbox[2] + pad * 2;
+              const ph = m.mark_bbox[3] + pad * 2;
+              const tickLeft = parseFloat(pos.left) - (pad / dims.dw) * 100;
+              const tickTop = parseFloat(pos.top) - (pad / dims.dh) * 100;
               return (
-                <div key={m.question_id} className="absolute pointer-events-none" style={pos}>
+                <div key={m.question_id} className="absolute pointer-events-none" style={{ left: `${tickLeft}%`, top: `${tickTop}%`, width: `${(pw / dims.dw) * 100}%`, height: `${(ph / dims.dh) * 100}%` }}>
                   <svg
                     width="100%"
                     height="100%"
-                    viewBox={`0 0 ${m.mark_bbox[2]} ${m.mark_bbox[3]}`}
+                    viewBox={`0 0 ${pw} ${ph}`}
                     preserveAspectRatio="none"
                   >
                     <ellipse
-                      cx={m.mark_bbox[2] / 2}
-                      cy={m.mark_bbox[3] / 2}
-                      rx={m.mark_bbox[2] / 2 - 2}
-                      ry={m.mark_bbox[3] / 2 - 2}
+                      cx={pw / 2}
+                      cy={ph / 2}
+                      rx={pw / 2 - 2}
+                      ry={ph / 2 - 2}
                       stroke="#ef4444"
                       strokeWidth="3"
                       fill="none"
