@@ -91,12 +91,6 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         default=None,
         help="Optional Qwen timeout override. Applied only during --run-real.",
     )
-    parser.add_argument(
-        "--call-source",
-        type=str,
-        default=SAFE_CALL_SOURCE,
-        help=f"call_source tag written to YOMICALL_SOURCE. Defaults to '{SAFE_CALL_SOURCE}'.",
-    )
     parser.add_argument("--output-json", type=Path, default=None)
     parser.add_argument("--output-md", type=Path, default=None)
     args = parser.parse_args(argv)
@@ -451,7 +445,7 @@ def make_row(
     }
 
 
-def build_dry_run_row(sample: dict[str, Any], *, db_path: Path, call_source: str) -> dict[str, Any]:
+def build_dry_run_row(sample: dict[str, Any], *, db_path: Path) -> dict[str, Any]:
     skipped_reason = ""
     status = "planned"
     sample_metrics: dict[str, Any] | None = None
@@ -478,7 +472,7 @@ def build_dry_run_row(sample: dict[str, Any], *, db_path: Path, call_source: str
         skipped_reason=skipped_reason,
         dry_run=True,
         run_real=False,
-        call_source=call_source,
+        call_source=SAFE_CALL_SOURCE,
         db_path=db_path,
     )
 
@@ -528,8 +522,8 @@ def _inject_ocr_env(*, quiet: bool = False) -> dict[str, str]:
     return status
 
 
-def configure_real_runtime(db_path: Path, call_source: str) -> tuple[Any, Any]:
-    os.environ["YOMICALL_SOURCE"] = call_source
+def configure_real_runtime(db_path: Path) -> tuple[Any, Any]:
+    os.environ["YOMICALL_SOURCE"] = SAFE_CALL_SOURCE
     _inject_ocr_env()
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -660,8 +654,8 @@ def query_model_call_stats(db_path: Path, job_id: str) -> dict[str, Any]:
     }
 
 
-def execute_real_sample(sample: dict[str, Any], *, db_path: Path, call_source: str) -> dict[str, Any]:
-    db_module, pipeline_module = configure_real_runtime(db_path, call_source)
+def execute_real_sample(sample: dict[str, Any], *, db_path: Path) -> dict[str, Any]:
+    db_module, pipeline_module = configure_real_runtime(db_path)
     jid = uuid.uuid4().hex[:12]
     now = utc_now()
     enqueue_job(pipeline_module, db_module, jid=jid, filename=sample["filename"], now=now)
@@ -703,7 +697,7 @@ def execute_real_sample(sample: dict[str, Any], *, db_path: Path, call_source: s
         skipped_reason="",
         dry_run=False,
         run_real=True,
-        call_source=call_source,
+        call_source=SAFE_CALL_SOURCE,
         db_path=db_path,
     )
 
@@ -758,12 +752,11 @@ def build_report(
     db_path: Path,
     env_state: dict[str, str] | None,
     qwen_timeout_seconds: int | None,
-    call_source: str,
 ) -> dict[str, Any]:
     rows: list[dict[str, Any]] = []
     for sample in samples:
         if dry_run:
-            rows.append(build_dry_run_row(sample, db_path=db_path, call_source=call_source))
+            rows.append(build_dry_run_row(sample, db_path=db_path))
             continue
         if not sample["image_exists"]:
             rows.append(
@@ -777,13 +770,13 @@ def build_report(
                     skipped_reason="missing_image",
                     dry_run=False,
                     run_real=True,
-                    call_source=call_source,
+                    call_source=SAFE_CALL_SOURCE,
                     db_path=db_path,
                 )
             )
             continue
         try:
-            rows.append(execute_real_sample(sample, db_path=db_path, call_source=call_source))
+            rows.append(execute_real_sample(sample, db_path=db_path))
         except Exception as exc:  # pragma: no cover - defensive real-run wrapper
             rows.append(
                 make_row(
@@ -796,7 +789,7 @@ def build_report(
                     skipped_reason=f"worker_error:{exc.__class__.__name__}",
                     dry_run=False,
                     run_real=True,
-                    call_source=call_source,
+                    call_source=SAFE_CALL_SOURCE,
                     db_path=db_path,
                 )
             )
@@ -807,7 +800,7 @@ def build_report(
             **manifest_summary,
             "sample_dir": str(samples[0]["image_path"].parent) if samples else str(DEFAULT_SAMPLE_DIR),
             "effective_limit": len(samples),
-            "call_source": call_source,
+            "call_source": SAFE_CALL_SOURCE,
             "db_path": str(db_path),
             "env": env_state if env_state is not None else "skipped",
             "run_real": run_real,
@@ -934,7 +927,6 @@ def run(argv: Sequence[str] | None = None) -> dict[str, Any]:
     limit = normalize_limit(args.limit)
     sample_ids = normalize_sample_ids(args.sample_ids)
     qwen_timeout_seconds = normalize_qwen_timeout_seconds(args.qwen_timeout_seconds)
-    call_source = args.call_source or SAFE_CALL_SOURCE
     db_path = guard_db_path(args.db_path)
     samples, manifest_summary = select_manifest_samples(
         args.sample_dir,
@@ -956,7 +948,6 @@ def run(argv: Sequence[str] | None = None) -> dict[str, Any]:
             db_path=db_path,
             env_state=env_state,
             qwen_timeout_seconds=qwen_timeout_seconds,
-            call_source=call_source,
         )
     write_json_report(args.output_json, report)
     write_markdown_report(args.output_md, report)
