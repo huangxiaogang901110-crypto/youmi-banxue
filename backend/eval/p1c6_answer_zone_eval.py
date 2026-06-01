@@ -28,9 +28,9 @@ FIXTURES = [
         "db_path": "/tmp/p1coverlayreal2.db",
         "image_size": (1280, 1280),
     },
-    # Skeleton fixtures — NEEDS_REAL_DATA
-    # {"name": "horizontal_math", "layout_type": "horizontal", "db_path": None, "image_size": (1280, 1280)},
-    # {"name": "multi_column_dense", "layout_type": "unknown", "db_path": None, "image_size": (1280, 1280)},
+    # Synthetic fixtures — geometry-only, no real model data
+    {"name": "horizontal_math_synth", "layout_type": "horizontal", "db_path": "/tmp/p1c6_horizontal_synth.db", "image_size": (800, 600), "synthetic": True},
+    {"name": "multi_column_dense_synth", "layout_type": "unknown", "db_path": "/tmp/p1c6_multicolumn_synth.db", "image_size": (800, 600), "synthetic": True},
 ]
 
 # ── Core Logic ──
@@ -188,15 +188,13 @@ def evaluate_fixture(fixture: dict) -> dict:
         "rejected": defaultdict(int),
         "cross_cell_suspected": 0,
         "per_question": [],
+        "_answered": [],
     }
 
     # Build digit block index (exclude stem area later per-question)
     all_digit_blocks = [
         b for b in ocr_blocks if _extract_digits(b.get("text", ""))
     ]
-
-    # Track answer_digits → question_ids for cross-cell check
-    answer_to_questions = defaultdict(list)
 
     for q_raw in questions_raw:
         q = dict(q_raw)
@@ -241,8 +239,12 @@ def evaluate_fixture(fixture: dict) -> dict:
             continue
         stats["answer_found"] += 1
 
-        # Track for cross-cell check
-        answer_to_questions[ad].append(q.get("question_id", "?"))
+        # Track zone + bbox for cross-cell check (bbox-in-zone based)
+        stats["_answered"].append({
+            "question_id": q.get("question_id"),
+            "zone": zone,
+            "bbox": [best["x"], best["y"], best["w"], best["h"]],
+        })
 
         stats["per_question"].append({
             "question_id": q.get("question_id"),
@@ -250,11 +252,18 @@ def evaluate_fixture(fixture: dict) -> dict:
             "bbox": [best["x"], best["y"], best["w"], best["h"]],
         })
 
-    # Cross-cell check
-    for ad, qids in answer_to_questions.items():
-        if len(qids) > 1:
-            # Check if multiple questions found the SAME answer digits in different zones
-            stats["cross_cell_suspected"] += len(qids) - 1
+    # Cross-cell check: bbox-in-zone based
+    # A question's answer bbox is suspected of cross-cell borrowing
+    # only if it falls inside another question's answer zone.
+    for i, a in enumerate(stats.get("_answered", [])):
+        ax, ay, aw, ah = a["bbox"]
+        for j, b in enumerate(stats["_answered"]):
+            if i == j:
+                continue
+            zx, zy, zw, zh = b["zone"]["x"], b["zone"]["y"], b["zone"]["w"], b["zone"]["h"]
+            if zx <= ax < zx + zw and zy <= ay < zy + zh:
+                stats["cross_cell_suspected"] += 1
+                break  # each question counted at most once
 
     return stats
 
