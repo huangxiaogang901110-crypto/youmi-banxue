@@ -99,7 +99,7 @@ export default function GradingOverlay({ marks, groups, imageUrl }: Props) {
 
             if (isCorrect) {
               // 绿色对勾 — 落在 answer_bbox 右下角
-              const tickSize = 18;
+              const tickSize = 32;
               const tickLeft = parseFloat(pos.left) + parseFloat(pos.width) - (tickSize / dims.dw) * 100;
               const tickTop = parseFloat(pos.top) + parseFloat(pos.height) - (tickSize / dims.dh) * 100;
               return (
@@ -108,11 +108,11 @@ export default function GradingOverlay({ marks, groups, imageUrl }: Props) {
                   className="absolute pointer-events-none"
                   style={{ left: `${tickLeft}%`, top: `${tickTop}%` }}
                 >
-                  <svg width={tickSize} height={tickSize} viewBox="0 0 18 18">
+                  <svg width={tickSize} height={tickSize} viewBox="0 0 32 32">
                     <path
                       d="M3 9 l4 4 l8 -8"
                       stroke="#22c55e"
-                      strokeWidth="2.5"
+                      strokeWidth="6"
                       fill="none"
                       strokeLinecap="round"
                       strokeLinejoin="round"
@@ -138,7 +138,7 @@ export default function GradingOverlay({ marks, groups, imageUrl }: Props) {
                       rx={m.mark_bbox[2] / 2 - 2}
                       ry={m.mark_bbox[3] / 2 - 2}
                       stroke="#ef4444"
-                      strokeWidth="2"
+                      strokeWidth="3"
                       fill="none"
                     />
                   </svg>
