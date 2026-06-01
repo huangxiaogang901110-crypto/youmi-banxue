@@ -594,6 +594,14 @@ def _build_test_mode_questions(jid: str) -> list[Question]:
 
 # ── OCR bbox enrichment for Qwen-VL questions ────────────────────────────────
 
+LAYOUT_PARAMS = {
+    "vertical":   {"conservative_depth": 250, "min_zone_height": 60, "margin": 4},
+    "horizontal": {"conservative_depth": 120, "min_zone_height": 20, "margin": 2},
+    "unknown":    {"conservative_depth": 180, "min_zone_height": 30, "margin": 2},
+}
+COL_TOLERANCE = 150  # px, center_x distance for same-column判定
+
+
 def _extract_digits(text: str) -> str:
     return "".join(c for c in str(text) if c.isdigit())
 
@@ -631,55 +639,112 @@ def _classify_layout(q_block: dict) -> str:
     return "unknown"
 
 
-def _build_question_cell(
-    q_block: dict,
-    layout: str,
-    img_w: int,
-    img_h: int,
-    next_q_top: float | None = None,
-) -> dict:
-    """Build a question-local search cell based on the OCR anchor block and layout type."""
-    qx = q_block.get("x", 0)
-    qy = q_block.get("y", 0)
-    qw = q_block.get("w", 0)
-    qh = q_block.get("h", 0)
-    if layout == "horizontal":
-        x = qx + qw
-        y = max(0, qy - 60)
-        x2 = min(img_w, x + 250)
-        y2 = min(img_h, qy + qh + 60)
-    elif layout == "vertical":
-        x = max(0, qx - 80)
-        y = qy
-        x2 = min(img_w, qx + qw + 80)
-        if next_q_top is not None:
-            y2 = min(img_h, qy + qh + 400, next_q_top)
-        else:
-            y2 = min(img_h, qy + qh + 400)
-    else:  # unknown
-        x = qx + qw
-        y = qy
-        x2 = min(img_w, x + 200)
-        y2 = min(img_h, qy + qh + 300)
-    return {"x": int(x), "y": int(y), "w": int(x2 - x), "h": int(y2 - y)}
+def _is_expression_block(text: str) -> bool:
+    """Anchor block must contain arithmetic operators, not be pure digits."""
+    return any(c in text for c in "+-x*X/÷=")
 
 
-def _find_answer_in_cell(
-    cell: dict,
-    digit_blocks: list,
-    layout: str,
-    answer_digits: str,
-    q_block: dict | None = None,
+def find_question_anchor(question_text: str, ocr_blocks: list) -> dict | None:
+    """Find OCR block containing question_text (must contain operator, not pure digits)."""
+    q_clean = question_text.replace(" ", "").rstrip("=")
+    if not q_clean:
+        return None
+    for b in ocr_blocks:
+        bt = b.get("text", "").replace(" ", "").rstrip("=")
+        if q_clean in bt and _is_expression_block(bt):
+            return b
+    return None
+
+
+def find_next_in_column(
+    current_anchor: dict,
+    all_questions: list,
+    ocr_blocks: list,
+    col_tolerance: int = COL_TOLERANCE,
 ) -> dict | None:
-    """Find the answer block within the question cell only — no global fallback."""
-    cx, cy, cw, ch = cell["x"], cell["y"], cell["w"], cell["h"]
+    """Find next question anchor in same column (strictly below current)."""
+    ax, ay, aw, ah = current_anchor["x"], current_anchor["y"], current_anchor["w"], current_anchor["h"]
+    ax2 = ax + aw
+    cx = ax + aw / 2
+
+    best_anchor = None
+    best_y = None
+
+    for q in all_questions:
+        qt = (q.get("question_text") or "").replace(" ", "").rstrip("=")
+        if not qt:
+            continue
+        other = find_question_anchor(qt, ocr_blocks)
+        if other is None:
+            continue
+        if other["y"] <= ay:
+            continue
+        if other["x"] == ax and other["y"] == ay:
+            continue
+
+        ox, ow = other["x"], other["w"]
+        ox2 = ox + ow
+        ocx = ox + ow / 2
+
+        x_overlap = ox < ax2 and ox2 > ax
+        center_near = abs(cx - ocx) < col_tolerance
+
+        if x_overlap or center_near:
+            if best_y is None or other["y"] < best_y:
+                best_y = other["y"]
+                best_anchor = other
+
+    return best_anchor
+
+
+def build_answer_zone(
+    anchor: dict,
+    next_anchor: dict | None,
+    layout: str,
+    img_w: int = 1280,
+    img_h: int = 1280,
+) -> dict | None:
+    """Build answer zone bbox. Returns None if zone too short (low confidence)."""
+    params = LAYOUT_PARAMS.get(layout, LAYOUT_PARAMS["unknown"])
+    ax, ay, aw, ah = anchor["x"], anchor["y"], anchor["w"], anchor["h"]
+
+    x1 = max(0, ax - 120)
+    x2 = min(img_w, ax + aw + 120)
+    y1 = ay  # start at anchor top (answer block may overlap anchor vertically)
+
+    if next_anchor is not None:
+        y2 = next_anchor["y"] - params["margin"]
+    else:
+        y2 = min(img_h, ay + params["conservative_depth"])
+
+    zone_h = y2 - y1
+    if zone_h < params["min_zone_height"]:
+        return None  # Low confidence — reject
+
+    return {"x": int(x1), "y": int(y1), "w": int(x2 - x1), "h": int(zone_h)}
+
+
+def find_answer_in_zone(
+    zone: dict,
+    digit_blocks: list,
+    answer_digits: str,
+    layout: str,
+    anchor: dict | None = None,
+) -> dict | None:
+    """Find best answer block within zone. Uses fuzzy digit match."""
+    if not answer_digits:
+        return None
+
+    zx, zy, zw, zh = zone["x"], zone["y"], zone["w"], zone["h"]
+
     candidates = [
         b for b in digit_blocks
-        if (cx <= b["x"] < cx + cw and cy <= b["y"] < cy + ch
+        if (zx <= b["x"] < zx + zw and zy <= b["y"] < zy + zh
             and _fuzzy_match_digits(_extract_digits(b.get("text", "")), answer_digits))
     ]
     if not candidates:
         return None
+
     if layout == "vertical":
         return max(candidates, key=lambda b: b["y"])
     if layout == "horizontal":
@@ -687,14 +752,12 @@ def _find_answer_in_cell(
         tied = [b for b in candidates if b["x"] == max_x]
         if len(tied) == 1:
             return tied[0]
-        # Tiebreak: closest y to q_block y-center
-        q_center_y = (q_block.get("y", 0) + q_block.get("h", 0) / 2) if q_block else 0
-        return min(tied, key=lambda b: abs(b["y"] - q_center_y))
-    # unknown: single candidate → accept; multiple → pick closest Manhattan to q_block center
+        q_cy = (anchor["y"] + anchor["h"] / 2) if anchor else 0
+        return min(tied, key=lambda b: abs(b["y"] - q_cy))
     if len(candidates) == 1:
         return candidates[0]
-    qcx = (q_block.get("x", 0) + q_block.get("w", 0) / 2) if q_block else 0
-    qcy = (q_block.get("y", 0) + q_block.get("h", 0) / 2) if q_block else 0
+    qcx = (anchor["x"] + anchor["w"] / 2) if anchor else 0
+    qcy = (anchor["y"] + anchor["h"] / 2) if anchor else 0
     return min(candidates, key=lambda b: abs(b["x"] - qcx) + abs(b["y"] - qcy))
 
 
@@ -707,10 +770,11 @@ def _enrich_questions_with_ocr_bbox(
 ) -> list:
     """为 Qwen 提取的题目补充 answer_bbox，从 OCR blocks 中匹配。
 
-    使用 question cell 局部匹配策略（不做全局搜索）：
-    1. 在 OCR blocks 中找包含 question_text 的锚点块
-    2. 根据宽高比分类布局（horizontal/vertical/unknown）并生成题目专属 cell
-    3. 在 cell 内寻找包含 student_answer 数字的块，按布局取最优候选
+    使用 answer zone 策略（Phase B）：
+    1. find_question_anchor — 必须含运算符，不能纯数字
+    2. find_next_in_column — 找同列下一题锚点构建 zone 边界
+    3. build_answer_zone — 按布局参数构建 answer zone
+    4. find_answer_in_zone — 在 zone 内按布局取最优候选
     """
     result = []
     for q in questions:
@@ -726,80 +790,47 @@ def _enrich_questions_with_ocr_bbox(
             continue
 
         question_text = q.get("question_text") or ""
-        q_text_clean = question_text.replace(" ", "").rstrip("=")
 
-        # Step 1: find question anchor block in OCR
-        q_block = None
-        if q_text_clean:
-            for block in ocr_blocks:
-                block_text = block.get("text", "").replace(" ", "").rstrip("=")
-                if q_text_clean in block_text:
-                    q_block = block
-                    break
-
-        # No anchor block → skip (no global fallback)
-        if q_block is None:
+        # Step 1: find question anchor (must contain operator, not pure digits)
+        anchor = find_question_anchor(question_text, ocr_blocks)
+        if anchor is None:
             result.append(q)
             continue
 
-        qx, qy, qw, qh = q_block["x"], q_block["y"], q_block["w"], q_block["h"]
+        ax, ay, aw, ah = anchor["x"], anchor["y"], anchor["w"], anchor["h"]
 
-        # Step 2: build candidate digit blocks, excluding stem area (top-left 30% of q_block)
-        stem_right = qx + qw * 0.3
-        stem_bottom = qy + qh * 0.3
+        # Step 2: stem exclusion for digit_blocks
+        stem_right = ax + aw * 0.3
+        stem_bottom = ay + ah * 0.3
         digit_blocks = [
             b for b in ocr_blocks
             if _extract_digits(b.get("text", ""))
             and not (b["x"] < stem_right and b["y"] < stem_bottom)
         ]
 
-        # Step 3: classify layout, build cell, find answer within cell
-        layout = _classify_layout(q_block)
+        # Step 3: classify layout, find next column anchor, build zone
+        layout = _classify_layout(anchor)
+        next_anchor = find_next_in_column(anchor, questions, ocr_blocks, COL_TOLERANCE)
+        zone = build_answer_zone(anchor, next_anchor, layout, image_width, image_height)
 
-        # For vertical layout: find nearest q_block below in the same column to clamp cell bottom
-        next_q_top: float | None = None
-        if layout == "vertical":
-            qx2_self = qx + qw
-            best_y: float | None = None
-            for other_q in questions:
-                other_block = None
-                other_text = (other_q.get("question_text") or "").replace(" ", "").rstrip("=")
-                if not other_text:
-                    continue
-                for block in ocr_blocks:
-                    if other_text in block.get("text", "").replace(" ", "").rstrip("="):
-                        other_block = block
-                        break
-                if other_block is None:
-                    continue
-                oy = other_block.get("y", 0)
-                ox = other_block.get("x", 0)
-                ox2 = ox + other_block.get("w", 0)
-                # Must be strictly below current question
-                if oy <= qy:
-                    continue
-                # x-axis overlap: intervals [qx, qx2_self] and [ox, ox2] overlap, or centers within 200px
-                x_overlap = ox < qx2_self and ox2 > qx
-                center_close = abs((qx + qx2_self) / 2 - (ox + ox2) / 2) < 200
-                if x_overlap or center_close:
-                    if best_y is None or oy < best_y:
-                        best_y = oy
-            next_q_top = best_y
+        if zone is None:
+            result.append(q)
+            continue
 
-        cell = _build_question_cell(q_block, layout, image_width, image_height, next_q_top)
-        best_block = _find_answer_in_cell(cell, digit_blocks, layout, answer_digits, q_block)
+        # Step 4: find answer in zone
+        best_block = find_answer_in_zone(zone, digit_blocks, answer_digits, layout, anchor)
 
         # Oversized safety gate: reject answer_bbox > 3x question area or > 1024px
         if best_block is not None:
             bw, bh = best_block.get("w", 0), best_block.get("h", 0)
-            q_area = qw * qh
+            q_area = aw * ah
             if (q_area > 0 and bw * bh > q_area * 3) or bw > 1024 or bh > 1024:
                 best_block = None
 
         if best_block is not None:
             q["answer_bbox"] = [best_block["x"], best_block["y"], best_block["w"], best_block["h"]]
             if q.get("bbox") is None:
-                q["bbox"] = [qx, qy, qw, qh]
+                q["bbox"] = [ax, ay, aw, ah]
 
         result.append(q)
     return result
