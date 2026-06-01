@@ -618,6 +618,77 @@ def _fuzzy_match_digits(ocr_digits: str, answer_digits: str) -> bool:
     return False
 
 
+def _classify_layout(q_block: dict) -> str:
+    """Classify question layout based on OCR block aspect ratio."""
+    w = q_block.get("w", 0)
+    h = q_block.get("h", 0)
+    if h == 0:
+        return "unknown"
+    if w > h * 1.5:
+        return "horizontal"
+    if h > w * 1.5:
+        return "vertical"
+    return "unknown"
+
+
+def _build_question_cell(q_block: dict, layout: str, img_w: int, img_h: int) -> dict:
+    """Build a question-local search cell based on the OCR anchor block and layout type."""
+    qx = q_block.get("x", 0)
+    qy = q_block.get("y", 0)
+    qw = q_block.get("w", 0)
+    qh = q_block.get("h", 0)
+    if layout == "horizontal":
+        x = qx + qw
+        y = max(0, qy - 60)
+        x2 = min(img_w, x + 250)
+        y2 = min(img_h, qy + qh + 60)
+    elif layout == "vertical":
+        x = max(0, qx - 80)
+        y = qy
+        x2 = min(img_w, qx + qw + 80)
+        y2 = min(img_h, qy + qh + 400)
+    else:  # unknown
+        x = qx + qw
+        y = qy
+        x2 = min(img_w, x + 200)
+        y2 = min(img_h, qy + qh + 300)
+    return {"x": int(x), "y": int(y), "w": int(x2 - x), "h": int(y2 - y)}
+
+
+def _find_answer_in_cell(
+    cell: dict,
+    digit_blocks: list,
+    layout: str,
+    answer_digits: str,
+    q_block: dict | None = None,
+) -> dict | None:
+    """Find the answer block within the question cell only — no global fallback."""
+    cx, cy, cw, ch = cell["x"], cell["y"], cell["w"], cell["h"]
+    candidates = [
+        b for b in digit_blocks
+        if (cx <= b["x"] < cx + cw and cy <= b["y"] < cy + ch
+            and _fuzzy_match_digits(_extract_digits(b.get("text", "")), answer_digits))
+    ]
+    if not candidates:
+        return None
+    if layout == "vertical":
+        return max(candidates, key=lambda b: b["y"])
+    if layout == "horizontal":
+        max_x = max(b["x"] for b in candidates)
+        tied = [b for b in candidates if b["x"] == max_x]
+        if len(tied) == 1:
+            return tied[0]
+        # Tiebreak: closest y to q_block y-center
+        q_center_y = (q_block.get("y", 0) + q_block.get("h", 0) / 2) if q_block else 0
+        return min(tied, key=lambda b: abs(b["y"] - q_center_y))
+    # unknown: single candidate → accept; multiple → pick closest Manhattan to q_block center
+    if len(candidates) == 1:
+        return candidates[0]
+    qcx = (q_block.get("x", 0) + q_block.get("w", 0) / 2) if q_block else 0
+    qcy = (q_block.get("y", 0) + q_block.get("h", 0) / 2) if q_block else 0
+    return min(candidates, key=lambda b: abs(b["x"] - qcx) + abs(b["y"] - qcy))
+
+
 def _enrich_questions_with_ocr_bbox(
     questions: list,
     ocr_blocks: list,
@@ -627,12 +698,11 @@ def _enrich_questions_with_ocr_bbox(
 ) -> list:
     """为 Qwen 提取的题目补充 answer_bbox，从 OCR blocks 中匹配。
 
-    匹配策略（按优先级）：
-    1. 在 OCR blocks 中找包含 question_text 的块 → 获取题目参考坐标
-    2. 在题目参考坐标右侧/下方寻找包含 student_answer 数字的块
-    3. 如果找不到题目参考坐标，直接搜索所有 OCR blocks 中包含 student_answer 的块
+    使用 question cell 局部匹配策略（不做全局搜索）：
+    1. 在 OCR blocks 中找包含 question_text 的锚点块
+    2. 根据宽高比分类布局（horizontal/vertical/unknown）并生成题目专属 cell
+    3. 在 cell 内寻找包含 student_answer 数字的块，按布局取最优候选
     """
-    import copy
     result = []
     for q in questions:
         q = dict(q)
@@ -647,72 +717,49 @@ def _enrich_questions_with_ocr_bbox(
             continue
 
         question_text = q.get("question_text") or ""
-        # clean question_text: remove spaces and trailing '='
         q_text_clean = question_text.replace(" ", "").rstrip("=")
 
-        # Step 1: find question block in OCR
+        # Step 1: find question anchor block in OCR
         q_block = None
         if q_text_clean:
             for block in ocr_blocks:
                 block_text = block.get("text", "").replace(" ", "").rstrip("=")
-                if q_text_clean and q_text_clean in block_text:
+                if q_text_clean in block_text:
                     q_block = block
                     break
 
-        # Step 2: find answer block among OCR blocks with digits
+        # No anchor block → skip (no global fallback)
+        if q_block is None:
+            result.append(q)
+            continue
+
+        qx, qy, qw, qh = q_block["x"], q_block["y"], q_block["w"], q_block["h"]
+
+        # Step 2: build candidate digit blocks, excluding stem area (top-left 30% of q_block)
+        stem_right = qx + qw * 0.3
+        stem_bottom = qy + qh * 0.3
         digit_blocks = [
             b for b in ocr_blocks
             if _extract_digits(b.get("text", ""))
+            and not (b["x"] < stem_right and b["y"] < stem_bottom)
         ]
 
-        # Exclude blocks within question stem area (top-left 30% of q_block)
-        if q_block is not None:
-            qx, qy, qw, qh = q_block["x"], q_block["y"], q_block["w"], q_block["h"]
-            stem_right = qx + qw * 0.3
-            stem_bottom = qy + qh * 0.3
-            digit_blocks = [
-                b for b in digit_blocks
-                if not (b["x"] < stem_right and b["y"] < stem_bottom)
-            ]
+        # Step 3: classify layout, build cell, find answer within cell
+        layout = _classify_layout(q_block)
+        cell = _build_question_cell(q_block, layout, image_width, image_height)
+        best_block = _find_answer_in_cell(cell, digit_blocks, layout, answer_digits, q_block)
 
-        best_block = None
-        if q_block is not None:
-            qx = q_block["x"]
-            qy = q_block["y"]
-            qw = q_block["w"]
-            qh = q_block["h"]
-            # Look for answer to the right (horizontal layout) or below (vertical layout)
-            # Right side: x > qx and within 200px horizontal offset from right edge of q_block
-            # Below: y > qy + qh and x roughly aligned
-            candidates = []
-            for b in digit_blocks:
-                bx, by = b["x"], b["y"]
-                bd = _extract_digits(b.get("text", ""))
-                # right side: bx >= qx+qw (starts after question block) and within 200px
-                if bx >= qx + qw and bx <= qx + qw + 200:
-                    if _fuzzy_match_digits(bd, answer_digits):
-                        candidates.append((abs(by - qy), b))
-                # below: by > qy+qh, x within question x-range ±50px
-                elif by >= qy + qh and abs(bx - qx) <= max(qw, 50):
-                    if _fuzzy_match_digits(bd, answer_digits):
-                        candidates.append((by - (qy + qh), b))
-            if len(candidates) == 1:
-                best_block = candidates[0][1]
-
-        # Step 3: fallback — search all digit blocks, require unique match
-        if best_block is None:
-            fallback_matches = []
-            for b in digit_blocks:
-                bd = _extract_digits(b.get("text", ""))
-                if _fuzzy_match_digits(bd, answer_digits):
-                    fallback_matches.append(b)
-            if len(fallback_matches) == 1:
-                best_block = fallback_matches[0]
+        # Oversized safety gate: reject answer_bbox > 3x question area or > 1024px
+        if best_block is not None:
+            bw, bh = best_block.get("w", 0), best_block.get("h", 0)
+            q_area = qw * qh
+            if (q_area > 0 and bw * bh > q_area * 3) or bw > 1024 or bh > 1024:
+                best_block = None
 
         if best_block is not None:
             q["answer_bbox"] = [best_block["x"], best_block["y"], best_block["w"], best_block["h"]]
-            if q.get("bbox") is None and q_block is not None:
-                q["bbox"] = [q_block["x"], q_block["y"], q_block["w"], q_block["h"]]
+            if q.get("bbox") is None:
+                q["bbox"] = [qx, qy, qw, qh]
 
         result.append(q)
     return result

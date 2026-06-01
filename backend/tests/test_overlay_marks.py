@@ -75,26 +75,13 @@ def test_no_mark_for_null_grading():
 
 
 def test_correct_mark_without_answer_bbox():
-    """is_correct=True with no answer_bbox → small green tick anchored at bottom-right of question.bbox."""
-    qbbox = [10.0, 20.0, 200.0, 80.0]  # right-bottom corner at (210, 100)
+    """is_correct=True with no answer_bbox → None (P1-C-5: no anchor drawn without bbox evidence)."""
+    qbbox = [10.0, 20.0, 200.0, 80.0]
     q = _make_q(is_correct=True, bbox=qbbox, answer_bbox=None, student_answer="2")
 
     mark = build_overlay_mark(q)
 
-    assert mark is not None, "Expected a mark for is_correct=True even without answer_bbox"
-    assert mark.mark_type == "correct"
-    mb = mark.mark_bbox
-    assert mb is not None and len(mb) == 4, f"mark_bbox must be a 4-element list, got {mb}"
-    # mark must be small (well under the full question bbox size)
-    assert mb[2] <= 80 and mb[3] <= 80, f"mark must be small, got w={mb[2]} h={mb[3]}"
-    # right edge of mark must be at or before the right edge of question.bbox
-    assert mb[0] + mb[2] <= qbbox[0] + qbbox[2] + 1, (
-        f"mark right edge {mb[0]+mb[2]} must be within question right edge {qbbox[0]+qbbox[2]}"
-    )
-    # bottom edge of mark must be at or before the bottom edge of question.bbox
-    assert mb[1] + mb[3] <= qbbox[1] + qbbox[3] + 1, (
-        f"mark bottom edge {mb[1]+mb[3]} must be within question bottom edge {qbbox[1]+qbbox[3]}"
-    )
+    assert mark is None, "Expected None for is_correct=True without answer_bbox (P1-C-5)"
 
 
 def test_no_incorrect_mark_without_answer_bbox():
@@ -138,17 +125,13 @@ def test_no_mark_when_no_student_answer_true_with_bbox():
 
 
 def test_mark_when_has_student_answer_true_no_bbox():
-    """Has student_answer + is_correct=True + no answer_bbox → 40×40 green tick at bottom-right."""
+    """Has student_answer + is_correct=True + no answer_bbox → None (P1-C-5)."""
     qbbox = [10.0, 20.0, 200.0, 80.0]
     q = _make_q(is_correct=True, bbox=qbbox, answer_bbox=None, student_answer="2")
 
     mark = build_overlay_mark(q)
 
-    assert mark is not None, "Expected a mark when student_answer is set and is_correct=True"
-    assert mark.mark_type == "correct"
-    mb = mark.mark_bbox
-    assert mb is not None and len(mb) == 4
-    assert mb[2] == 40.0 and mb[3] == 40.0, f"Expected 40×40 fallback tick, got {mb[2]}×{mb[3]}"
+    assert mark is None, "Expected None when student_answer is set but answer_bbox is missing (P1-C-5)"
 
 
 def test_mark_when_has_student_answer_false_with_bbox():
@@ -287,7 +270,7 @@ class TestOCRBlockMatching:
 # ── P1-C-4 补测: ambiguity rejection, stem exclusion, oversized filter ───────
 
 def test_repeated_answer_no_cross_borrow():
-    """两题答案同为"5"，一题缺q_block → 不补answer_bbox（全局fallback歧义拒绝）"""
+    """Cell-based matching: each question picks the "5" closest to its own y-center."""
     ocr_blocks = [
         {"x": 10, "y": 10, "w": 50, "h": 20, "text": "2+3="},
         {"x": 70, "y": 12, "w": 20, "h": 18, "text": "5"},
@@ -299,14 +282,17 @@ def test_repeated_answer_no_cross_borrow():
         {"question_id": "q2", "question_text": "1+4", "student_answer": "5", "answer_bbox": None},
     ]
     result = _enrich_questions_with_ocr_bbox(questions, ocr_blocks)
-    # q2 has no unique match (2 blocks both match "5"), fallback should reject
-    assert result[1]["answer_bbox"] is None, (
-        f"Repeated answer '5' with no q_block should return None (ambiguity), got {result[1]['answer_bbox']}"
+    # q1 (y-center≈20) picks "5" at y=12; q2 (y-center≈60) picks "5" at y=52
+    assert result[0]["answer_bbox"] == [70, 12, 20, 18], (
+        f"q1: expected [70,12,20,18], got {result[0]['answer_bbox']}"
+    )
+    assert result[1]["answer_bbox"] == [70, 52, 20, 18], (
+        f"q2: expected [70,52,20,18], got {result[1]['answer_bbox']}"
     )
 
 
-def test_multiple_candidates_return_none():
-    """多个OCR block fuzzy match同一student_answer → 返回None（歧义拒绝）"""
+def test_multiple_candidates_rightmost_wins():
+    """Cell-based horizontal: 2 candidates in cell → take rightmost x."""
     ocr_blocks = [
         {"x": 10, "y": 10, "w": 50, "h": 20, "text": "12+34="},
         {"x": 70, "y": 10, "w": 30, "h": 20, "text": "46"},
@@ -314,8 +300,8 @@ def test_multiple_candidates_return_none():
     ]
     questions = [{"question_id": "q1", "question_text": "12+34", "student_answer": "46", "answer_bbox": None}]
     result = _enrich_questions_with_ocr_bbox(questions, ocr_blocks)
-    assert result[0]["answer_bbox"] is None, (
-        f"Multiple candidates should return None (ambiguity), got {result[0]['answer_bbox']}"
+    assert result[0]["answer_bbox"] == [120, 10, 30, 20], (
+        f"Rightmost '46' (x=120) should win, got {result[0]['answer_bbox']}"
     )
 
 

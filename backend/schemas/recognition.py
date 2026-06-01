@@ -304,15 +304,8 @@ def build_overlay_mark(question: Any) -> RecognitionOverlayMark | None:
             if overlay_bbox[2] > 1024 or overlay_bbox[3] > 1024:
                 overlay_bbox = None
     if overlay_bbox is None:
-        if _ic is not True:
-            # is_correct=False with no answer_bbox → don't draw (avoid mis-marking stem area)
-            return None
-        # is_correct=True with no answer_bbox → small anchor at bottom-right of question.bbox
-        qb = normalize_bbox(_get_question_field(question, "bbox"))
-        if qb is None:
-            return None
-        _size = 40.0
-        overlay_bbox = [qb[0] + qb[2] - _size, qb[1] + qb[3] - _size, _size, _size]
+        # No answer_bbox → don't draw any mark (correct or incorrect)
+        return None
     mark_type = "correct" if _ic is True else "incorrect"
     _qid = _get_question_field(question, "question_id", "")
     return RecognitionOverlayMark(
