@@ -12,7 +12,7 @@ grading_v2/marks_builder.py
 """
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from schemas.grading_document import (
     GradingDocument,
@@ -23,6 +23,65 @@ from schemas.grading_document import (
     QualityFlags,
 )
 from schemas.recognition import _get_question_field, normalize_bbox, normalize_confidence
+
+
+# ── mark policy 分类器 ────────────────────────────────────────────────────────
+
+# 题型分类（决定红圈策略）
+# single_answer        : 简单填空/计算，只圈最终答案区
+# choice               : 选择题，圈选中的选项
+# vertical_calculation : 竖式计算，优先圈错误步骤或最终结果
+# multi_step           : 多步骤/应用题，优先圈错误步骤或最终结果
+# meta_or_ignored      : 说明/标题等非题目节点，跳过所有 mark 生成
+MarkPolicy = Literal[
+    "single_answer",
+    "choice",
+    "vertical_calculation",
+    "multi_step",
+    "meta_or_ignored",
+]
+
+_NON_QUESTION_KINDS: frozenset[str] = frozenset({
+    "meta", "section", "ignored", "ignore", "header", "footer",
+    "title", "summary", "instruction", "instructions", "note",
+})
+
+
+def _classify_mark_policy(q: Any) -> str:
+    """
+    轻量题型分类器 — 决定红圈绘制策略。
+    仅使用 question dict/对象中已有字段，不发起任何外部调用。
+
+    分类规则（按优先级）：
+      1. kind 非 question → meta_or_ignored
+      2. options 列表有 ≥2 项 → choice
+      3. question_role 含 vertical / question_text 含竖式 → vertical_calculation
+      4. question_role 含 multi_step / word_problem / subquestion → multi_step
+      5. question_text 长度 > 80 → multi_step（应用题启发式）
+      6. 其余 → single_answer
+    """
+    kind = str(_get_question_field(q, "kind", "question") or "question").strip().lower()
+    if kind in _NON_QUESTION_KINDS:
+        return "meta_or_ignored"
+
+    options = _get_question_field(q, "options")
+    if isinstance(options, list) and len(options) >= 2:
+        return "choice"
+
+    question_role = str(_get_question_field(q, "question_role") or "").strip().lower()
+    question_text = str(_get_question_field(q, "question_text") or "").strip()
+
+    if "vertical" in question_role or "竖式" in question_text or "竖算" in question_text:
+        return "vertical_calculation"
+
+    _MULTI_ROLE_KEYS = ("multi_step", "word_problem", "subquestion", "grouped_question")
+    if any(k in question_role for k in _MULTI_ROLE_KEYS):
+        return "multi_step"
+
+    if len(question_text) > 80:
+        return "multi_step"
+
+    return "single_answer"
 
 
 # ── 常量（不绑定具体像素坐标，只表达比例/倍数关系） ───────────────────────────
@@ -395,10 +454,13 @@ def build_marks(
 
     # ── 题目 marks ────────────────────────────────────────────────────────────
     for order_idx, q in enumerate(questions):
-        # 只处理 kind=question 的节点
+        # 只处理 kind=question 的节点（meta_or_ignored 直接跳过）
         kind = str(_get_question_field(q, "kind", "question") or "question").strip().lower()
         if kind != "question":
             continue
+
+        # ── mark policy 分类 ──────────────────────────────────────────────
+        mark_policy: str = _classify_mark_policy(q)
 
         qid: str = _get_question_field(q, "question_id", "") or ""
 
@@ -475,24 +537,34 @@ def build_marks(
                 ))
 
         elif grading_result == "incorrect" and not q_needs_review and a_bbox is not None:
-            # 质量门 (c)：有文本意图时优先文本匹配，无文本意图时空间匹配
+            # 质量门 (c)：依 mark_policy 决定红圈定位策略
             text_hint = _extract_text_hint(intent)
             draw_bbox: Optional[list[float]] = None
 
             if text_hint:
+                # 所有 policy 均支持文本精确匹配（最高优先级）
                 refined_bbox, is_ambiguous = _find_ocr_bbox_by_text(
                     text_hint, a_bbox, q_bbox, ocr_blocks
                 )
                 if refined_bbox is not None and not is_ambiguous:
-                    # 文本命中且唯一 → 使用 OCR block bbox
                     draw_bbox = refined_bbox
                 else:
                     # 文本找不到或歧义 → needs_review，不画红圈
                     q_needs_review = True
-            else:
-                # 无文本意图：空间匹配（原有逻辑）
+
+            elif mark_policy in ("single_answer", "choice"):
+                # 空间匹配：仅当 OCR block 面积 ≤ answer_bbox 面积时才使用
+                # （防止大 OCR block 撑大红圈，反向不精确）
                 refined = _find_best_ocr_bbox(a_bbox, ocr_blocks)
-                draw_bbox = refined if refined is not None else a_bbox
+                if refined is not None and _bbox_area(refined) <= _bbox_area(a_bbox):
+                    draw_bbox = refined
+                else:
+                    draw_bbox = a_bbox
+
+            else:
+                # multi_step / vertical_calculation：无文本提示时直接使用 answer_bbox
+                # 空间匹配可能命中题组大框/跨行内容，禁止圈整页/整栏
+                draw_bbox = a_bbox
 
             if draw_bbox is not None:
                 # 质量门 (d)：clamp 到图片边界
@@ -527,7 +599,9 @@ def build_marks(
             student_answer=student_answer,
             standard_answer=std_answer,
             subject=None,
-            question_type=None,
+            question_type=_get_question_field(q, "question_type"),
+            mark_policy=mark_policy,
+            needs_review=q_needs_review,
             grading_result=grading_result,
             confidence=confidence,
             evidence=grading_expl,

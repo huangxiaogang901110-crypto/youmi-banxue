@@ -143,7 +143,8 @@ export default function GradingOverlay({ marks, groups, imageUrl, v2Marks, v2Nee
               }
 
               if (m.type === "green_tick") {
-                const tickSize = 32;
+                // 固定 18px，细线，贴近答案右下角，不覆盖题干
+                const tickSize = 18;
                 const tickLeft = parseFloat(pos.left) + parseFloat(pos.width) - (tickSize / dims.dw) * 100;
                 const tickTop = parseFloat(pos.top) + parseFloat(pos.height) - (tickSize / dims.dh) * 100;
                 return (
@@ -152,11 +153,11 @@ export default function GradingOverlay({ marks, groups, imageUrl, v2Marks, v2Nee
                     className="absolute pointer-events-none"
                     style={{ left: `${tickLeft}%`, top: `${tickTop}%` }}
                   >
-                    <svg width={tickSize} height={tickSize} viewBox="0 0 32 32">
+                    <svg width={tickSize} height={tickSize} viewBox="0 0 18 18">
                       <path
-                        d="M3 9 l4 4 l8 -8"
+                        d="M2 9 l4 5 l10 -10"
                         stroke="#22c55e"
-                        strokeWidth="6"
+                        strokeWidth="2"
                         fill="none"
                         strokeLinecap="round"
                         strokeLinejoin="round"

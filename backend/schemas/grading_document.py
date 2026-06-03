@@ -60,6 +60,10 @@ class GradingQuestion(BaseModel):
     standard_answer: Optional[str] = None
     subject: Optional[str] = None
     question_type: Optional[str] = None
+    # mark_policy: 轻量分类器输出，决定红圈策略
+    # single_answer | choice | vertical_calculation | multi_step | meta_or_ignored
+    mark_policy: Optional[str] = None
+    needs_review: bool = False           # 本题需人工复查
     grading_result: Optional[GradingResult] = None
     confidence: Optional[float] = None
     evidence: Optional[str] = None   # 批改依据（解释文本）

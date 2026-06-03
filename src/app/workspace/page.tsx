@@ -875,7 +875,7 @@ function WorkspaceContent() {
   }
 
   // ── needs_review ──
-  if (status === "needs_review") {
+  if (status === "needs_review" && (!questions || questions.length === 0)) {
     const jid = searchParams.get("job_id");
     const hint = getRecognitionHint(status, documentClassification, 0);
     return (
@@ -918,7 +918,11 @@ function WorkspaceContent() {
 
   // ── completed / low_confidence ──
   const qs = questions || [];
-  const groupSize = calcGroupSize(qs.length);
+  // 统一题目真源：过滤掉 meta/section/header 等非题目节点，保证
+  // header 题数、判对错统计、下方分组编号全部来自同一份列表
+  const _NON_Q_KINDS = new Set(["meta", "section", "ignored", "ignore", "header", "footer", "title", "summary", "instruction", "instructions", "note"]);
+  const filteredQs = qs.filter(q => !q.kind || q.kind === "question" || !_NON_Q_KINDS.has(q.kind.toLowerCase()));
+  const groupSize = calcGroupSize(filteredQs.length);
   const isRenderableBbox = (bbox?: number[] | null): bbox is [number, number, number, number] => {
     if (!bbox || bbox.length !== 4) return false;
     const [x, y, w, h] = bbox;
@@ -926,11 +930,11 @@ function WorkspaceContent() {
   };
   const overlayImageUrl = resolveImageUrl(job?.image_url || qs.find((q) => q.image_url)?.image_url || undefined);
 
-  // 诊断：渲染前检查 grading 字段
-  const _render_wg = qs.filter(q => q.is_correct !== null && q.is_correct !== undefined).length;
-  const _render_wsa = qs.filter(q => q.student_answer).length;
+  // 诊断：渲染前检查 grading 字段（使用 filteredQs 与下方分组保持一致）
+  const _render_wg = filteredQs.filter(q => q.is_correct !== null && q.is_correct !== undefined).length;
+  const _render_wsa = filteredQs.filter(q => q.student_answer).length;
 
-  if (qs.length === 0) {
+  if (filteredQs.length === 0) {
     const jid = searchParams.get("job_id");
     const hint = getRecognitionHint(status, documentClassification, 0);
     return (
@@ -972,12 +976,12 @@ function WorkspaceContent() {
     );
   }
 
-  // 按 section_title 预分组（如果有分组信息）
-  const hasSections = qs.some(q => q.section_title);
+  // 按 section_title 预分组（如果有分组信息；均来自 filteredQs）
+  const hasSections = filteredQs.some(q => q.section_title);
   let sectionedGroups: { title: string; questions: Question[]; startNumber: number }[] = [];
   if (hasSections) {
     const sections = new Map<string, Question[]>();
-    for (const q of qs) {
+    for (const q of filteredQs) {
       const key = q.section_title || 'default';
       if (!sections.has(key)) sections.set(key, []);
       sections.get(key)!.push(q);
@@ -991,7 +995,7 @@ function WorkspaceContent() {
 
   const groups = hasSections
     ? []  // 按 section 内部再分组
-    : groupQuestions(qs, groupSize);
+    : groupQuestions(filteredQs, groupSize);
 
   if (hasSections) {
     for (const sec of sectionedGroups) {
@@ -1016,14 +1020,14 @@ function WorkspaceContent() {
   return (
     <div className="space-y-4 pb-4">
       {showDebug && <DiagPanel events={diagEvents} expanded={diagExpanded} onToggle={() => setDiagExpanded(!diagExpanded)} />}
-      {status === "low_confidence" && (
+      {(status === "low_confidence" || status === "needs_review") && (
         <RecognitionHintCard status={status} classification={documentClassification} compact questionCount={qs.length} />
       )}
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-semibold text-foreground">
-          共 {job?.questions_count || qs.length} 题
+          共 {filteredQs.length} 题
           <span className="text-xs text-muted-foreground ml-2 font-normal">
-            (判对错:{_render_wg}/{qs.length} 答案:{_render_wsa}/{qs.length})
+            (判对错:{_render_wg}/{filteredQs.length} 答案:{_render_wsa}/{filteredQs.length})
           </span>
         </h2>
         <div className="flex items-center gap-2">
@@ -1042,32 +1046,38 @@ function WorkspaceContent() {
       <GradingOverlay marks={overlay || []} groups={group_boxes || []} imageUrl={overlayImageUrl} v2Marks={v2Marks} v2NeedsReview={v2NeedsReview} />
 
       <div className="space-y-3">
-        {groups.map((g, gi) => {
-          let sectionLabel = "";
-          if (hasSections && g.length > 0) {
-            const firstQ = g[0];
-            if (firstQ.section_title) {
-              const prevFirstQ = gi > 0 ? groups[gi - 1]?.[0] : null;
-              if (!prevFirstQ || prevFirstQ.section_title !== firstQ.section_title) {
-                sectionLabel = firstQ.section_title;
+        {(() => {
+          let questionOffset = 0;
+          return groups.map((g, gi) => {
+            let sectionLabel = "";
+            if (hasSections && g.length > 0) {
+              const firstQ = g[0];
+              if (firstQ.section_title) {
+                const prevFirstQ = gi > 0 ? groups[gi - 1]?.[0] : null;
+                if (!prevFirstQ || prevFirstQ.section_title !== firstQ.section_title) {
+                  sectionLabel = firstQ.section_title;
+                }
               }
             }
-          }
-          return (
-            <div key={gi}>
-              {sectionLabel && (
-                <h3 className="text-sm font-semibold text-foreground mb-2 mt-4 first:mt-0">{sectionLabel}</h3>
-              )}
-              <QuestionGroup
-                groupIndex={gi}
-                startNumber={gi * groupSize + 1}
-                endNumber={gi * groupSize + g.length}
-                questions={g}
-                defaultOpen={gi === 0}
-              />
-            </div>
-          );
-        })}
+            const startNumber = questionOffset + 1;
+            const endNumber = questionOffset + g.length;
+            questionOffset += g.length;
+            return (
+              <div key={gi}>
+                {sectionLabel && (
+                  <h3 className="text-sm font-semibold text-foreground mb-2 mt-4 first:mt-0">{sectionLabel}</h3>
+                )}
+                <QuestionGroup
+                  groupIndex={gi}
+                  startNumber={startNumber}
+                  endNumber={endNumber}
+                  questions={g}
+                  defaultOpen={gi === 0}
+                />
+              </div>
+            );
+          });
+        })()}
       </div>
 
       {/* 拍下一张作业 — 直接触发相机 */}

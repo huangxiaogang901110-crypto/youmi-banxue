@@ -1166,3 +1166,162 @@ class TestQuestionsEndpointShape:
         resp = self._make_memory_response(job={}, data=[{"q": 1}])
         for key in ("ok", "data", "overlay", "group_boxes", "v2_marks", "v2_needs_review", "request_id"):
             assert key in resp, f"Key '{key}' missing from questions endpoint response"
+
+
+# ── mark policy 分类器 ────────────────────────────────────────────────────────
+
+class TestMarkPolicyClassifier:
+    """_classify_mark_policy() 分类规则覆盖。"""
+
+    def _classify(self, **kwargs) -> str:
+        from grading_v2.marks_builder import _classify_mark_policy
+        base = {"question_id": "q1", "question_text": "test", "kind": "question"}
+        base.update(kwargs)
+        return _classify_mark_policy(base)
+
+    def test_meta_kind_is_ignored(self):
+        assert self._classify(kind="meta") == "meta_or_ignored"
+
+    def test_section_kind_is_ignored(self):
+        assert self._classify(kind="section") == "meta_or_ignored"
+
+    def test_header_kind_is_ignored(self):
+        assert self._classify(kind="header") == "meta_or_ignored"
+
+    def test_options_list_is_choice(self):
+        assert self._classify(options=["A.1", "B.2", "C.3", "D.4"]) == "choice"
+
+    def test_single_option_not_choice(self):
+        """options 只有 1 项时不算选择题。"""
+        assert self._classify(options=["A.only"]) != "choice"
+
+    def test_vertical_keyword_in_text(self):
+        assert self._classify(question_text="竖式计算：456+123=") == "vertical_calculation"
+
+    def test_vertical_keyword_in_role(self):
+        assert self._classify(question_role="vertical_calc") == "vertical_calculation"
+
+    def test_subquestion_role_is_multi_step(self):
+        assert self._classify(question_role="subquestion") == "multi_step"
+
+    def test_word_problem_role_is_multi_step(self):
+        assert self._classify(question_role="word_problem") == "multi_step"
+
+    def test_long_text_is_multi_step(self):
+        long = "a" * 81
+        assert self._classify(question_text=long) == "multi_step"
+
+    def test_short_text_default_single_answer(self):
+        assert self._classify(question_text="3+5=") == "single_answer"
+
+    def test_empty_kind_defaults_to_question(self):
+        """kind 为空时视同 question，按文本分类。"""
+        assert self._classify(kind="", question_text="2+2=") == "single_answer"
+
+
+# ── mark policy 对 mark 生成的影响 ───────────────────────────────────────────
+
+class TestMarkPolicyEffect:
+    def test_meta_kind_produces_no_marks(self):
+        """kind=meta 节点不生成任何 green_tick 或 red_circle。"""
+        doc = _build(questions=[
+            _q("m1", is_correct=True, answer_bbox=[50.0, 10.0, 60.0, 30.0],
+               student_answer="2", kind="meta"),
+            _q("q1", is_correct=True, answer_bbox=[50.0, 100.0, 60.0, 30.0],
+               student_answer="2", kind="question"),
+        ])
+        ticks = [m for m in doc.marks if m.type == "green_tick"]
+        assert len(ticks) == 1, "只有 kind=question 应生成 mark"
+        assert ticks[0].target_question_id == "q1"
+
+    def test_large_ocr_block_not_used_for_circle(self):
+        """
+        空间匹配路径：OCR block 面积大于 answer_bbox 时使用 answer_bbox，不扩大圈。
+        """
+        a_bbox = [50.0, 10.0, 60.0, 30.0]     # area = 1800
+        large_ocr = {"x": 40.0, "y": 5.0, "w": 100.0, "h": 50.0, "text": "big"}  # area = 5000
+        doc = _build(
+            questions=[_q("q1", is_correct=False, answer_bbox=a_bbox, student_answer="3")],
+            ocr_blocks=[large_ocr],
+        )
+        circles = [m for m in doc.marks if m.type == "red_circle"]
+        assert len(circles) == 1
+        assert circles[0].bbox == a_bbox, (
+            f"大 OCR block 不应替换 answer_bbox，应使用 {a_bbox}，实际 {circles[0].bbox}"
+        )
+
+    def test_small_ocr_block_still_refines_single_answer(self):
+        """
+        single_answer：OCR block 面积小于 answer_bbox 时仍精确定位。
+        """
+        a_bbox = [50.0, 10.0, 60.0, 30.0]     # area = 1800
+        small_ocr = {"x": 55.0, "y": 12.0, "w": 20.0, "h": 18.0, "text": "3"}  # area = 360
+        doc = _build(
+            questions=[_q("q1", is_correct=False, answer_bbox=a_bbox, student_answer="3")],
+            ocr_blocks=[small_ocr],
+        )
+        circles = [m for m in doc.marks if m.type == "red_circle"]
+        assert len(circles) == 1
+        assert circles[0].bbox == [55.0, 12.0, 20.0, 18.0]
+
+    def test_multi_step_no_text_hint_uses_answer_bbox_directly(self):
+        """
+        multi_step 题无文本提示时不做空间 OCR 搜索，直接用 answer_bbox。
+        """
+        a_bbox = [50.0, 10.0, 60.0, 30.0]
+        ocr_blocks = [{"x": 55.0, "y": 12.0, "w": 20.0, "h": 18.0, "text": "x=5"}]
+        q = {
+            "question_id": "q1", "question_number": 1,
+            "question_text": "解方程：", "kind": "question",
+            "question_role": "multi_step",
+            "is_correct": False, "student_answer": "x=5",
+            "answer_bbox": a_bbox, "bbox": [10.0, 10.0, 200.0, 50.0],
+            "source": "test", "confidence": 0.9,
+        }
+        doc = _build(questions=[q], ocr_blocks=ocr_blocks)
+        circles = [m for m in doc.marks if m.type == "red_circle"]
+        assert len(circles) == 1
+        # multi_step 无 text_hint → 直接用 answer_bbox
+        assert circles[0].bbox == a_bbox
+
+    def test_multi_step_with_text_hint_still_uses_ocr_match(self):
+        """
+        multi_step 有 error_text 时仍走文本精确匹配。
+        """
+        intent = {"version": "v1", "questions": [
+            {"question_id": "q1", "is_correct": False, "confidence": 0.9, "error_text": "x=3"},
+        ]}
+        a_bbox = [50.0, 10.0, 60.0, 30.0]
+        ocr_blocks = [{"x": 55.0, "y": 12.0, "w": 20.0, "h": 18.0, "text": "x=3"}]
+        q = {
+            "question_id": "q1", "question_number": 1,
+            "question_text": "解方程：", "kind": "question",
+            "question_role": "multi_step",
+            "is_correct": False, "student_answer": "x=3",
+            "answer_bbox": a_bbox, "bbox": [10.0, 10.0, 200.0, 50.0],
+            "source": "test", "confidence": 0.9,
+        }
+        doc = _build(questions=[q], ocr_blocks=ocr_blocks, qwen_grading_intent=intent)
+        circles = [m for m in doc.marks if m.type == "red_circle"]
+        assert len(circles) == 1
+        assert circles[0].bbox == [55.0, 12.0, 20.0, 18.0]
+
+    def test_grading_question_stores_mark_policy(self):
+        """GradingQuestion.mark_policy 存储分类结果。"""
+        doc = _build(questions=[_q("q1", is_correct=True,
+                                   answer_bbox=[50.0, 10.0, 60.0, 30.0], student_answer="2")])
+        q_obj = next(q for q in doc.questions if q.question_id == "q1")
+        assert q_obj.mark_policy == "single_answer"
+
+    def test_grading_question_needs_review_stored(self):
+        """GradingQuestion.needs_review=True 当 answer_bbox 缺失且题目已批改。"""
+        doc = _build(questions=[_q("q1", is_correct=False, answer_bbox=None, student_answer="3")])
+        q_obj = next(q for q in doc.questions if q.question_id == "q1")
+        assert q_obj.needs_review is True
+
+    def test_grading_question_needs_review_false_for_correct_with_bbox(self):
+        """正常正确题 needs_review=False。"""
+        doc = _build(questions=[_q("q1", is_correct=True,
+                                   answer_bbox=[50.0, 10.0, 60.0, 30.0], student_answer="2")])
+        q_obj = next(q for q in doc.questions if q.question_id == "q1")
+        assert q_obj.needs_review is False

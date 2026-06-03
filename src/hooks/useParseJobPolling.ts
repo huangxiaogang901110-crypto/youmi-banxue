@@ -11,7 +11,7 @@ import type { OverlayMark, GroupBox, GradingMark } from "@/components/GradingOve
 const TERMINAL_STATUSES = new Set(["completed", "failed", "low_confidence", "needs_review"]);
 
 /** 可展示结果的终态（有 questions 可读） */
-const RESULT_STATUSES = new Set(["completed", "low_confidence"]);
+const RESULT_STATUSES = new Set(["completed", "low_confidence", "needs_review"]);
 
 /** 前端轮询状态 */
 type PollStatus = "idle" | "loading" | "polling" | "completed" | "failed" | "low_confidence" | "needs_review";
@@ -103,10 +103,6 @@ export function useParseJobPolling(): PollingResult {
     const v2Marks: GradingMark[] = raw_overlay?.v2_marks || [];
     const v2NeedsReview: boolean = raw_overlay?.v2_needs_review ?? false;
     return { overlay, group_boxes, v2Marks, v2NeedsReview, job, questions: qs, status: s as PollStatus, error: "" };
-  }
-
-  if (s === "needs_review") {
-    return { ...EMPTY, job, status: "needs_review", error: "识别不确定，请重拍或稍后重试" };
   }
 
   return { ...EMPTY, job, status: "polling" };
