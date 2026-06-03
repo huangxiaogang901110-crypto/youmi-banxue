@@ -181,7 +181,7 @@ function RecognitionHintCard({
 }
 
 function WorkspaceContent() {
-  const { job, questions, status, error, overlay, group_boxes } = useParseJobPolling();
+  const { job, questions, status, error, overlay, group_boxes, v2Marks, v2NeedsReview } = useParseJobPolling();
   const searchParams = useSearchParams();
   const [activeIndex, setActiveIndex] = useState(-1);
   const router = useRouter();
@@ -999,7 +999,7 @@ function WorkspaceContent() {
         </div>
       </div>
 
-      <GradingOverlay marks={overlay || []} groups={group_boxes || []} imageUrl={overlayImageUrl} />
+      <GradingOverlay marks={overlay || []} groups={group_boxes || []} imageUrl={overlayImageUrl} v2Marks={v2Marks} v2NeedsReview={v2NeedsReview} />
 
       <div className="space-y-3">
         {groups.map((g, gi) => {
