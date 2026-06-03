@@ -194,8 +194,10 @@ function WorkspaceContent() {
   const [uploadError, setUploadError] = useState("");
   const [uploadJobId, setUploadJobId] = useState<string | null>(null);  // 当前上传的 job_id，用于重试
   const [compressInfo, setCompressInfo] = useState("");
-  const galleryRef = useRef<HTMLInputElement>(null);
+  const albumRef = useRef<HTMLInputElement>(null);
   const cameraRef = useRef<HTMLInputElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [showUploadSheet, setShowUploadSheet] = useState(false);
 
   // ── 7 天滚动历史缓存 ──
   const { history, upsert, removeEntry, clearAll } = useJobHistory();
@@ -746,16 +748,53 @@ function WorkspaceContent() {
           <>
             <div
               className="bg-primary/5 border-2 border-dashed border-primary/30 rounded-2xl p-8 text-center space-y-3 hover:bg-primary/10 transition cursor-pointer"
-              onClick={() => galleryRef.current?.click()}
+              onClick={() => setShowUploadSheet(true)}
             >
               <Upload className="w-10 h-10 text-primary mx-auto" strokeWidth={1.5} />
               <div>
-                <p className="text-foreground font-semibold">拍整页作业 / 上传 PDF</p>
+                <p className="text-foreground font-semibold">拍摄整页作业 / 本地上传</p>
                 <p className="text-muted-foreground text-sm mt-1">
                   上传后 AI 将自动识别题目、判断对错并给出解析
                 </p>
               </div>
             </div>
+
+            {/* 上传方式底部弹层 */}
+            {showUploadSheet && (
+              <div className="fixed inset-0 z-50 flex items-end bg-black/40" onClick={() => setShowUploadSheet(false)}>
+                <div
+                  className="w-full bg-background rounded-t-2xl p-6 space-y-3 shadow-xl"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <p className="text-center text-sm font-semibold text-foreground pb-1">选择上传方式</p>
+                  <button
+                    onClick={() => { setShowUploadSheet(false); setTimeout(() => cameraRef.current?.click(), 300); }}
+                    className="w-full flex items-center gap-3 rounded-xl border border-border py-3.5 px-4 text-sm text-foreground hover:bg-muted transition"
+                  >
+                    <Camera className="w-5 h-5" /> 拍照
+                  </button>
+                  <button
+                    onClick={() => { setShowUploadSheet(false); setTimeout(() => fileRef.current?.click(), 300); }}
+                    className="w-full flex items-center gap-3 rounded-xl border border-border py-3.5 px-4 text-sm text-foreground hover:bg-muted transition"
+                  >
+                    <FileText className="w-5 h-5" /> 本地文件夹
+                  </button>
+                  <button
+                    onClick={() => { setShowUploadSheet(false); setTimeout(() => albumRef.current?.click(), 300); }}
+                    className="w-full flex items-center gap-3 rounded-xl border border-border py-3.5 px-4 text-sm text-foreground hover:bg-muted transition"
+                  >
+                    <Image className="w-5 h-5" /> 手机相册
+                  </button>
+                  <button
+                    onClick={() => setShowUploadSheet(false)}
+                    className="w-full rounded-xl bg-muted py-3 text-sm text-muted-foreground mt-1"
+                  >
+                    取消
+                  </button>
+                </div>
+              </div>
+            )}
+
             <div className="flex gap-3">
               <button
                 onClick={() => cameraRef.current?.click()}
@@ -764,14 +803,15 @@ function WorkspaceContent() {
                 <Camera className="w-4 h-4" /> 拍照
               </button>
               <button
-                onClick={() => galleryRef.current?.click()}
+                onClick={() => albumRef.current?.click()}
                 className="flex-1 flex items-center justify-center gap-2 rounded-xl border border-border py-3 text-sm text-foreground hover:bg-muted transition"
               >
-                <Image className="w-4 h-4" /> 从相册选择
+                <Image className="w-4 h-4" /> 手机相册
               </button>
             </div>
             <input ref={cameraRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => handleFile(e.target.files?.[0])} />
-            <input ref={galleryRef} type="file" accept="image/*,.pdf" className="hidden" onChange={(e) => handleFile(e.target.files?.[0])} />
+            <input ref={albumRef} type="file" accept="image/*" className="hidden" onChange={(e) => handleFile(e.target.files?.[0])} />
+            <input ref={fileRef} type="file" accept="image/*,application/pdf,.pdf" className="hidden" onChange={(e) => handleFile(e.target.files?.[0])} />
           </>
         )}
 
@@ -1041,7 +1081,8 @@ function WorkspaceContent() {
 
       {/* 隐藏的文件输入 — 始终渲染在 completed 视图 */}
       <input ref={cameraRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => handleFile(e.target.files?.[0])} />
-      <input ref={galleryRef} type="file" accept="image/*,.pdf" className="hidden" onChange={(e) => handleFile(e.target.files?.[0])} />
+      <input ref={albumRef} type="file" accept="image/*" className="hidden" onChange={(e) => handleFile(e.target.files?.[0])} />
+      <input ref={fileRef} type="file" accept="image/*,application/pdf,.pdf" className="hidden" onChange={(e) => handleFile(e.target.files?.[0])} />
     </div>
   );
 }
