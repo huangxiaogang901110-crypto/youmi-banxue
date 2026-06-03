@@ -738,7 +738,9 @@ def _build_structural_candidate_blocks(
             if block.index in meta_indices:
                 continue
             if _bbox_overlaps_region(block.bbox, header_region) or _bbox_overlaps_region(block.bbox, instruction_region) or _bbox_overlaps_region(block.bbox, footer_region):
-                continue
+                # Repair-2B: 含算术表达式的 block 豁免 header/instruction/footer 过滤
+                if not ARITHMETIC_EXPR.search(block.text):
+                    continue
             if block.is_footer:
                 continue
             if region_labels:
@@ -1032,7 +1034,9 @@ def should_drop_candidate_question(
         instruction_bbox = next((_normalize_bbox(region.get("bbox")) for region in regions if region.get("label") == "instruction"), None)
         footer_bbox = next((_normalize_bbox(region.get("bbox")) for region in regions if region.get("label") == "footer"), None)
         if _bbox_overlaps_region(bbox, header_bbox) or _bbox_overlaps_region(bbox, instruction_bbox) or _bbox_overlaps_region(bbox, footer_bbox):
-            return True
+            # Repair-2B: 含算术表达式豁免，避免误删算式题
+            if not ARITHMETIC_EXPR.search(stripped):
+                return True
     return False
 
 
