@@ -5,6 +5,7 @@
 import asyncio
 import json
 import os as _os
+import math
 import re
 import time
 
@@ -585,6 +586,336 @@ def _decide_final_status(questions: list, has_failures: bool, ocr_only: bool) ->
     return JobStatus.completed
 
 
+def _validate_answer_bbox(
+    bbox,
+    question_bbox=None,
+    image_width=None,
+    image_height=None,
+):
+    """answer_bbox 安全门：不可靠→返回None"""
+    if not isinstance(bbox, list) or len(bbox) != 4:
+        return None
+    try:
+        x, y, w, h = [float(v) for v in bbox]
+    except (TypeError, ValueError):
+        return None
+    # [0,0,0,0]
+    if x == 0 and y == 0 and w == 0 and h == 0:
+        return None
+    if not all(math.isfinite(v) for v in (x, y, w, h)):
+        return None
+    if w <= 0 or h <= 0:
+        return None
+    bbox_area = w * h
+    # 坐标必须在图片内
+    if image_width and image_height:
+        if x < 0 or y < 0 or x + w > image_width or y + h > image_height:
+            return None
+        # 面积不得超过图片面积 30%
+        bbox_area = w * h
+        img_area = image_width * image_height
+        if img_area > 0 and bbox_area > img_area * 0.3:
+            return None
+    # 不得等于整题bbox
+    if question_bbox and isinstance(question_bbox, list) and len(question_bbox) == 4:
+        try:
+            qx, qy, qw, qh = [float(v) for v in question_bbox]
+            if abs(x - qx) < 3 and abs(y - qy) < 3 and abs(w - qw) < 3 and abs(h - qh) < 3:
+                return None
+            # 面积不得异常接近 question_bbox（>90% overlap）
+            q_area = qw * qh
+            if q_area > 0 and bbox_area > q_area * 0.85:
+                return None
+        except (TypeError, ValueError):
+            pass
+    return [x, y, w, h]
+
+
+def _infer_answer_bbox_from_ocr(
+    question_bbox,
+    ocr_blocks,
+    image_width=None,
+    image_height=None,
+):
+    """从OCR blocks推断学生答案区域（题区下方/右侧的文字块）"""
+    if not question_bbox or not ocr_blocks:
+        return None
+    try:
+        qx, qy, qw, qh = [float(v) for v in question_bbox]
+    except (TypeError, ValueError):
+        return None
+
+    candidates = []
+    for block in ocr_blocks:
+        bx = block.get("x", 0)
+        by = block.get("y", 0)
+        bw = block.get("w", 0)
+        bh = block.get("h", 0)
+        text = block.get("text", "").strip()
+        if bw <= 0 or bh <= 0 or not text:
+            continue
+        # 在题区的下方或右侧
+        below = (by >= qy + qh * 0.3) and (by <= qy + qh * 4) and abs(bx - qx) < qw * 2
+        right = (bx >= qx + qw * 0.3) and (bx <= qx + qw * 3) and abs(by - qy) < qh * 1.5
+        if below or right:
+            candidates.append([bx, by, bw, bh])
+
+    if not candidates:
+        return None
+
+    min_x = min(c[0] for c in candidates)
+    min_y = min(c[1] for c in candidates)
+    max_x = max(c[0] + c[2] for c in candidates)
+    max_y = max(c[1] + c[3] for c in candidates)
+    return [min_x, min_y, max_x - min_x, max_y - min_y]
+
+
+def _assess_ocr_confidence(
+    question_text,
+    student_answer,
+    bbox,
+    answer_bbox,
+    confidence=None,
+):
+    """评估OCR识别置信度。返回 (needs_boost, reason_str)"""
+    reasons = []
+    if not question_text or len(str(question_text).strip()) < 6:
+        reasons.append("text_short")
+    if not answer_bbox:
+        reasons.append("no_answer_bbox")
+    if not student_answer:
+        reasons.append("no_student_answer")
+    if confidence is not None and float(confidence) < 0.5:
+        reasons.append("low_confidence")
+    needs_boost = len(reasons) > 0
+    return needs_boost, "|".join(reasons) if reasons else "ok"
+
+
+def _ocr_first_extract_questions(
+    jid,
+    ocr_blocks,
+    document_classification,
+    image_width,
+    image_height,
+    result_image_url,
+    aid,
+    page_id,
+):
+    """OCR主链路：blocks → 结构提取 → 置信度评估。
+    返回 (questions, boost_candidates)
+    """
+    questions = []
+    boost_candidates = []
+
+    if not ocr_blocks:
+        return [], []
+
+    if should_extract_structural_questions(document_classification):
+        structured_questions = extract_structured_questions_from_ocr(
+            ocr_blocks,
+            document_classification,
+            image_width=image_width,
+            image_height=image_height,
+        )
+        for raw_index, rq in enumerate(structured_questions):
+            qid = f"{jid}-ocrstruct-{rq.get('question_number', raw_index + 1)}-{raw_index}"
+            question_text = clean_question_text(rq.get("question_text", ""), document_classification)
+            q_bbox = _normalize_question_bbox(rq.get("bbox"))
+
+            if should_drop_candidate_question(question_text, q_bbox, document_classification):
+                continue
+
+            inferred_ab = None
+            if q_bbox:
+                inferred_ab = _infer_answer_bbox_from_ocr(q_bbox, ocr_blocks, image_width, image_height)
+                inferred_ab = _validate_answer_bbox(inferred_ab, q_bbox, image_width, image_height)
+
+            payload = RecognitionQuestionContract(
+                question_id=qid,
+                question_number=int(rq.get("question_number") or (raw_index + 1)),
+                question_text=question_text,
+                kind=rq.get("kind", "question"),
+                question_role=rq.get("question_role"),
+                context_text=rq.get("context_text"),
+                options=rq.get("options"),
+                blank_count=rq.get("blank_count"),
+                bbox=q_bbox,
+                answer_bbox=inferred_ab,
+                image_url=result_image_url or None,
+                status=QuestionStatus.completed.value,
+                student_answer=None,
+                source="ocr_main",
+                confidence=None,
+                error_code=None,
+            )
+            q = Question(**payload.model_dump())
+            questions.append(q)
+            _db.create_question_item(qid, aid, page_id, q.question_number, question_text, q_bbox or [])
+
+            needs_boost, reason = _assess_ocr_confidence(
+                question_text, None, q_bbox, inferred_ab
+            )
+            if needs_boost:
+                boost_candidates.append((len(questions) - 1, q, reason))
+
+    elif should_extract_questions(document_classification):
+        filtered_blocks = filter_ocr_blocks_for_question_region(ocr_blocks, document_classification)
+        pos_blocks = [
+            {"text": b["text"], "pos": [b.get("x", 0), b.get("y", 0), b.get("w", 0), b.get("h", 0)]}
+            for b in filtered_blocks
+        ]
+        cut_results = cut_to_questions(pos_blocks)
+
+        for i, cq in enumerate(cut_results):
+            cleaned_text = clean_question_text(cq["question_text"], document_classification)
+            q_bbox = _normalize_question_bbox(cq.get("bbox"))
+
+            if should_drop_candidate_question(cleaned_text, q_bbox, document_classification):
+                continue
+
+            inferred_ab = None
+            if q_bbox:
+                inferred_ab = _infer_answer_bbox_from_ocr(q_bbox, ocr_blocks, image_width, image_height)
+                inferred_ab = _validate_answer_bbox(inferred_ab, q_bbox, image_width, image_height)
+
+            qid = f"{jid}-ocrcut-{cq['question_number']}-{i}"
+            payload = RecognitionQuestionContract(
+                question_id=qid,
+                question_number=cq["question_number"],
+                question_text=cleaned_text,
+                kind="question",
+                bbox=q_bbox,
+                answer_bbox=inferred_ab,
+                image_url=result_image_url or None,
+                visual_description=None,
+                status=QuestionStatus.completed.value,
+                student_answer=None,
+                source="ocr_main",
+                confidence=None,
+                error_code=None,
+            )
+            q = Question(**payload.model_dump())
+            questions.append(q)
+            _db.create_question_item(qid, aid, page_id, cq["question_number"], cleaned_text, q_bbox or [])
+
+            needs_boost, reason = _assess_ocr_confidence(
+                cleaned_text, None, q_bbox, inferred_ab
+            )
+            if needs_boost:
+                boost_candidates.append((len(questions) - 1, q, reason))
+
+    questions = assign_question_sections(questions, document_classification)
+    return questions, boost_candidates
+
+
+async def _qwen_boost_group(
+    jid,
+    questions,
+    boost_candidates,
+    image_bytes,
+    oss_signed_url,
+    document_classification,
+    trace_id,
+    parent_id,
+    child_id,
+    image_width=None,
+    image_height=None,
+):
+    """Qwen-VL 按题组增强，每图最多3次调用。返回更新后的questions"""
+    MAX_BOOST_CALLS = 3
+
+    if not boost_candidates:
+        return questions
+
+    # 按空间位置聚类boost candidates
+    groups = []
+    current_group = []
+
+    for item in boost_candidates:
+        idx, q, reason = item
+        bbox = list(q.bbox) if q.bbox else [0, 0, 0, 0]
+        if not current_group:
+            current_group = [item]
+        else:
+            last_bbox = list(current_group[-1][1].bbox) if current_group[-1][1].bbox else [0, 0, 0, 0]
+            if abs(bbox[1] - last_bbox[1]) < 250:
+                current_group.append(item)
+            else:
+                groups.append(current_group)
+                current_group = [item]
+    if current_group:
+        groups.append(current_group)
+
+    groups = groups[:MAX_BOOST_CALLS]
+
+    qwen_vl = QwenVLClient()
+    boosted_indices = set()
+
+    for gi, group in enumerate(groups):
+        q_texts = []
+        for idx, q, reason in group:
+            q_texts.append(f"题{q.question_number}: {str(q.question_text)[:60]}")
+
+        prompt = (
+            f"图中{len(group)}道题需要补充孩子手写答案信息：\n" +
+            "\n".join(q_texts) +
+            "\n\n请识别每道题的孩子手写答案内容（student_answer）及答案区域坐标（answer_bbox [x,y,w,h]）。"
+            "如果看不清填null。"
+            "输出JSON数组：[{\"question_number\":题号,\"student_answer\":\"答案或null\",\"answer_bbox\":[x,y,w,h]或null}]"
+        )
+
+        try:
+            result = await asyncio.to_thread(
+                qwen_vl._call,
+                image_bytes=image_bytes if not oss_signed_url else None,
+                image_url=oss_signed_url,
+                prompt=prompt,
+                max_tokens=500,
+                timeout=15,
+            )
+        except Exception as e:
+            info(f"[BG] Qwen boost group {gi} failed: {e}")
+            continue
+
+        if not result.get("success"):
+            continue
+
+        try:
+            content = result.get("content", "")
+            json_match = re.search(r'\[.*\]', content, re.DOTALL)
+            if not json_match:
+                continue
+
+            boost_data = json.loads(json_match.group())
+            for item in boost_data:
+                qn = item.get("question_number")
+                sa = item.get("student_answer")
+                ab = item.get("answer_bbox")
+
+                for idx, q, reason in group:
+                    if q.question_number == qn:
+                        if sa and str(sa).lower() not in ("null", "无", "none", ""):
+                            q.student_answer = str(sa)
+                        if ab and isinstance(ab, list) and len(ab) == 4:
+                            validated_ab = _validate_answer_bbox(ab, list(q.bbox) if q.bbox else None, image_width, image_height)
+                            if validated_ab:
+                                q.answer_bbox = validated_ab
+                        q.source = "qwen_boost"
+                        boosted_indices.add(idx)
+                        break
+        except Exception as e:
+            info(f"[BG] Qwen boost parse error: {e}")
+            continue
+
+    # 标记未boost的为skipped
+    for idx, q, reason in boost_candidates:
+        if idx not in boosted_indices:
+            q.source = "skipped"
+
+    return questions
+
+
+
 def _build_test_mode_questions(jid: str) -> list[Question]:
     return [
         Question(
@@ -1001,6 +1332,7 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
     BPLUSPLUS_ENABLED = _os_env.getenv("YOMI_BPLUSPLUS_RECOGNITION", "false").lower() in ("1", "true", "yes")
     MATH_OCR_FIRST_ENABLED = _os_env.getenv("YOMI_MATH_OCR_FIRST", "false").lower() in ("1", "true", "yes")
     TEST_FAKE_RECOGNITION = _os_env.getenv("YOMI_TEST_FAKE_RECOGNITION", "false").lower() in ("1", "true", "yes")
+    OCR_FIRST_ENABLED = _os_env.getenv("YOMI_OCR_FIRST", "false").lower() in ("1", "true", "yes")
     import uuid as _uuid
     trace_id = _uuid.uuid4().hex
     _log_info(f"job_start jid={jid}", trace_id=trace_id, parent_id=parent_id, child_id=child_id)
@@ -1076,7 +1408,7 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
     total_parse_cost = 0.0  # 累计 Qwen-VL 解析成本
 
     try:
-        if TEST_FAKE_RECOGNITION:
+        if TEST_FAKE_RECOGNITION and not OCR_FIRST_ENABLED:
             info(f"[BG] Test fake recognition enabled for {jid}")
             questions = _build_test_mode_questions(jid)
             _jobs[jid]["document_classification"] = DocumentClassification(
@@ -1115,6 +1447,8 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
             import io as _io
             _img_pil = Image.open(_io.BytesIO(contents))
             _w, _h = _img_pil.size
+            image_width = _w
+            image_height = _h
             _max_dim = max(_w, _h)
             if _max_dim > 1024:
                 _ratio = 1024 / _max_dim
@@ -1127,6 +1461,129 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
             _img_pil.close()
         except Exception as _ce:
             info(f"[BG] Image compress skipped: {_ce}")
+            image_width = None
+            image_height = None
+
+        
+        # ── OCR-first 候选路径（YOMI_OCR_FIRST=true 时启用）──
+        if OCR_FIRST_ENABLED:
+            info(f"[BG] OCR-first path enabled for {jid}")
+            # OCR only (no Qwen-VL full-image call)
+            if TEST_FAKE_RECOGNITION:
+                # Fake OCR blocks for integration testing (no real API call)
+                info(f"[BG] OCR-first fake blocks mode for {jid}")
+                ocr_raw_f = {
+                    "success": True,
+                    "blocks": [
+                        {"text": "1. 12 + 34 = ?", "x": 10, "y": 20, "w": 180, "h": 25},
+                        {"text": "46", "x": 120, "y": 25, "w": 40, "h": 22},
+                        {"text": "2. 56 - 28 = ?", "x": 10, "y": 60, "w": 200, "h": 25},
+                        {"text": "28", "x": 130, "y": 65, "w": 40, "h": 22},
+                    ],
+                    "text": "fake ocr blocks for test",
+                    "latency_ms": 0,
+                }
+            else:
+                try:
+                    ocr_f = AliyunOCRClient()
+                    ocr_raw_f = ocr_f.recognize(contents)
+                except Exception as _e:
+                    error(f"[BG] OCR-first OCR error: {_e}")
+                    ocr_raw_f = {"success": False, "blocks": [], "text": "", "latency_ms": 0}
+
+            ocr_blocks = ocr_raw_f.get("blocks", [])
+            ocr_latency = ocr_raw_f.get("latency_ms", 0)
+            _jobs[jid]["ocr_blocks"] = ocr_blocks
+            _jobs[jid]["ocr_block_source"] = "aliyun_general_ocr"
+
+            document_classification = _build_document_classification(
+                ocr_blocks, [],
+                image_width=image_width,
+                image_height=image_height,
+            )
+            _jobs[jid]["document_classification"] = document_classification
+
+            _jobs[jid]["job"].status = JobStatus.cutting
+
+            if ocr_blocks:
+                questions, boost_candidates = _ocr_first_extract_questions(
+                    jid, ocr_blocks, document_classification,
+                    image_width, image_height, result_image_url,
+                    aid, page_id,
+                )
+                info(f"[BG] OCR-first: {len(ocr_blocks)} blocks -> {len(questions)} questions, {len(boost_candidates)} boost candidates")
+
+                if boost_candidates:
+                    _jobs[jid]["job"].status = JobStatus.vision_reviewing
+                    questions = await _qwen_boost_group(
+                        jid, questions, boost_candidates, _img_bytes,
+                        oss_signed_url, document_classification,
+                        trace_id, parent_id, child_id,
+                        image_width, image_height,
+                    )
+                    info(f"[BG] Qwen boost completed for {jid}")
+            else:
+                info(f"[BG] OCR-first: 0 blocks, no questions")
+                questions = []
+
+            # Validate answer_bbox on all questions
+            for q in questions:
+                if hasattr(q, "answer_bbox") and q.answer_bbox:
+                    q.answer_bbox = _validate_answer_bbox(
+                        q.answer_bbox, q.bbox, image_width, image_height
+                    )
+
+            questions = assign_question_sections(questions, document_classification)
+
+            # Zero questions guard
+            if len(questions) == 0:
+                final_status = JobStatus.needs_review
+            else:
+                final_status = JobStatus.completed
+
+            _jobs[jid]["job"].status = JobStatus.schema_validating
+            _jobs[jid]["parse_mode"] = "ocr_first"
+            _jobs[jid]["parser_provider"] = "aliyun_ocr"
+            _jobs[jid]["parser_model"] = "ocr_general"
+            _jobs[jid]["qwen_parse_call_id"] = f"ocr_first_{jid}"
+            _jobs[jid]["total_parse_cost_cny"] = total_parse_cost
+
+            document_classification = _build_document_classification(
+                ocr_blocks, questions,
+                image_width=image_width, image_height=image_height,
+            )
+            document_classification = _update_document_classification_stats(
+                document_classification, questions,
+                image_width=image_width, image_height=image_height,
+            )
+            questions = _drop_questions_for_conservative_page_type(questions, document_classification)
+            _jobs[jid]["document_classification"] = document_classification
+
+            # Grading
+            grading_cost = 0.0
+            try:
+                grading_cost = await grade_answers(jid, questions, trace_id, parent_id, child_id)
+            except Exception as _ge:
+                error(f"[BG] OCR-first grading failed: {_ge}")
+            total_parse_cost += grading_cost
+
+            _with_g = sum(1 for q in questions if getattr(q, "is_correct", None) is not None)
+            _with_sa = sum(1 for q in questions if getattr(q, "student_answer", None))
+
+            if len(questions) > 0 and _with_sa == 0 and _with_g == 0:
+                final_status = JobStatus.needs_review
+
+            gated_status = _apply_document_support_gate(
+                final_status, questions, document_classification,
+                grading_count=_with_g, student_answer_count=_with_sa,
+            )
+            if gated_status != final_status:
+                final_status = gated_status
+
+            save_result(jid, questions, now, file, final_status)
+            debug(f"[diag] ocr_first_completed jid={jid} status={final_status.value} qcount={len(questions)}")
+            return
+
 
         # ── Phase 1: Qwen-VL 全图 + 通用 OCR 并行 ──
         _jobs[jid]["job"].status = JobStatus.ocr_running

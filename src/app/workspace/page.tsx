@@ -7,6 +7,8 @@ import { Upload, ArrowRight, Clock, Loader2, X, Image, Camera, FileText } from "
 import ProcessingStatus from "@/components/processing/ProcessingStatus";
 import GradingOverlay from "@/components/GradingOverlay";
 import type { OverlayMark, GroupBox } from "@/components/GradingOverlay";
+import AnswerMarkOverlay from "@/components/question-list/AnswerMarkOverlay";
+import type { AnswerMark } from "@/components/question-list/AnswerMarkOverlay";
 import QuestionGroup, { calcGroupSize, groupQuestions } from "@/components/question-list/QuestionGroup";
 import { useParseJobPolling } from "@/hooks/useParseJobPolling";
 import { useJobHistory } from "@/hooks/useJobHistory";
@@ -929,6 +931,14 @@ function WorkspaceContent() {
     return [x, y, w, h].every((value) => Number.isFinite(value)) && w > 0 && h > 0;
   };
   const overlayImageUrl = resolveImageUrl(job?.image_url || qs.find((q) => q.image_url)?.image_url || undefined);
+  const answerMarks: AnswerMark[] = qs
+    .filter((q) => q.is_correct !== null && q.is_correct !== undefined && isRenderableBbox(q.answer_bbox))
+    .map((q) => ({
+      question_id: q.question_id,
+      is_correct: q.is_correct as boolean,
+      answer_bbox: q.answer_bbox as [number, number, number, number],
+      question_number: q.question_number,
+    }));
 
   // 诊断：渲染前检查 grading 字段（使用 filteredQs 与下方分组保持一致）
   const _render_wg = filteredQs.filter(q => q.is_correct !== null && q.is_correct !== undefined).length;
@@ -1044,6 +1054,7 @@ function WorkspaceContent() {
       </div>
 
       <GradingOverlay marks={overlay || []} groups={group_boxes || []} imageUrl={overlayImageUrl} v2Marks={v2Marks} v2NeedsReview={v2NeedsReview} />
+      <AnswerMarkOverlay marks={answerMarks} imageUrl={overlayImageUrl} />
 
       <div className="space-y-3">
         {(() => {
