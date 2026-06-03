@@ -386,6 +386,17 @@ async def grade_answers(
                     _is_correct = None
                 _expl = g.get("grading_explanation", "暂未判定") if g.get("grading_explanation") else "暂未判定"
             else:
+                # DeepSeek 未覆盖该题 → 先检查是否已有规则判题结果
+                if isinstance(q, dict):
+                    _existing = q.get("is_correct")
+                    if _existing is None:
+                        _existing = q.get("iscorrect")
+                else:
+                    _existing = getattr(q, "is_correct", None)
+                    if _existing is None:
+                        _existing = getattr(q, "iscorrect", None)
+                if _existing in (True, False):
+                    continue  # 规则已判题，保留结果，不覆盖
                 # 无 student_answer 或 grading 未覆盖
                 _sa2 = q.student_answer if hasattr(q, "student_answer") else q.get("student_answer") if isinstance(q, dict) else None
                 if _sa2:
