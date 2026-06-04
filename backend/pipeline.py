@@ -74,6 +74,12 @@ def _get_qwen_full_timeout_seconds(default: int = 30) -> int:
     return default
 
 
+def _get_call_source() -> str:
+    """Read YOMICALL_SOURCE; fall back to legacy YOMICALLSOURCE (no underscore)."""
+    v = _os.environ.get("YOMICALL_SOURCE") or _os.environ.get("YOMICALLSOURCE")
+    return v.strip() if v and v.strip() else "dev_ocrfirst_real_test"
+
+
 def enqueue_parse_job(jid: str, job_entry: dict):
     """将任务注册到内存队列 + SQLite 持久化。"""
     _jobs[jid] = job_entry
@@ -330,6 +336,7 @@ async def grade_answers(
             error_code=result.get("error"),
             billing_status="billed" if result["success"] else "failed",
             pricing=pricing, question_count=len(gradable),
+            call_source=_get_call_source(),
         )
         grading_cost += glog.get("cost_cny", 0.0)
         _model_calls.append(glog)
@@ -884,6 +891,9 @@ async def _qwen_boost_group(
             "输出JSON数组：[{\"question_number\":题号,\"student_answer\":\"答案或null\",\"answer_bbox\":{\"x\":...,\"y\":...,\"width\":...,\"height\":...}}]"
         )
 
+        _t0 = time.time()
+        _boost_exc: str | None = None
+        result = None
         try:
             result = await asyncio.to_thread(
                 qwen_vl._call,
@@ -894,106 +904,195 @@ async def _qwen_boost_group(
                 timeout=15,
             )
         except Exception as e:
-            info(f"[BG] Qwen boost group {gi} failed: {e}")
+            _boost_exc = str(e)[:200]
+
+        _boost_latency_ms = int((time.time() - _t0) * 1000)
+        _call_source = _get_call_source()
+
+        # Write failed model_call on exception or API failure (observable failure path)
+        if _boost_exc is not None or not result or not result.get("success"):
+            _err_msg = _boost_exc or str((result or {}).get("error", "api_failed"))[:200]
+            try:
+                pricing = get_active_pricing("aliyun_dashscope", "qwen-vl-max")
+                fail_log = make_log_entry(
+                    task_id=jid, provider_name="aliyun_dashscope", model_name="qwen-vl-max",
+                    feature_code="qwen_boost_group", trace_id=trace_id,
+                    sub_stage="answer_extraction",
+                    latency_ms=_boost_latency_ms, success=False,
+                    parent_user_id=parent_id, child_id=child_id,
+                    billing_status="failed", pricing=pricing,
+                    call_source=_call_source,
+                    error_message=_err_msg,
+                )
+                _model_calls.append(fail_log)
+                _db.save_model_call(fail_log)
+            except Exception:
+                pass
+            info(f"[BG] Qwen boost group {gi} failed: {_err_msg}")
             continue
 
-        if not result.get("success"):
-            continue
-
+        # Parse JSON; model_call written after outcome known — no premature success=True
+        _parse_error: str | None = None
         try:
             content = result.get("content", "")
             json_match = re.search(r'\[.*\]', content, re.DOTALL)
             if not json_match:
-                continue
+                _parse_error = "no_json"
+            else:
+                try:
+                    boost_data = json.loads(json_match.group())
+                except json.JSONDecodeError:
+                    _parse_error = "bad_json"
+                    boost_data = None
+                if _parse_error is not None:
+                    pass
+                elif not isinstance(boost_data, list):
+                    _parse_error = "json_not_array"
+                elif not boost_data:
+                    _parse_error = "empty_json_array"
+                else:
+                    _matched_qnums: set = set()
+                    _usable_bbox_written_count = 0
+                    _missing_question_number = False
+                    _bbox_rejected = False
+                    pending_updates = []
+                    for item in boost_data:
+                        if not isinstance(item, dict):
+                            _missing_question_number = True
+                            continue
+                        qn = item.get("question_number")
+                        if qn is None:
+                            _missing_question_number = True
+                            continue
+                        sa = item.get("student_answer")
+                        # Contract-first bbox parsing: object format > bbox_format > pure list
+                        ab = item.get("answer_bbox") or item.get("answerbbox")
+                        _ab_raw = None
+                        _ab_format = None  # "xywh" | "xyxy" | None (pure list, default xywh)
+                        if isinstance(ab, dict):
+                            # Object format: {"x":..., "y":..., "width":..., "height":...}
+                            if all(k in ab for k in ("x", "y", "width", "height")):
+                                try:
+                                    _ab_raw = [float(ab["x"]), float(ab["y"]), float(ab["width"]), float(ab["height"])]
+                                    _ab_format = "xywh"
+                                except (TypeError, ValueError):
+                                    pass
+                            elif "bbox" in ab and isinstance(ab["bbox"], list) and len(ab["bbox"]) == 4:
+                                try:
+                                    _ab_raw = [float(v) for v in ab["bbox"]]
+                                    fmt = str(ab.get("bbox_format", "")).lower()
+                                    _ab_format = fmt if fmt in ("xywh", "xyxy") else None
+                                except (TypeError, ValueError):
+                                    pass
+                        elif ab and isinstance(ab, list) and len(ab) == 4:
+                            try:
+                                _ab_raw = [float(v) for v in ab]
+                                # Pure list: default xywh, no numeric guessing
+                            except (TypeError, ValueError):
+                                pass
 
-            boost_data = json.loads(json_match.group())
-            for item in boost_data:
-                qn = item.get("question_number")
-                sa = item.get("student_answer")
-                # Contract-first bbox parsing: object format > bbox_format > pure list
-                ab = item.get("answer_bbox") or item.get("answerbbox")
-                _ab_raw = None
-                _ab_format = None  # "xywh" | "xyxy" | None (pure list, default xywh)
-                if isinstance(ab, dict):
-                    # Object format: {"x":..., "y":..., "width":..., "height":...}
-                    if all(k in ab for k in ("x", "y", "width", "height")):
-                        try:
-                            _ab_raw = [float(ab["x"]), float(ab["y"]), float(ab["width"]), float(ab["height"])]
-                            _ab_format = "xywh"
-                        except (TypeError, ValueError):
-                            pass
-                    elif "bbox" in ab and isinstance(ab["bbox"], list) and len(ab["bbox"]) == 4:
-                        try:
-                            _ab_raw = [float(v) for v in ab["bbox"]]
-                            fmt = str(ab.get("bbox_format", "")).lower()
-                            _ab_format = fmt if fmt in ("xywh", "xyxy") else None
-                        except (TypeError, ValueError):
-                            pass
-                elif ab and isinstance(ab, list) and len(ab) == 4:
-                    try:
-                        _ab_raw = [float(v) for v in ab]
-                        # Pure list: default xywh, no numeric guessing
-                    except (TypeError, ValueError):
-                        pass
+                        for idx, q, reason in group:
+                            if q.question_number == qn:
+                                _matched_qnums.add(qn)
+                                _candidate_student_answer = None
+                                if sa and str(sa).lower() not in ("null", "无", "none", ""):
+                                    _candidate_student_answer = str(sa)
+                                if ab is None:
+                                    debug(f"[diag] qwen_no_bbox jid={jid} q={qn}")
+                                    _bbox_rejected = True
+                                elif _ab_raw is None:
+                                    debug(f"[diag] qwen_bbox_invalid jid={jid} q={qn}")
+                                    _bbox_rejected = True
+                                else:
+                                    ax1, ay1, ax2, ay2 = _ab_raw
+                                    _q_bbox_list = list(q.bbox) if q.bbox else None
+                                    _validated_bbox = None
+                                    if _ab_format == "xyxy":
+                                        # Explicit xyxy: convert to [x,y,w,h]
+                                        w = ax2 - ax1
+                                        h = ay2 - ay1
+                                        if w > 0 and h > 0:
+                                            _validated_bbox = _validate_answer_bbox(
+                                                [ax1, ay1, w, h], _q_bbox_list, image_width, image_height
+                                            )
+                                    else:
+                                        # xywh (explicit or pure-list default): validate as-is
+                                        _validated_bbox = _validate_answer_bbox(
+                                            [ax1, ay1, ax2, ay2], _q_bbox_list, image_width, image_height
+                                        )
+                                        if _validated_bbox is None and _ab_format is None and ax2 > ax1 and ay2 > ay1:
+                                            # Legacy rescue: old Qwen xyxy pure-list when raw xywh fails validation
+                                            _validated_bbox = _validate_answer_bbox(
+                                                [ax1, ay1, ax2 - ax1, ay2 - ay1],
+                                                _q_bbox_list, image_width, image_height,
+                                            )
+                                    if _validated_bbox:
+                                        pending_updates.append((idx, q, _candidate_student_answer, _validated_bbox))
+                                        _usable_bbox_written_count += 1
+                                    else:
+                                        debug(f"[diag] validate_rejected jid={jid} q={qn}")
+                                        _bbox_rejected = True
+                                break
 
-                for idx, q, reason in group:
-                    if q.question_number == qn:
-                        if sa and str(sa).lower() not in ("null", "无", "none", ""):
-                            q.student_answer = str(sa)
-                        if _ab_raw is not None:
-                            ax1, ay1, ax2, ay2 = _ab_raw
-                            _q_bbox_list = list(q.bbox) if q.bbox else None
-                            if _ab_format == "xyxy":
-                                # Explicit xyxy: convert to [x,y,w,h]
-                                w = ax2 - ax1
-                                h = ay2 - ay1
-                                if w > 0 and h > 0:
-                                    _x_valid = _validate_answer_bbox(
-                                        [ax1, ay1, w, h], _q_bbox_list, image_width, image_height
-                                    )
-                                    if _x_valid:
-                                        q.answer_bbox = _x_valid
-                            else:
-                                # xywh (explicit or pure-list default): validate as-is
-                                _raw_valid = _validate_answer_bbox(
-                                    [ax1, ay1, ax2, ay2], _q_bbox_list, image_width, image_height
-                                )
-                                if _raw_valid:
-                                    q.answer_bbox = _raw_valid
-                                elif _ab_format is None and ax2 > ax1 and ay2 > ay1:
-                                    # Legacy rescue: old Qwen xyxy pure-list when raw xywh fails validation
-                                    _conv_valid = _validate_answer_bbox(
-                                        [ax1, ay1, ax2 - ax1, ay2 - ay1],
-                                        _q_bbox_list, image_width, image_height,
-                                    )
-                                    if _conv_valid:
-                                        q.answer_bbox = _conv_valid
-                        q.source = "qwen_boost"
-                        boosted_indices.add(idx)
-                        break
+                    if _parse_error is None:
+                        if _missing_question_number:
+                            _parse_error = "missing_question_number"
+                        elif not _matched_qnums:
+                            _parse_error = "no_matching_questions"
+                        elif _bbox_rejected:
+                            _parse_error = "invalid_answer_bbox"
+                        elif _usable_bbox_written_count == 0:
+                            _parse_error = "no_usable_boost_result"
+                    if _parse_error is None and _usable_bbox_written_count > 0:
+                        for idx, q, _candidate_student_answer, _validated_bbox in pending_updates:
+                            if _candidate_student_answer is not None:
+                                q.student_answer = _candidate_student_answer
+                            q.answer_bbox = _validated_bbox
+                            q.source = "qwen_boost"
+                            boosted_indices.add(idx)
+                    # Log questions in group with no matching item in Qwen response
+                    for idx, q, reason in group:
+                        if q.question_number not in _matched_qnums:
+                            debug(f"[diag] parsed_no_answer_area jid={jid} q={q.question_number}")
+        except Exception as e:
+            _parse_error = str(e)[:200]
+            info(f"[BG] Qwen boost parse error: {e}")
 
-            # Track model call for Qwen boost
-            try:
-                pricing = get_active_pricing("aliyun_dashscope", "qwen-vl-max")
-                usage_data = result.get("usage", {}) or {}
+        # Write model_call with correct success semantics: True only if API+parse both succeeded
+        try:
+            pricing = get_active_pricing("aliyun_dashscope", "qwen-vl-max")
+            usage_data = result.get("usage", {}) or {}
+            if _parse_error is None:
                 boost_log = make_log_entry(
                     task_id=jid, provider_name="aliyun_dashscope", model_name="qwen-vl-max",
                     feature_code="qwen_boost_group", trace_id=trace_id,
                     sub_stage="answer_extraction",
-                    latency_ms=result.get("latency_ms", 0),
+                    latency_ms=result.get("latency_ms", 0) or _boost_latency_ms,
                     success=True,
                     input_tokens=usage_data.get("prompt_tokens", 0),
                     output_tokens=usage_data.get("completion_tokens", 0),
                     parent_user_id=parent_id, child_id=child_id,
                     billing_status="billed", pricing=pricing,
-                    call_source=_os.environ.get("YOMICALL_SOURCE", "prod"),
+                    call_source=_call_source,
                 )
-                _model_calls.append(boost_log)
-                _db.save_model_call(boost_log)
-            except Exception:
-                pass
-        except Exception as e:
-            info(f"[BG] Qwen boost parse error: {e}")
+            else:
+                boost_log = make_log_entry(
+                    task_id=jid, provider_name="aliyun_dashscope", model_name="qwen-vl-max",
+                    feature_code="qwen_boost_group", trace_id=trace_id,
+                    sub_stage="answer_extraction",
+                    latency_ms=result.get("latency_ms", 0) or _boost_latency_ms,
+                    success=False,
+                    parent_user_id=parent_id, child_id=child_id,
+                    billing_status="failed", pricing=pricing,
+                    call_source=_call_source,
+                    error_message=_parse_error,
+                )
+            _model_calls.append(boost_log)
+            _db.save_model_call(boost_log)
+        except Exception:
+            pass
+
+        if _parse_error is not None:
             continue
 
     # 标记未boost的为skipped
@@ -1003,6 +1102,174 @@ async def _qwen_boost_group(
 
     return questions
 
+
+async def _qwen_bbox_only_retry(
+    jid: str,
+    questions: list,
+    image_bytes: bytes,
+    oss_signed_url,
+    trace_id: str,
+    parent_id: str,
+    child_id: str,
+    image_width=None,
+    image_height=None,
+) -> list:
+    """Single bbox-only retry per image for questions that have student_answer but no answer_bbox.
+    Max 1 Qwen call per image. Returns updated questions list."""
+    retry_qs = [
+        q for q in questions
+        if getattr(q, "student_answer", None)
+        and not getattr(q, "answer_bbox", None)
+    ]
+    if not retry_qs:
+        return questions
+
+    q_lines = [
+        f"题{q.question_number}: {str(q.question_text)[:40]} | 已知答案: {str(q.student_answer)[:30]}"
+        for q in retry_qs
+    ]
+    prompt = (
+        "请定位下列各题的学生作答区域（孩子手写答案所在位置）。\n"
+        "注意：只返回作答区域，禁止整题bbox、题干bbox、整页bbox。\n"
+        + "\n".join(q_lines)
+        + "\n\n输出JSON数组，每项格式：{\"question_number\":题号,\"answer_bbox\":{\"x\":数字,\"y\":数字,\"width\":数字,\"height\":数字}}"
+    )
+
+    qwen_vl = QwenVLClient()
+    _t0 = time.time()
+    result = None
+    _exc_msg: str | None = None
+    try:
+        result = await asyncio.to_thread(
+            qwen_vl._call,
+            image_bytes=image_bytes if not oss_signed_url else None,
+            image_url=oss_signed_url,
+            prompt=prompt,
+            max_tokens=400,
+            timeout=15,
+        )
+    except Exception as e:
+        _exc_msg = str(e)[:200]
+
+    _latency_ms = int((time.time() - _t0) * 1000)
+    _call_source = _get_call_source()
+    _result_ok = _exc_msg is None and result is not None and bool(result.get("success"))
+    _semantic_error: str | None = None
+    _usable_bbox_written_count = 0
+
+    if not _result_ok:
+        _semantic_error = _exc_msg or str((result or {}).get("error", "api_failed"))[:200]
+        debug(f"[diag] bbox_only_retry failed jid={jid} exc={_exc_msg}")
+    else:
+        try:
+            content = result.get("content", "")
+            json_match = re.search(r'\[.*\]', content, re.DOTALL)
+            if not json_match:
+                _semantic_error = "no_json"
+                debug(f"[diag] bbox_only_retry no_json jid={jid}")
+            else:
+                try:
+                    retry_data = json.loads(json_match.group())
+                except json.JSONDecodeError:
+                    _semantic_error = "bad_json"
+                    retry_data = None
+                if _semantic_error is not None:
+                    pass
+                elif not isinstance(retry_data, list):
+                    _semantic_error = "json_not_array"
+                elif not retry_data:
+                    _semantic_error = "empty_json_array"
+                else:
+                    retry_map: dict = {}
+                    _missing_question_number = False
+                    pending_bbox_updates = []
+                    for item in retry_data:
+                        if not isinstance(item, dict):
+                            _missing_question_number = True
+                            continue
+                        qn = item.get("question_number")
+                        if qn is None:
+                            _missing_question_number = True
+                            continue
+                        retry_map[qn] = item.get("answer_bbox")
+
+                    _matched_qnums: set = set()
+                    _bbox_rejected = False
+                    for q in retry_qs:
+                        if q.question_number not in retry_map:
+                            debug(f"[diag] bbox_only_retry no_bbox q={q.question_number} jid={jid}")
+                            continue
+                        _matched_qnums.add(q.question_number)
+                        ab = retry_map.get(q.question_number)
+                        if not ab:
+                            debug(f"[diag] bbox_only_retry no_bbox q={q.question_number} jid={jid}")
+                            _bbox_rejected = True
+                            continue
+
+                        _ab_raw = None
+                        if isinstance(ab, dict) and all(k in ab for k in ("x", "y", "width", "height")):
+                            try:
+                                _ab_raw = [float(ab["x"]), float(ab["y"]), float(ab["width"]), float(ab["height"])]
+                            except (TypeError, ValueError):
+                                pass
+                        elif isinstance(ab, list) and len(ab) == 4:
+                            try:
+                                _ab_raw = [float(v) for v in ab]
+                            except (TypeError, ValueError):
+                                pass
+
+                        if _ab_raw is None:
+                            debug(f"[diag] bbox_only_retry invalid_format q={q.question_number} jid={jid}")
+                            _bbox_rejected = True
+                            continue
+
+                        _q_bbox_list = list(q.bbox) if getattr(q, "bbox", None) else None
+                        validated = _validate_answer_bbox(_ab_raw, _q_bbox_list, image_width, image_height)
+                        if validated:
+                            pending_bbox_updates.append((q, validated))
+                            _usable_bbox_written_count += 1
+                            debug(f"[diag] bbox_only_retry placed q={q.question_number} jid={jid}")
+                        else:
+                            debug(f"[diag] bbox_only_retry validate_rejected q={q.question_number} jid={jid}")
+                            _bbox_rejected = True
+
+                    if _missing_question_number:
+                        _semantic_error = "missing_question_number"
+                    elif not _matched_qnums:
+                        _semantic_error = "no_matching_questions"
+                    elif _bbox_rejected:
+                        _semantic_error = "invalid_answer_bbox"
+                    elif _usable_bbox_written_count == 0:
+                        _semantic_error = "no_usable_boost_result"
+                    if _semantic_error is None and _usable_bbox_written_count > 0:
+                        for q, validated in pending_bbox_updates:
+                            q.answer_bbox = validated
+        except Exception as e:
+            _semantic_error = str(e)[:200]
+            debug(f"[diag] bbox_only_retry parse_error jid={jid}: {e}")
+
+    try:
+        pricing = get_active_pricing("aliyun_dashscope", "qwen-vl-max")
+        usage_data = (result or {}).get("usage", {}) or {}
+        retry_log = make_log_entry(
+            task_id=jid, provider_name="aliyun_dashscope", model_name="qwen-vl-max",
+            feature_code="qwen_bbox_only_retry", trace_id=trace_id,
+            sub_stage="bbox_retry",
+            latency_ms=_latency_ms, success=_semantic_error is None,
+            input_tokens=usage_data.get("prompt_tokens", 0),
+            output_tokens=usage_data.get("completion_tokens", 0),
+            parent_user_id=parent_id, child_id=child_id,
+            billing_status="billed" if _semantic_error is None else "failed",
+            pricing=pricing,
+            call_source=_call_source,
+            error_message=_semantic_error,
+        )
+        _model_calls.append(retry_log)
+        _db.save_model_call(retry_log)
+    except Exception:
+        pass
+
+    return questions
 
 
 def _build_test_mode_questions(jid: str) -> list[Question]:
@@ -1611,6 +1878,12 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
                         image_width, image_height,
                     )
                     info(f"[BG] Qwen boost completed for {jid}")
+                    # bbox-only retry: one call per image for questions with student_answer but no answer_bbox
+                    questions = await _qwen_bbox_only_retry(
+                        jid, questions, _img_bytes, oss_signed_url,
+                        trace_id, parent_id, child_id,
+                        image_width, image_height,
+                    )
             else:
                 info(f"[BG] OCR-first: 0 blocks, no questions")
                 questions = []
@@ -1779,7 +2052,7 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
                 success=len(ocr_blocks) > 0,
                 parent_user_id=parent_id, child_id=child_id,
                 billing_status="billed", image_count=1, credit_cost=0.004,
-                call_source=_os.environ.get("YOMICALL_SOURCE", "prod"),
+                call_source=_get_call_source(),
                 blocks_count=len(ocr_blocks),
             )
             _model_calls.append(_ocr_log)
@@ -2352,7 +2625,7 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
             child_id=child_id,
             error_code=str(e)[:100],
             billing_status="failed",
-            call_source=_os.environ.get("YOMICALL_SOURCE", "prod"),
+            call_source=_get_call_source(),
         )
         _model_calls.append(_flog)
         _db.save_model_call(_flog)
