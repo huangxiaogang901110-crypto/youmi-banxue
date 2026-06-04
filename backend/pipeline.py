@@ -903,6 +903,27 @@ async def _qwen_boost_group(
                         q.source = "qwen_boost"
                         boosted_indices.add(idx)
                         break
+
+            # Track model call for Qwen boost
+            try:
+                pricing = get_active_pricing("aliyun_dashscope", "qwen-vl-max")
+                usage_data = result.get("usage", {}) or {}
+                boost_log = make_log_entry(
+                    task_id=jid, provider_name="aliyun_dashscope", model_name="qwen-vl-max",
+                    feature_code="qwen_boost_group", trace_id=trace_id,
+                    sub_stage="answer_extraction",
+                    latency_ms=result.get("latency_ms", 0),
+                    success=True,
+                    input_tokens=usage_data.get("prompt_tokens", 0),
+                    output_tokens=usage_data.get("completion_tokens", 0),
+                    parent_user_id=parent_id, child_id=child_id,
+                    billing_status="billed", pricing=pricing,
+                    call_source=_os.environ.get("YOMICALL_SOURCE", "prod"),
+                )
+                _model_calls.append(boost_log)
+                _db.save_model_call(boost_log)
+            except Exception:
+                pass
         except Exception as e:
             info(f"[BG] Qwen boost parse error: {e}")
             continue
@@ -1559,10 +1580,19 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
             questions = _drop_questions_for_conservative_page_type(questions, document_classification)
             _jobs[jid]["document_classification"] = document_classification
 
+            # Build grading_units for grade_answers
+            grading_units = build_grading_units(
+                questions,
+                image_width=image_width,
+                image_height=image_height,
+            )
+            apply_grading_unit_metadata(questions, grading_units, ocr_blocks)
+            _jobs[jid]["grading_units"] = grading_units
+
             # Grading
             grading_cost = 0.0
             try:
-                grading_cost = await grade_answers(jid, questions, trace_id, parent_id, child_id)
+                grading_cost = await grade_answers(jid, questions, grading_units, contents, trace_id, parent_id, child_id)
             except Exception as _ge:
                 error(f"[BG] OCR-first grading failed: {_ge}")
             total_parse_cost += grading_cost
