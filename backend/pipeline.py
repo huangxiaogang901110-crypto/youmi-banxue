@@ -1598,12 +1598,23 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
             apply_grading_unit_metadata(questions, grading_units, ocr_blocks)
             _jobs[jid]["grading_units"] = grading_units
 
-            # Grading
+            # Grading — preserve Qwen answer_bbox through grading
+            _pre_grade_bbox = {
+                getattr(q, "question_id", str(i)): getattr(q, "answer_bbox", None)
+                for i, q in enumerate(questions)
+                if getattr(q, "answer_bbox", None)
+            }
             grading_cost = 0.0
             try:
                 grading_cost = await grade_answers(jid, questions, grading_units, contents, trace_id, parent_id, child_id)
             except Exception as _ge:
                 error(f"[BG] OCR-first grading failed: {_ge}")
+            # Restore answer_bbox if grading wiped it (JSON parse errors, etc.)
+            for q in questions:
+                qid = getattr(q, "question_id", None)
+                if qid and _pre_grade_bbox.get(qid) and not getattr(q, "answer_bbox", None):
+                    q.answer_bbox = _pre_grade_bbox[qid]
+                    debug(f"[diag] preserved answer_bbox for qid={qid}")
             total_parse_cost += grading_cost
 
             _with_g = sum(1 for q in questions if getattr(q, "is_correct", None) is not None)
