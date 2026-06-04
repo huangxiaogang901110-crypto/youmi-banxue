@@ -891,6 +891,15 @@ async def _qwen_boost_group(
                 qn = item.get("question_number")
                 sa = item.get("student_answer")
                 ab = item.get("answer_bbox")
+                # Qwen often returns [x1,y1,x2,y2] (two corners) instead of [x,y,w,h].
+                # Convert when x2 > x1 and y2 > y1 (heuristic for corner-pair format).
+                if ab and isinstance(ab, list) and len(ab) == 4:
+                    try:
+                        ax1, ay1, ax2, ay2 = [float(v) for v in ab]
+                        if ax2 > ax1 and ay2 > ay1:
+                            ab = [ax1, ay1, ax2 - ax1, ay2 - ay1]
+                    except (TypeError, ValueError):
+                        pass
 
                 for idx, q, reason in group:
                     if q.question_number == qn:
