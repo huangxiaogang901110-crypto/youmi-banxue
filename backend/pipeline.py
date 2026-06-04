@@ -339,35 +339,52 @@ async def grade_answers(
             error(f"[BG] Grading failed for {jid}: {result.get('error', 'unknown')}")
             return grading_cost
 
-        # 解析 DeepSeek 返回的 JSON
+        # 解析 DeepSeek 返回的 JSON — 多级鲁棒提取
         content = result["reply_text"]
-        # 写入完整回复供排查
         with open(f"/tmp/grade_reply_{jid}.txt", "w") as _f:
             _f.write(content)
-        # 直接解析整个回复为 JSON
+        import re as _re2
         parse_method = "direct_json"
+        grades = []
+        _clean = content.strip()
+        # 策略 1：strip markdown code fences
+        _fence = _re2.search(r'```(?:json)?\s*\n?(.*?)\n?```', _clean, _re2.DOTALL)
+        if _fence:
+            _clean = _fence.group(1).strip()
+            parse_method = "markdown_strip"
+        # 策略 2：direct JSON parse
         try:
-            grades = json.loads(content)
+            grades = json.loads(_clean)
+            if parse_method == "markdown_strip": pass
+            else: parse_method = "direct_json"
         except json.JSONDecodeError:
-            import re as _re
-            json_match = _re.search(r'\[.*\]', content, _re.DOTALL)
-            if json_match:
-                grades = json.loads(json_match.group())
-                parse_method = "regex"
-            else:
-                # 截断兜底：切到最后一个完整 JSON 对象并补 ]（常见于 max_tokens 截断）
+            # 策略 3：anchored bracket — 从第一个 [{ 开始匹配
+            _anchor = _re2.search(r'\[\s*\{', _clean)
+            if _anchor:
+                _start = _anchor.start()
+                _subset = _clean[_start:]
+                # 策略 3a：完整 JSON
                 try:
-                    _trimmed = content.rstrip()
-                    _last_brace = _trimmed.rfind("}")
-                    if _last_brace > 0:
-                        grades = json.loads(_trimmed[:_last_brace + 1] + "]")
-                        parse_method = "truncation_fix"
-                    else:
-                        grades = []
-                        parse_method = "regex"
+                    grades = json.loads(_subset)
+                    parse_method = "anchored_bracket"
                 except json.JSONDecodeError:
-                    grades = []
-                    parse_method = "regex"
+                    # 策略 3b：truncation fix — 取到最后一个完整 }，补 ]
+                    _last_brace = _subset.rfind("}")
+                    if _last_brace > 0:
+                        try:
+                            grades = json.loads(_subset[:_last_brace + 1] + "]")
+                            parse_method = "truncation_fix"
+                        except json.JSONDecodeError:
+                            pass
+            # 策略 4：greedy regex fallback (原逻辑)
+            if not grades:
+                _json_match = _re2.search(r'\[.*\]', _clean, _re2.DOTALL)
+                if _json_match:
+                    try:
+                        grades = json.loads(_json_match.group())
+                        parse_method = "greedy_regex"
+                    except json.JSONDecodeError:
+                        pass
         if not isinstance(grades, list):
             grades = []
         with open("/tmp/grade_diag.log", "a") as _f:
