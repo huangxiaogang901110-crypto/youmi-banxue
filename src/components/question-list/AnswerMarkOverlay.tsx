@@ -6,6 +6,7 @@ export interface AnswerMark {
   question_id: string;
   is_correct: boolean;
   answer_bbox: [number, number, number, number]; // [x, y, w, h] in original coords
+  question_bbox?: [number, number, number, number] | null;
   question_number?: number;
 }
 
@@ -16,6 +17,23 @@ interface Props {
 }
 
 const CHECK_SIZE = 18;
+// Pre-render safety limits (no dims needed)
+const MIN_CLICK_PX = 8;
+const MAX_BBOX_DIM = 3000;
+const MAX_BBOX_AREA = 4_000_000;
+// Render-time coverage limits (requires image dims)
+const MAX_PAGE_FRACTION = 0.70;
+const MAX_QUESTION_COVER = 0.85;
+
+function passesPreRenderGate(bbox: [number, number, number, number]): boolean {
+  const [x, y, w, h] = bbox;
+  if (![x, y, w, h].every((v) => Number.isFinite(v))) return false;
+  if (x < 0 || y < 0) return false;
+  if (w < MIN_CLICK_PX || h < MIN_CLICK_PX) return false;
+  if (w > MAX_BBOX_DIM || h > MAX_BBOX_DIM) return false;
+  if (w * h > MAX_BBOX_AREA) return false;
+  return true;
+}
 
 export default function AnswerMarkOverlay({ marks, imageUrl, onMarkClick }: Props) {
   const imgRef = useRef<HTMLImageElement>(null);
@@ -41,8 +59,7 @@ export default function AnswerMarkOverlay({ marks, imageUrl, onMarkClick }: Prop
 
   const validMarks = marks.filter((m) => {
     if (!m.answer_bbox || m.answer_bbox.length !== 4) return false;
-    const [x, y, w, h] = m.answer_bbox;
-    return [x, y, w, h].every((v) => Number.isFinite(v)) && w > 0 && h > 0;
+    return passesPreRenderGate(m.answer_bbox);
   });
 
   if (!imageUrl || validMarks.length === 0) return null;
@@ -61,6 +78,20 @@ export default function AnswerMarkOverlay({ marks, imageUrl, onMarkClick }: Prop
       {imgLoaded &&
         validMarks.map((mark) => {
           const [x, y, w, h] = mark.answer_bbox;
+
+          // Render-time checks (dims now available)
+          if (dims.ow > 1 && dims.oh > 1) {
+            // Out-of-bounds (5% tolerance for coordinate rounding)
+            if (x + w > dims.ow * 1.05 || y + h > dims.oh * 1.05) return null;
+            // Covers too much of the page
+            if ((w * h) / (dims.ow * dims.oh) > MAX_PAGE_FRACTION) return null;
+            // Covers too much of the question bbox
+            if (mark.question_bbox) {
+              const [, , qw, qh] = mark.question_bbox;
+              if (qw > 0 && qh > 0 && (w * h) / (qw * qh) > MAX_QUESTION_COVER) return null;
+            }
+          }
+
           const leftPct = `${(x / dims.ow) * 100}%`;
           const topPct = `${(y / dims.oh) * 100}%`;
           const widthPct = `${(w / dims.ow) * 100}%`;

@@ -931,14 +931,46 @@ function WorkspaceContent() {
     return [x, y, w, h].every((value) => Number.isFinite(value)) && w > 0 && h > 0;
   };
   const overlayImageUrl = resolveImageUrl(job?.image_url || qs.find((q) => q.image_url)?.image_url || undefined);
-  const answerMarks: AnswerMark[] = qs
-    .filter((q) => q.is_correct !== null && q.is_correct !== undefined && isRenderableBbox(q.answer_bbox))
-    .map((q) => ({
-      question_id: q.question_id,
-      is_correct: q.is_correct as boolean,
-      answer_bbox: q.answer_bbox as [number, number, number, number],
-      question_number: q.question_number,
-    }));
+
+  // P0-3: Build set of question IDs already covered by v2Marks / overlay to avoid double-marking
+  const _gradedQIds = new Set<string>();
+  for (const m of (v2Marks || [])) {
+    if (m.target_question_id && (m.type === "green_tick" || m.type === "red_circle")) {
+      _gradedQIds.add(m.target_question_id);
+    }
+  }
+  for (const m of (overlay || [])) {
+    _gradedQIds.add(m.question_id);
+  }
+
+  // P0-2: Build answerMarks from filteredQs (not raw qs) with field-alias support and dedup
+  const answerMarks: AnswerMark[] = filteredQs
+    .filter((q) => {
+      const raw = q as unknown as Record<string, unknown>;
+      const isCorrect = q.is_correct ?? raw.iscorrect;
+      const bbox = q.answer_bbox ?? raw.answerbbox;
+      const qid = q.question_id ?? raw.questionid ?? raw.id;
+      if (isCorrect === null || isCorrect === undefined) return false;
+      if (!isRenderableBbox(bbox as number[] | null)) return false;
+      if (_gradedQIds.has(qid as string)) return false;
+      return true;
+    })
+    .map((q) => {
+      const raw = q as unknown as Record<string, unknown>;
+      const isCorrect = q.is_correct ?? raw.iscorrect;
+      const answerBbox = q.answer_bbox ?? raw.answerbbox;
+      const questionBbox = q.bbox ?? raw.question_bbox ?? raw.questionbbox;
+      const qid = (q.question_id ?? raw.questionid ?? raw.id) as string;
+      return {
+        question_id: qid,
+        is_correct: isCorrect as boolean,
+        answer_bbox: answerBbox as [number, number, number, number],
+        question_number: q.question_number,
+        question_bbox: isRenderableBbox(questionBbox as number[] | null)
+          ? (questionBbox as [number, number, number, number])
+          : undefined,
+      };
+    });
 
   // 诊断：渲染前检查 grading 字段（使用 filteredQs 与下方分组保持一致）
   const _render_wg = filteredQs.filter(q => q.is_correct !== null && q.is_correct !== undefined).length;
