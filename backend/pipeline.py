@@ -876,9 +876,12 @@ async def _qwen_boost_group(
         prompt = (
             f"图中{len(group)}道题需要补充孩子手写答案信息：\n" +
             "\n".join(q_texts) +
-            "\n\n请识别每道题的孩子手写答案内容（student_answer）及答案区域坐标（answer_bbox [x,y,w,h]）。"
+            "\n\n请识别每道题的孩子手写答案内容（student_answer）及答案区域坐标。"
             "如果看不清填null。"
-            "输出JSON数组：[{\"question_number\":题号,\"student_answer\":\"答案或null\",\"answer_bbox\":[x,y,w,h]或null}]"
+            "answer_bbox 必须是对象格式：{\"x\":数字,\"y\":数字,\"width\":数字,\"height\":数字}  "
+            "或附带bbox_format标识：{\"bbox\":[x,y,w,h],\"bbox_format\":\"xywh\"} "
+            "或 {\"bbox\":[x1,y1,x2,y2],\"bbox_format\":\"xyxy\"}。禁止只返回纯数字数组。"
+            "输出JSON数组：[{\"question_number\":题号,\"student_answer\":\"答案或null\",\"answer_bbox\":{\"x\":...,\"y\":...,\"width\":...,\"height\":...}}]"
         )
 
         try:
@@ -907,14 +910,29 @@ async def _qwen_boost_group(
             for item in boost_data:
                 qn = item.get("question_number")
                 sa = item.get("student_answer")
-                ab = item.get("answer_bbox")
-                # Qwen often returns [x1,y1,x2,y2] (two corners) instead of [x,y,w,h].
-                # Convert when x2 > x1 and y2 > y1 (heuristic for corner-pair format).
-                if ab and isinstance(ab, list) and len(ab) == 4:
+                # Contract-first bbox parsing: object format > bbox_format > pure list
+                ab = item.get("answer_bbox") or item.get("answerbbox")
+                _ab_raw = None
+                _ab_format = None  # "xywh" | "xyxy" | None (pure list, default xywh)
+                if isinstance(ab, dict):
+                    # Object format: {"x":..., "y":..., "width":..., "height":...}
+                    if all(k in ab for k in ("x", "y", "width", "height")):
+                        try:
+                            _ab_raw = [float(ab["x"]), float(ab["y"]), float(ab["width"]), float(ab["height"])]
+                            _ab_format = "xywh"
+                        except (TypeError, ValueError):
+                            pass
+                    elif "bbox" in ab and isinstance(ab["bbox"], list) and len(ab["bbox"]) == 4:
+                        try:
+                            _ab_raw = [float(v) for v in ab["bbox"]]
+                            fmt = str(ab.get("bbox_format", "")).lower()
+                            _ab_format = fmt if fmt in ("xywh", "xyxy") else None
+                        except (TypeError, ValueError):
+                            pass
+                elif ab and isinstance(ab, list) and len(ab) == 4:
                     try:
-                        ax1, ay1, ax2, ay2 = [float(v) for v in ab]
-                        if ax2 > ax1 and ay2 > ay1:
-                            ab = [ax1, ay1, ax2 - ax1, ay2 - ay1]
+                        _ab_raw = [float(v) for v in ab]
+                        # Pure list: default xywh, no numeric guessing
                     except (TypeError, ValueError):
                         pass
 
@@ -922,10 +940,34 @@ async def _qwen_boost_group(
                     if q.question_number == qn:
                         if sa and str(sa).lower() not in ("null", "无", "none", ""):
                             q.student_answer = str(sa)
-                        if ab and isinstance(ab, list) and len(ab) == 4:
-                            validated_ab = _validate_answer_bbox(ab, list(q.bbox) if q.bbox else None, image_width, image_height)
-                            if validated_ab:
-                                q.answer_bbox = validated_ab
+                        if _ab_raw is not None:
+                            ax1, ay1, ax2, ay2 = _ab_raw
+                            _q_bbox_list = list(q.bbox) if q.bbox else None
+                            if _ab_format == "xyxy":
+                                # Explicit xyxy: convert to [x,y,w,h]
+                                w = ax2 - ax1
+                                h = ay2 - ay1
+                                if w > 0 and h > 0:
+                                    _x_valid = _validate_answer_bbox(
+                                        [ax1, ay1, w, h], _q_bbox_list, image_width, image_height
+                                    )
+                                    if _x_valid:
+                                        q.answer_bbox = _x_valid
+                            else:
+                                # xywh (explicit or pure-list default): validate as-is
+                                _raw_valid = _validate_answer_bbox(
+                                    [ax1, ay1, ax2, ay2], _q_bbox_list, image_width, image_height
+                                )
+                                if _raw_valid:
+                                    q.answer_bbox = _raw_valid
+                                elif _ab_format is None and ax2 > ax1 and ay2 > ay1:
+                                    # Legacy rescue: old Qwen xyxy pure-list when raw xywh fails validation
+                                    _conv_valid = _validate_answer_bbox(
+                                        [ax1, ay1, ax2 - ax1, ay2 - ay1],
+                                        _q_bbox_list, image_width, image_height,
+                                    )
+                                    if _conv_valid:
+                                        q.answer_bbox = _conv_valid
                         q.source = "qwen_boost"
                         boosted_indices.add(idx)
                         break

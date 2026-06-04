@@ -922,8 +922,36 @@ function WorkspaceContent() {
   const qs = questions || [];
   // 统一题目真源：过滤掉 meta/section/header 等非题目节点，保证
   // header 题数、判对错统计、下方分组编号全部来自同一份列表
-  const _NON_Q_KINDS = new Set(["meta", "section", "ignored", "ignore", "header", "footer", "title", "summary", "instruction", "instructions", "note"]);
-  const filteredQs = qs.filter(q => !q.kind || q.kind === "question" || !_NON_Q_KINDS.has(q.kind.toLowerCase()));
+  const _NON_Q_KINDS = new Set(["meta", "section", "ignored", "ignore", "header", "footer", "title", "summary", "instruction", "instructions", "note", "date", "teacher"]);
+  const _Q_KINDS = new Set(["question", "problem", "item", "exercise"]);
+
+  // ── isMetaText: short title-form text (Chinese/English headers, not real questions) ──
+  const _ZH_SECTION_RE = /^[一二三四五六七八九十]+[、.．]\s*(选择题|计算题|应用题|填空题|判断题|解决问题|看图列式|口算题|竖式计算|操作题|作图题|简答题)/;
+  const _ZH_SHORT_LABEL_RE = /^(口算题|竖式计算|解决问题|看图列式|脱式计算|列式计算|递等式计算)$/;
+  const _EN_TITLE_RE = /^(Name|Class|Date|Teacher|Page\s*\d+|Unit\s*\d+|Part\s+[IV]+|Section\s+[A-Z])\s*[:：]?\s*$/i;
+  const _EN_SHORT_NUMBER_RE = /^(Page\s*\d+|Unit\s*\d+)\s*$/i;
+  function isMetaText(text: string): boolean {
+    if (!text) return false;
+    const t = text.trim();
+    if (_ZH_SECTION_RE.test(t)) return true;
+    if (_ZH_SHORT_LABEL_RE.test(t)) return true;
+    // English: only short standalone labels, not full question sentences
+    if (t.length <= 12 && _EN_TITLE_RE.test(t)) return true;
+    if (t.length <= 10 && _EN_SHORT_NUMBER_RE.test(t)) return true;
+    // Date/time-only patterns
+    if (/^(\d{4}[年\-/]\d{1,2}[月\-/]\d{1,2}日?)\s*$/.test(t)) return true;
+    return false;
+  }
+
+  // ── filteredQs: exclude meta/header nodes ──
+  const filteredQs = qs.filter(q => {
+    if (!q.kind) {
+      if (typeof q.question_number !== "number") return false;
+      const text = (q.question_text ?? "") as string;
+      return !isMetaText(text);
+    }
+    return !_NON_Q_KINDS.has(q.kind.toLowerCase());
+  });
   const groupSize = calcGroupSize(filteredQs.length);
   const isRenderableBbox = (bbox?: number[] | null): bbox is [number, number, number, number] => {
     if (!bbox || bbox.length !== 4) return false;
@@ -953,6 +981,26 @@ function WorkspaceContent() {
       if (isCorrect === null || isCorrect === undefined) return false;
       if (!isRenderableBbox(bbox as number[] | null)) return false;
       if (_gradedQIds.has(qid as string)) return false;
+      // Kind guard: only explicit question-type items enter answerMarks
+      if (q.kind) {
+        if (!_Q_KINDS.has(q.kind.toLowerCase())) return false;
+      } else {
+        // No kind: require strong question signals, not just question_number
+        const raw = q as unknown as Record<string, unknown>;
+        const qText = (q.question_text ?? raw.question_text ?? "") as string;
+        const qNum = typeof q.question_number === "number" ? q.question_number : null;
+        // Must NOT be meta/header text
+        if (isMetaText(qText)) return false;
+        // Strong question signals (any one is enough):
+        // - Has student/child answer
+        const hasAnswer = typeof raw.student_answer === "string" || typeof raw.child_answer === "string";
+        // - Text contains math operators, question marks, blanks, or option markers
+        const _Q_SIGNAL_RE = /[+\-×÷=？?＿_（）()□]|\b[A-D][.、．]|A\.|B\.|C\.|D\.|以上|正确|错误|判断|选择|填空|计算|求|解|答/;
+        const hasSignal = qText.trim().length > 2 && _Q_SIGNAL_RE.test(qText);
+        // - Has options
+        const hasOptions = raw.options != null && (Array.isArray(raw.options) ? raw.options.length > 0 : true);
+        if (!hasAnswer && !hasSignal && !hasOptions && qNum === null) return false;
+      }
       return true;
     })
     .map((q) => {
