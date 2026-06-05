@@ -1689,6 +1689,10 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
     MATH_OCR_FIRST_ENABLED = _os_env.getenv("YOMI_MATH_OCR_FIRST", "false").lower() in ("1", "true", "yes")
     TEST_FAKE_RECOGNITION = _os_env.getenv("YOMI_TEST_FAKE_RECOGNITION", "false").lower() in ("1", "true", "yes")
     OCR_FIRST_ENABLED = _os_env.getenv("YOMI_OCR_FIRST", "false").lower() in ("1", "true", "yes")
+    # P1-C guards: qwen_bbox_only_retry must never run unconditionally per image
+    QWEN_BBOX_ONLY_RETRY_ENABLED = _os_env.getenv("YOMI_QWEN_BBOX_ONLY_RETRY", "true").lower() in ("1", "true", "yes")
+    QWEN_BBOX_ONLY_RETRY_DEADLINE_S = int(_os_env.getenv("YOMI_QWEN_BBOX_ONLY_RETRY_DEADLINE_SECONDS", "25"))
+    QWEN_BBOX_ONLY_RETRY_MAX_CANDIDATES = int(_os_env.getenv("YOMI_QWEN_BBOX_ONLY_RETRY_MAX_CANDIDATES", "20"))
     import uuid as _uuid
     trace_id = _uuid.uuid4().hex
     _log_info(f"job_start jid={jid}", trace_id=trace_id, parent_id=parent_id, child_id=child_id)
@@ -1788,12 +1792,43 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
             _jobs[jid]["total_parse_cost_cny"] = 0.0
             grading_cost = 0.0
             try:
-                grading_cost = await grade_answers(jid, questions, trace_id, parent_id, child_id)
+                grading_cost = await grade_answers(jid, questions, [], contents, trace_id, parent_id, child_id)
             except Exception as _ge:
                 error(f"[BG] Fake recognition grading skipped (non-blocking): {_ge}")
             total_parse_cost += grading_cost
-            save_result(jid, questions, now, file, JobStatus.completed)
-            debug("[diag] worker_completed jid={jid} status=completed qcount={len(questions)} cost_cny={total_parse_cost:.4f}")
+            # P1-2 safety gate: build overlay marks and validate before completing.
+            # fake-recognition must not complete if grading failed or any expected
+            # mark is missing — prevents fake completed / prevents TypeError bubbling.
+            _fake_overlay: list = []
+            for _fq in questions:
+                if _get_question_field(_fq, "kind", "question") != "question":
+                    continue
+                _fm = build_overlay_mark(_fq)
+                if _fm is not None:
+                    _fake_overlay.append({
+                        "question_id": _fm.question_id,
+                        "mark_type": _fm.mark_type,
+                        "mark_bbox": _fm.mark_bbox,
+                        "question_number": _get_question_field(_fq, "question_number", 0),
+                    })
+            _jobs[jid]["overlay"] = _fake_overlay
+            _fake_with_g = sum(1 for _fq in questions if getattr(_fq, "is_correct", None) is not None)
+            _fake_needs_mark = sum(
+                1 for _fq in questions
+                if _get_question_field(_fq, "kind", "question") == "question"
+                and _get_question_field(_fq, "is_correct") is not None
+                and _get_question_field(_fq, "student_answer")
+            )
+            if _fake_with_g == 0 or _fake_needs_mark > len(_fake_overlay):
+                _fake_reason = "incomplete_grading_marks" if _fake_with_g == 0 else "partial_overlay_marks_missing"
+                info(f"[BG] fake-recognition: {_fake_reason} → needs_review for {jid}")
+                _jobs[jid]["error_code"] = _fake_reason
+                _jobs[jid]["document_classification"]["reason"] = _fake_reason
+                _fake_status = JobStatus.needs_review
+            else:
+                _fake_status = JobStatus.completed
+            save_result(jid, questions, now, file, _fake_status)
+            debug(f"[diag] worker_completed jid={jid} status={_fake_status.value} qcount={len(questions)} cost_cny={total_parse_cost:.4f}")
             return
 
         # ── Phase 0: 图片压缩预处理（加速 Qwen-VL）──
@@ -1878,12 +1913,21 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
                         image_width, image_height,
                     )
                     info(f"[BG] Qwen boost completed for {jid}")
-                    # bbox-only retry: one call per image for questions with student_answer but no answer_bbox
-                    questions = await _qwen_bbox_only_retry(
-                        jid, questions, _img_bytes, oss_signed_url,
-                        trace_id, parent_id, child_id,
-                        image_width, image_height,
+                    # bbox-only retry: guarded — feature flag, deadline, candidate count, already-has-bbox
+                    _retry_qs_count = sum(
+                        1 for q in questions
+                        if getattr(q, "student_answer", None) and not getattr(q, "answer_bbox", None)
                     )
+                    if (QWEN_BBOX_ONLY_RETRY_ENABLED
+                            and 0 < _retry_qs_count <= QWEN_BBOX_ONLY_RETRY_MAX_CANDIDATES
+                            and (time.time() - t_start) < QWEN_BBOX_ONLY_RETRY_DEADLINE_S):
+                        questions = await _qwen_bbox_only_retry(
+                            jid, questions, _img_bytes, oss_signed_url,
+                            trace_id, parent_id, child_id,
+                            image_width, image_height,
+                        )
+                    else:
+                        debug(f"[diag] bbox_only_retry skipped jid={jid} enabled={QWEN_BBOX_ONLY_RETRY_ENABLED} retry_qs={_retry_qs_count} max={QWEN_BBOX_ONLY_RETRY_MAX_CANDIDATES}")
             else:
                 info(f"[BG] OCR-first: 0 blocks, no questions")
                 questions = []
@@ -1952,7 +1996,9 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
             _with_g = sum(1 for q in questions if getattr(q, "is_correct", None) is not None)
             _with_sa = sum(1 for q in questions if getattr(q, "student_answer", None))
 
-            if len(questions) > 0 and _with_sa == 0 and _with_g == 0:
+            if len(questions) > 0 and _with_g == 0:
+                # P1-B: grading entirely absent (all is_correct None) — not safe to complete
+                # covers both _with_sa==0 and _with_sa>0 grading-failed cases
                 final_status = JobStatus.needs_review
 
             gated_status = _apply_document_support_gate(
@@ -1961,6 +2007,41 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
             )
             if gated_status != final_status:
                 final_status = gated_status
+
+            # P1-A: generate overlay / group_boxes before save_result (API contract)
+            overlay_marks = []
+            for q in questions:
+                if _get_question_field(q, "kind", "question") != "question":
+                    continue
+                mark = build_overlay_mark(q)
+                if mark is not None:
+                    overlay_marks.append({
+                        "question_id": mark.question_id,
+                        "mark_type": mark.mark_type,
+                        "mark_bbox": mark.mark_bbox,
+                        "question_number": _get_question_field(q, "question_number", 0),
+                    })
+            _jobs[jid]["overlay"] = overlay_marks
+            group_boxes = build_group_boxes(grading_units)
+            _jobs[jid]["group_boxes"] = group_boxes
+            info(f"[BG] ocr_first overlay={len(overlay_marks)} group_boxes={len(group_boxes)} for {jid}")
+            # P1-1 safety gate: tighten completed condition — any question that has
+            # is_correct+student_answer but no safe mark → partial_overlay_marks_missing.
+            _needs_mark_count = sum(
+                1 for q in questions
+                if _get_question_field(q, "kind", "question") == "question"
+                and _get_question_field(q, "is_correct") is not None
+                and _get_question_field(q, "student_answer")
+            )
+            if final_status == JobStatus.completed and _needs_mark_count > len(overlay_marks):
+                _missing = _needs_mark_count - len(overlay_marks)
+                info(f"[BG] ocr_first: partial_overlay_marks_missing {_missing}/{_needs_mark_count} → needs_review for {jid}")
+                _jobs[jid]["error_code"] = "partial_overlay_marks_missing"
+                final_status = JobStatus.needs_review
+            elif final_status == JobStatus.completed and len(overlay_marks) == 0 and len(questions) > 0:
+                info(f"[BG] ocr_first: completed but overlay empty → needs_review for {jid}")
+                _jobs[jid]["error_code"] = "unsafe_overlay_marks"
+                final_status = JobStatus.needs_review
 
             save_result(jid, questions, now, file, final_status)
             debug(f"[diag] ocr_first_completed jid={jid} status={final_status.value} qcount={len(questions)}")
