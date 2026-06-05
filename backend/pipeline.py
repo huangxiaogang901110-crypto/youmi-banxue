@@ -655,6 +655,126 @@ def _validate_answer_bbox(
     return [x, y, w, h]
 
 
+def _crop_to_original(crop_x: int, crop_y: int, bbox_in_crop, image_width=None, image_height=None):
+    """将 crop 内坐标（xywh）转换为原图坐标，并 clamp 到图片边界。"""
+    if not isinstance(bbox_in_crop, list) or len(bbox_in_crop) != 4:
+        return None
+    try:
+        x, y, w, h = [float(v) for v in bbox_in_crop]
+    except (TypeError, ValueError):
+        return None
+    x_orig = x + crop_x
+    y_orig = y + crop_y
+    if image_width and image_height:
+        x_orig = max(0.0, min(x_orig, float(image_width)))
+        y_orig = max(0.0, min(y_orig, float(image_height)))
+        w = max(0.0, min(w, float(image_width) - x_orig))
+        h = max(0.0, min(h, float(image_height) - y_orig))
+    return [x_orig, y_orig, w, h]
+
+
+def _extract_first_json_object(text: str):
+    """用括号计数从文本中提取第一个完整JSON对象，支持嵌套。
+
+    返回 dict/list 或 None。"""
+    if not text:
+        return None
+    start = text.find("{")
+    if start == -1:
+        return None
+    depth = 0
+    in_string = False
+    escape = False
+    for i in range(start, len(text)):
+        ch = text[i]
+        if escape:
+            escape = False
+            continue
+        if ch == "\\":
+            escape = True
+            continue
+        if ch == '"':
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                candidate = text[start : i + 1]
+                try:
+                    return json.loads(candidate)
+                except json.JSONDecodeError:
+                    pass
+                break
+    # Fallback: try stripping ```json fence if present
+    fm = re.search(r"```(?:json)?\s*(\{.*\})\s*```", text, re.DOTALL)
+    if fm:
+        try:
+            return json.loads(fm.group(1))
+        except json.JSONDecodeError:
+            pass
+    return None
+
+
+def _extract_first_json_array(text: str):
+    """用括号计数从文本中提取第一个完整JSON数组，支持嵌套对象。
+
+    支持：
+      1. 标准JSON数组：[{...},{...}]
+      2. Markdown fenced JSON：```json [...] ```
+      3. 前后有解释文字的JSON数组
+      4. 嵌套对象（如 answer_bbox 字段）
+
+    返回解析后的 list，或 None。"""
+    if not text:
+        return None
+    start = text.find("[")
+    if start == -1:
+        return None
+    depth = 0
+    in_string = False
+    escape = False
+    for i in range(start, len(text)):
+        ch = text[i]
+        if escape:
+            escape = False
+            continue
+        if ch == "\\":
+            escape = True
+            continue
+        if ch == '"':
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if ch == "[":
+            depth += 1
+        elif ch == "]":
+            depth -= 1
+            if depth == 0:
+                candidate = text[start : i + 1]
+                try:
+                    result = json.loads(candidate)
+                    if isinstance(result, list):
+                        return result
+                except json.JSONDecodeError:
+                    pass
+                break
+    # Fallback: try stripping ```json fence if present
+    fm = re.search(r"```(?:json)?\s*(\[.*\])\s*```", text, re.DOTALL)
+    if fm:
+        try:
+            result = json.loads(fm.group(1))
+            if isinstance(result, list):
+                return result
+        except json.JSONDecodeError:
+            pass
+    return None
+
+
 def _infer_answer_bbox_from_ocr(
     question_bbox,
     ocr_blocks,
@@ -837,6 +957,7 @@ async def _qwen_boost_group(
     questions,
     boost_candidates,
     image_bytes,
+    original_image_bytes,
     oss_signed_url,
     document_classification,
     trace_id,
@@ -845,13 +966,12 @@ async def _qwen_boost_group(
     image_width=None,
     image_height=None,
 ):
-    """Qwen-VL 按题组增强，每图最多3次调用。返回更新后的questions"""
-    MAX_BOOST_CALLS = 3
+    """Qwen-VL 按ROI裁图分题组增强，每组≤5题。返回更新后的questions"""
 
     if not boost_candidates:
         return questions
 
-    # 按空间位置聚类boost candidates
+    # 按空间位置聚类boost candidates，每组≤5题
     groups = []
     current_group = []
 
@@ -862,7 +982,7 @@ async def _qwen_boost_group(
             current_group = [item]
         else:
             last_bbox = list(current_group[-1][1].bbox) if current_group[-1][1].bbox else [0, 0, 0, 0]
-            if abs(bbox[1] - last_bbox[1]) < 250:
+            if len(current_group) < 5 and abs(bbox[1] - last_bbox[1]) < 250:
                 current_group.append(item)
             else:
                 groups.append(current_group)
@@ -870,25 +990,113 @@ async def _qwen_boost_group(
     if current_group:
         groups.append(current_group)
 
-    groups = groups[:MAX_BOOST_CALLS]
+    # B: smart split — expand complex groups into pairs before main loop;
+    # default still allows up to 5 per group (no global 5→2).
+    split_groups = []
+    for _sg in groups:
+        if image_width and image_height and len(_sg) > 2:
+            _cb = [list(q.bbox) for _, q, _ in _sg if q.bbox and len(q.bbox) == 4]
+            if _cb:
+                _rux = min(b[0] for b in _cb)
+                _ruy = min(b[1] for b in _cb)
+                _rux2 = max(b[0] + b[2] for b in _cb)
+                _ruy2 = max(b[1] + b[3] for b in _cb)
+                _rw, _rh = _rux2 - _rux, _ruy2 - _ruy
+                _ia = image_width * image_height
+                _ar = _rw / _rh if _rh > 0 else 999
+                # condition 4 (P1-2): explicit cross-column detection via bbox x-center spread
+                _cx_centers = [b[0] + b[2] / 2 for b in _cb]
+                _cx_spread = max(_cx_centers) - min(_cx_centers) if len(_cx_centers) >= 2 else 0
+                _cross_column = _cx_spread > image_width * 0.3
+                # condition 1: union ROI too wide (>60% of image width)
+                # condition 2: union ROI area too large (>40% of image)
+                # condition 3: aspect ratio abnormal (>4:1 or <1:4, i.e. <0.25)
+                # condition 4: cross-column detected (x-center spread >30% of image width)
+                if (_rw > image_width * 0.6
+                        or (_ia > 0 and _rw * _rh > _ia * 0.4)
+                        or _ar > 4.0 or _ar < 0.25
+                        or _cross_column):
+                    split_groups.extend([_sg[i:i + 2] for i in range(0, len(_sg), 2)])
+                    continue
+        split_groups.append(_sg)
+
+    _fallback_singles: list = []  # C: items from failed non-trivial groups
 
     qwen_vl = QwenVLClient()
     boosted_indices = set()
 
-    for gi, group in enumerate(groups):
+    for gi, group in enumerate(split_groups):
         q_texts = []
         for idx, q, reason in group:
             q_texts.append(f"题{q.question_number}: {str(q.question_text)[:60]}")
 
+        # ── ROI crop：计算本组题目 union bbox，裁图传给 Qwen ──────────────────
+        _crop_x: int = 0
+        _crop_y: int = 0
+        _call_image_bytes = original_image_bytes or image_bytes
+        try:
+            _valid_bboxes = [list(q.bbox) for _, q, _ in group if q.bbox and len(q.bbox) == 4]
+            if _valid_bboxes and (original_image_bytes or image_bytes):
+                from PIL import Image as _PilImg
+                import io as _io2
+                _src_bytes = original_image_bytes or image_bytes
+                _pil_src = _PilImg.open(_io2.BytesIO(_src_bytes))
+                _iw, _ih = _pil_src.size
+                _ux = min(b[0] for b in _valid_bboxes)
+                _uy = min(b[1] for b in _valid_bboxes)
+                _ux2 = max(b[0] + b[2] for b in _valid_bboxes)
+                _uy2 = max(b[1] + b[3] for b in _valid_bboxes)
+                _pad = 20
+                _cx = max(0, int(_ux - _pad))
+                _cy = max(0, int(_uy - _pad))
+                _cx2 = min(_iw, int(_ux2 + _pad))
+                _cy2 = min(_ih, int(_uy2 + _pad))
+                _cw, _ch = _cx2 - _cx, _cy2 - _cy
+                _img_area = _iw * _ih
+                if _cw > 0 and _ch > 0 and _img_area > 0 and _cw * _ch >= _img_area * 0.05:
+                    _roi = _pil_src.crop((_cx, _cy, _cx2, _cy2))
+                    _roi_buf = _io2.BytesIO()
+                    _roi.save(_roi_buf, format="JPEG", quality=85)
+                    _roi.close()
+                    _call_image_bytes = _roi_buf.getvalue()
+                    _crop_x, _crop_y = _cx, _cy
+                # else: crop too small → fallback to full original image, crop offset stays 0
+                _pil_src.close()
+        except Exception as _crop_exc:
+            debug(f"[diag] boost_crop_failed gi={gi} jid={jid}: {_crop_exc}")
+            _call_image_bytes = original_image_bytes or image_bytes
+            _crop_x, _crop_y = 0, 0
+
+        # A: build few-shot example using actual input question numbers
+        _input_qnums = [q.question_number for _, q, _ in group]
+        _fs_item0 = (
+            "{\"question_number\":" + str(_input_qnums[0]) + ","
+            "\"student_answer\":\"42\","
+            "\"answer_bbox\":{\"x\":80,\"y\":12,\"width\":55,\"height\":22}}"
+        )
+        _fs_item1 = (
+            (",{\"question_number\":" + str(_input_qnums[1]) + ","
+             "\"student_answer\":null,\"answer_bbox\":null}")
+            if len(_input_qnums) >= 2 else ""
+        )
+        _fewshot_ex = "[" + _fs_item0 + _fs_item1 + "]"
         prompt = (
-            f"图中{len(group)}道题需要补充孩子手写答案信息：\n" +
+            "【强制格式】你必须且只能输出一个纯 JSON 数组。禁止 markdown 代码块、禁止任何解释文字、禁止任何非 JSON 内容。\n"
+            "违反此规则将导致整个结果被丢弃。\n\n"
+            f"这张裁剪图包含 {len(group)} 道题，识别每道题的学生作答内容和手写答案区域。\n"
+            "【输入题号列表】\n" +
             "\n".join(q_texts) +
-            "\n\n请识别每道题的孩子手写答案内容（student_answer）及答案区域坐标。"
-            "如果看不清填null。"
-            "answer_bbox 必须是对象格式：{\"x\":数字,\"y\":数字,\"width\":数字,\"height\":数字}  "
-            "或附带bbox_format标识：{\"bbox\":[x,y,w,h],\"bbox_format\":\"xywh\"} "
-            "或 {\"bbox\":[x1,y1,x2,y2],\"bbox_format\":\"xyxy\"}。禁止只返回纯数字数组。"
-            "输出JSON数组：[{\"question_number\":题号,\"student_answer\":\"答案或null\",\"answer_bbox\":{\"x\":...,\"y\":...,\"width\":...,\"height\":...}}]"
+            "\n\n"
+            "【规则】\n"
+            "1. 输入图片是相对于原图裁剪后的 ROI，坐标以本图左上角为原点，不是原图坐标。\n"
+            "2. answer_bbox 只包含学生手写答案位置，不包含题干、整题框或整页。\n"
+            "3. 输入有几道题，输出数组就必须有几个对象，不得多也不得少，不得省略任何题号。\n"
+            "4. 找不到手写答案时：student_answer 填 null，answer_bbox 填 null；但该题对象仍必须出现在数组中。\n"
+            "5. 只输出输入题号范围内的 question_number，禁止输出列表之外的题号。\n"
+            "6. 你的整个回复体必须是一个 JSON 数组，以 [ 开头、以 ] 结尾。禁止 markdown 代码块，禁止任何解释文字。\n"
+            "\n【answer_bbox 格式】{\"x\":数字,\"y\":数字,\"width\":数字,\"height\":数字}\n"
+            "\n【few-shot 示例】\n" + _fewshot_ex + "\n"
+            "\n现在输出输入题号列表中所有题的结果："
         )
 
         _t0 = time.time()
@@ -897,10 +1105,10 @@ async def _qwen_boost_group(
         try:
             result = await asyncio.to_thread(
                 qwen_vl._call,
-                image_bytes=image_bytes if not oss_signed_url else None,
-                image_url=oss_signed_url,
+                image_bytes=_call_image_bytes,
+                image_url=None,
                 prompt=prompt,
-                max_tokens=500,
+                max_tokens=1200,
                 timeout=15,
             )
         except Exception as e:
@@ -937,22 +1145,14 @@ async def _qwen_boost_group(
         _candidate_reasons: dict = {}
         try:
             content = result.get("content", "")
-            json_match = re.search(r'\[.*\]', content, re.DOTALL)
-            if not json_match:
-                _parse_error = "no_json"
+            boost_data = _extract_first_json_array(content)
+            if boost_data is None:
+                _parse_error = "bad_json:raw=" + content[:500]
+            elif not isinstance(boost_data, list):
+                _parse_error = "json_not_array"
+            elif not boost_data:
+                _parse_error = "empty_json_array"
             else:
-                try:
-                    boost_data = json.loads(json_match.group())
-                except json.JSONDecodeError:
-                    _parse_error = "bad_json"
-                    boost_data = None
-                if _parse_error is not None:
-                    pass
-                elif not isinstance(boost_data, list):
-                    _parse_error = "json_not_array"
-                elif not boost_data:
-                    _parse_error = "empty_json_array"
-                else:
                     # ── observability counters ──────────────────────────────
                     _returned_items_count = len(boost_data)
                     _items_with_answer_bbox_count = sum(
@@ -983,6 +1183,7 @@ async def _qwen_boost_group(
                     _candidate_reasons = {}  # question_number → reason string
 
                     _matched_qnums: set = set()
+                    _all_returned_qnums: set = set()
                     _usable_bbox_written_count = 0
                     _missing_question_number = False
                     _bbox_rejected = False
@@ -996,99 +1197,130 @@ async def _qwen_boost_group(
                         if qn is None:
                             _missing_question_number = True
                             continue
+                        _all_returned_qnums.add(qn)
                         sa = item.get("student_answer")
                         # Contract-first bbox parsing: object format > bbox_format > pure list
                         ab = item.get("answer_bbox") or item.get("answerbbox")
                         _ab_raw = None
                         _ab_format = None  # "xywh" | "xyxy" | None (pure list, default xywh)
                         if isinstance(ab, dict):
-                            # Object format: {"x":..., "y":..., "width":..., "height":...}
-                            if all(k in ab for k in ("x", "y", "width", "height")):
-                                try:
-                                    _ab_raw = [float(ab["x"]), float(ab["y"]), float(ab["width"]), float(ab["height"])]
-                                    _ab_format = "xywh"
-                                except (TypeError, ValueError):
-                                    pass
-                            elif "bbox" in ab and isinstance(ab["bbox"], list) and len(ab["bbox"]) == 4:
-                                try:
-                                    _ab_raw = [float(v) for v in ab["bbox"]]
-                                    fmt = str(ab.get("bbox_format", "")).lower()
-                                    _ab_format = fmt if fmt in ("xywh", "xyxy") else None
-                                except (TypeError, ValueError):
-                                    pass
+                                # Object format: {"x":..., "y":..., "width":..., "height":...}
+                                if all(k in ab for k in ("x", "y", "width", "height")):
+                                    try:
+                                        _ab_raw = [float(ab["x"]), float(ab["y"]), float(ab["width"]), float(ab["height"])]
+                                        _ab_format = "xywh"
+                                    except (TypeError, ValueError):
+                                        pass
+                                elif "bbox" in ab and isinstance(ab["bbox"], list) and len(ab["bbox"]) == 4:
+                                    try:
+                                        _ab_raw = [float(v) for v in ab["bbox"]]
+                                        fmt = str(ab.get("bbox_format", "")).lower()
+                                        _ab_format = fmt if fmt in ("xywh", "xyxy") else None
+                                    except (TypeError, ValueError):
+                                        pass
                         elif ab and isinstance(ab, list) and len(ab) == 4:
-                            try:
-                                _ab_raw = [float(v) for v in ab]
-                                # Pure list: default xywh, no numeric guessing
-                            except (TypeError, ValueError):
-                                pass
+                                try:
+                                    _ab_raw = [float(v) for v in ab]
+                                    # Pure list: default xywh, no numeric guessing
+                                except (TypeError, ValueError):
+                                    pass
 
                         if _ab_raw is not None:
-                            _parsed_bbox_count += 1
+                                _parsed_bbox_count += 1
 
                         for idx, q, reason in group:
-                            if q.question_number == qn:
-                                _matched_qnums.add(qn)
-                                _candidate_student_answer = None
-                                if sa and str(sa).lower() not in ("null", "无", "none", ""):
-                                    _candidate_student_answer = str(sa)
-                                if ab is None:
-                                    debug(f"[diag] qwen_no_bbox jid={jid} q={qn}")
-                                    _no_bbox_count += 1
-                                    _candidate_reasons[qn] = "qwen_no_bbox_field"
-                                    _bbox_rejected = True
-                                    # Preserve student_answer even when bbox is absent (partial_boost)
-                                    if _candidate_student_answer is not None:
-                                        pending_sa_updates.append((idx, q, _candidate_student_answer))
-                                elif _ab_raw is None:
-                                    debug(f"[diag] qwen_bbox_invalid jid={jid} q={qn}")
-                                    _validate_rejected_bbox_count += 1
-                                    _candidate_reasons[qn] = "qwen_bbox_parse_failed"
-                                    _bbox_rejected = True
-                                    if _candidate_student_answer is not None:
-                                        pending_sa_updates.append((idx, q, _candidate_student_answer))
-                                else:
-                                    ax1, ay1, ax2, ay2 = _ab_raw
-                                    _q_bbox_list = list(q.bbox) if q.bbox else None
-                                    _validated_bbox = None
-                                    if _ab_format == "xyxy":
-                                        # Explicit xyxy: convert to [x,y,w,h]
-                                        w = ax2 - ax1
-                                        h = ay2 - ay1
-                                        if w > 0 and h > 0:
-                                            _validated_bbox = _validate_answer_bbox(
-                                                [ax1, ay1, w, h], _q_bbox_list, image_width, image_height
-                                            )
-                                    else:
-                                        # xywh (explicit or pure-list default): validate as-is
-                                        _validated_bbox = _validate_answer_bbox(
-                                            [ax1, ay1, ax2, ay2], _q_bbox_list, image_width, image_height
-                                        )
-                                        if _validated_bbox is None and _ab_format is None and ax2 > ax1 and ay2 > ay1:
-                                            # Legacy rescue: old Qwen xyxy pure-list when raw xywh fails validation
-                                            _validated_bbox = _validate_answer_bbox(
-                                                [ax1, ay1, ax2 - ax1, ay2 - ay1],
-                                                _q_bbox_list, image_width, image_height,
-                                            )
-                                    if _validated_bbox:
-                                        _validate_accepted_bbox_count += 1
-                                        pending_bbox_updates.append((idx, q, _candidate_student_answer, _validated_bbox))
-                                        _usable_bbox_written_count += 1
-                                        _candidate_reasons[qn] = (
-                                            "bbox_written|student_answer_written"
-                                            if _candidate_student_answer else "bbox_written"
-                                        )
-                                    else:
-                                        debug(f"[diag] validate_rejected jid={jid} q={qn}")
+                                if q.question_number == qn:
+                                    _matched_qnums.add(qn)
+                                    _candidate_student_answer = None
+                                    if sa and str(sa).lower() not in ("null", "无", "none", ""):
+                                        _candidate_student_answer = str(sa)
+                                    if ab is None:
+                                        debug(f"[diag] qwen_no_bbox jid={jid} q={qn}")
+                                        _no_bbox_count += 1
+                                        _candidate_reasons[qn] = "qwen_no_bbox_field"
+                                        _bbox_rejected = True
+                                        # Preserve student_answer even when bbox is absent (partial_boost)
+                                        if _candidate_student_answer is not None:
+                                            pending_sa_updates.append((idx, q, _candidate_student_answer))
+                                    elif _ab_raw is None:
+                                        debug(f"[diag] qwen_bbox_invalid jid={jid} q={qn}")
                                         _validate_rejected_bbox_count += 1
-                                        _candidate_reasons[qn] = "validate_rejected"
+                                        _candidate_reasons[qn] = "qwen_bbox_parse_failed"
                                         _bbox_rejected = True
                                         if _candidate_student_answer is not None:
                                             pending_sa_updates.append((idx, q, _candidate_student_answer))
-                                break
+                                    else:
+                                        ax1, ay1, ax2, ay2 = _ab_raw
+                                        # Rescale crop坐标→原图坐标（fallback时 _crop_x/_crop_y=0，无影响）
+                                        # ax1/ay1 是 crop 内 x/y，加偏移得原图坐标；w/h 或 x2/y2 偏移规则见注释
+                                        _q_bbox_list = list(q.bbox) if q.bbox else None
+                                        _validated_bbox = None
+                                        if _ab_format == "xyxy":
+                                            # Explicit xyxy in crop space: (x1_c,y1_c,x2_c,y2_c)
+                                            # width/height 与偏移无关；只偏移 x1,y1
+                                            w = ax2 - ax1
+                                            h = ay2 - ay1
+                                            if w > 0 and h > 0:
+                                                _ab_cropped = _crop_to_original(
+                                                    _crop_x, _crop_y, [ax1, ay1, w, h],
+                                                    image_width, image_height
+                                                )
+                                                _validated_bbox = _validate_answer_bbox(
+                                                    _ab_cropped,
+                                                    _q_bbox_list, image_width, image_height
+                                                ) if _ab_cropped else None
+                                        else:
+                                            # xywh: ax1=x, ay1=y, ax2=w, ay2=h；通过 _crop_to_original 偏移+clamp
+                                            _ab_cropped = _crop_to_original(
+                                                _crop_x, _crop_y, [ax1, ay1, ax2, ay2],
+                                                image_width, image_height
+                                            )
+                                            _validated_bbox = _validate_answer_bbox(
+                                                _ab_cropped,
+                                                _q_bbox_list, image_width, image_height
+                                            ) if _ab_cropped else None
+                                            if _validated_bbox is None and _ab_format is None and ax2 > ax1 and ay2 > ay1:
+                                                # Legacy rescue: old Qwen xyxy pure-list when raw xywh fails validation
+                                                _ab_cropped = _crop_to_original(
+                                                    _crop_x, _crop_y, [ax1, ay1, ax2 - ax1, ay2 - ay1],
+                                                    image_width, image_height
+                                                )
+                                                _validated_bbox = _validate_answer_bbox(
+                                                    _ab_cropped,
+                                                    _q_bbox_list, image_width, image_height,
+                                                ) if _ab_cropped else None
+                                        if _validated_bbox:
+                                            _validate_accepted_bbox_count += 1
+                                            pending_bbox_updates.append((idx, q, _candidate_student_answer, _validated_bbox))
+                                            _usable_bbox_written_count += 1
+                                            _candidate_reasons[qn] = (
+                                                "bbox_written|student_answer_written"
+                                                if _candidate_student_answer else "bbox_written"
+                                            )
+                                        else:
+                                            debug(f"[diag] validate_rejected jid={jid} q={qn}")
+                                            _validate_rejected_bbox_count += 1
+                                            _candidate_reasons[qn] = "validate_rejected"
+                                            _bbox_rejected = True
+                                            if _candidate_student_answer is not None:
+                                                pending_sa_updates.append((idx, q, _candidate_student_answer))
+                                    break
 
                     if _parse_error is None:
-                        if _missing_question_number:
+                        # P0: input cardinality check — all input question numbers must appear in response
+                        _missing_input_qnums = set(_input_qnums) - _matched_qnums
+                        _extra_output_qnums = _all_returned_qnums - set(_input_qnums)
+                        if _missing_input_qnums:
+                            _parse_error = (
+                                "partial_failure:missing_returned_questions:"
+                                + ",".join(str(n) for n in sorted(_missing_input_qnums))
+                            )
+                        elif _extra_output_qnums:
+                            _parse_error = (
+                                "partial_failure:extra_returned_questions:"
+                                + ",".join(str(n) for n in sorted(_extra_output_qnums))
+                            )
+                        elif _missing_question_number:
                             _parse_error = "missing_question_number"
                         elif not _matched_qnums:
                             _parse_error = "no_matching_questions"
@@ -1100,7 +1332,8 @@ async def _qwen_boost_group(
                             _no_usable_boost_result_count = 1
 
                     # Apply bbox updates (full boost: bbox + student_answer)
-                    if _usable_bbox_written_count > 0:
+                    # P0: do NOT apply when cardinality check failed; fallback will retry individually
+                    if _parse_error is None and _usable_bbox_written_count > 0:
                         for idx, q, _csa, _validated_bbox in pending_bbox_updates:
                             if _csa is not None:
                                 q.student_answer = _csa
@@ -1109,11 +1342,12 @@ async def _qwen_boost_group(
                             boosted_indices.add(idx)
 
                     # Apply student_answer-only updates (partial_boost: API ok, bbox absent/rejected)
-                    for idx, q, _csa in pending_sa_updates:
-                        if idx not in boosted_indices:
-                            q.student_answer = _csa
-                            q.source = "partial_boost"
-                            boosted_indices.add(idx)
+                    if _parse_error is None:
+                        for idx, q, _csa in pending_sa_updates:
+                            if idx not in boosted_indices:
+                                q.student_answer = _csa
+                                q.source = "partial_boost"
+                                boosted_indices.add(idx)
 
                     # Count/log unmatched questions and record their reasons
                     _no_matching_question_count = sum(
@@ -1143,6 +1377,8 @@ async def _qwen_boost_group(
                         "no_matching_question_count": _no_matching_question_count,
                         "no_usable_boost_result_count": _no_usable_boost_result_count,
                     }
+                    if _parse_error is not None:
+                        _boost_summary["raw_response_preview"] = content[:500]
         except Exception as e:
             _parse_error = str(e)[:200]
             info(f"[BG] Qwen boost parse error: {e}")
@@ -1186,7 +1422,146 @@ async def _qwen_boost_group(
             pass
 
         if _parse_error is not None:
+            # C: track non-trivial failed groups for individual fallback retry
+            if len(group) > 1:
+                for _fitem in group:
+                    if _fitem[0] not in boosted_indices:
+                        _fallback_singles.append(_fitem)
             continue
+
+    # C: fallback retry — process failed group items individually (bounded)
+    _C_FALLBACK_MAX = min(len(boost_candidates) * 2, 8)
+    for _fitem in _fallback_singles[:_C_FALLBACK_MAX]:
+        _fidx, _fq, _freason = _fitem
+        if _fidx in boosted_indices:
+            continue
+        # single-question ROI crop
+        _fc_x, _fc_y = 0, 0
+        _fc_img = original_image_bytes or image_bytes
+        try:
+            if _fq.bbox and len(list(_fq.bbox)) == 4 and _fc_img:
+                from PIL import Image as _PIF; import io as _fiof
+                _fpil = _PIF.open(_fiof.BytesIO(_fc_img))
+                _fiw, _fih = _fpil.size
+                _fbb = list(_fq.bbox); _fpad = 25
+                _fc_x = max(0, int(_fbb[0] - _fpad)); _fc_y = max(0, int(_fbb[1] - _fpad))
+                _fx2 = min(_fiw, int(_fbb[0] + _fbb[2] + _fpad))
+                _fy2 = min(_fih, int(_fbb[1] + _fbb[3] + _fpad))
+                if _fx2 > _fc_x and _fy2 > _fc_y:
+                    _froi = _fpil.crop((_fc_x, _fc_y, _fx2, _fy2))
+                    _fbuf = _fiof.BytesIO()
+                    _froi.save(_fbuf, format="JPEG", quality=85); _froi.close()
+                    _fc_img = _fbuf.getvalue()
+                _fpil.close()
+        except Exception as _fce:
+            debug(f"[diag] fallback_crop q={_fq.question_number} jid={jid}: {_fce}")
+            _fc_x, _fc_y = 0, 0
+        _fqn = _fq.question_number
+        _fp_str = (
+            f"这张裁剪图包含 1 道题，识别学生作答内容和手写答案区域。\n"
+            f"【输入题号列表】\n题{_fqn}: {str(_fq.question_text)[:60]}\n\n"
+            "【规则】\n"
+            "1. 坐标以本图左上角为原点。\n"
+            "2. answer_bbox 只包含学生手写答案位置，不包含题干或整页。\n"
+            f"3. 必须返回 question_number 为 {_fqn} 的对象；找不到答案时 student_answer 填 null，answer_bbox 填 null。\n"
+            "4. 只输出纯 JSON 数组，禁止 markdown，禁止解释文字。\n"
+            f"【找到答案示例】[{{\"question_number\":{_fqn},"
+            "\"student_answer\":\"42\",\"answer_bbox\":{\"x\":120,\"y\":80,\"width\":90,\"height\":35}}]\n"
+            f"【找不到答案示例】[{{\"question_number\":{_fqn},"
+            "\"student_answer\":null,\"answer_bbox\":null}]\n"
+            "\n现在输出："
+        )
+        _ft0 = time.time()
+        _fres = None; _fexc: str | None = None
+        try:
+            _fres = await asyncio.to_thread(
+                qwen_vl._call, image_bytes=_fc_img, image_url=None,
+                prompt=_fp_str, max_tokens=400, timeout=25,
+            )
+        except Exception as _fe:
+            _fexc = str(_fe)[:200]
+        _fl_ms = int((time.time() - _ft0) * 1000)
+        _fpe: str | None = None
+        if _fexc or not _fres or not _fres.get("success"):
+            _fpe = _fexc or str((_fres or {}).get("error", "api_failed"))[:200]
+        else:
+            try:
+                _fd = _extract_first_json_array(_fres.get("content", ""))
+                # Semantic gate: must be array with exactly one object matching this question
+                if not isinstance(_fd, list) or len(_fd) == 0:
+                    _fpe = "no_json_array"
+                    debug(f"[diag] fallback_single no_json_array q={_fqn} jid={jid}")
+                elif len(_fd) != 1:
+                    _fpe = "unexpected_result_count"
+                    debug(f"[diag] fallback_single unexpected_count q={_fqn} n={len(_fd)} jid={jid}")
+                elif not isinstance(_fd[0], dict):
+                    _fpe = "invalid_retry_result"
+                    debug(f"[diag] fallback_single not_object q={_fqn} jid={jid}")
+                elif "question_number" not in _fd[0]:
+                    _fpe = "missing_question_number"
+                    debug(f"[diag] fallback_single missing_qn q={_fqn} jid={jid}")
+                elif _fd[0]["question_number"] != _fqn:
+                    _fpe = "question_number_mismatch"
+                    debug(f"[diag] fallback_single qn_mismatch expected={_fqn} got={_fd[0]['question_number']} jid={jid}")
+                else:
+                    _fit = _fd[0]
+                    if "answer_bbox" not in _fit and "answerbbox" not in _fit:
+                        _fpe = "missing_answer_bbox_field"
+                        debug(f"[diag] fallback_single missing_answer_bbox_field q={_fqn} jid={jid}")
+                    else:
+                        _fab = _fit.get("answer_bbox") if "answer_bbox" in _fit else _fit.get("answerbbox")
+                        if _fab is None:
+                            # Field present but null — valid contract response, no apply needed
+                            debug(f"[diag] fallback_single null_bbox q={_fqn} jid={jid}")
+                        else:
+                            _fab_raw = None
+                            if isinstance(_fab, dict) and all(k in _fab for k in ("x", "y", "width", "height")):
+                                try:
+                                    _fab_raw = [float(_fab["x"]), float(_fab["y"]),
+                                                float(_fab["width"]), float(_fab["height"])]
+                                except (TypeError, ValueError):
+                                    pass
+                            elif isinstance(_fab, list) and len(_fab) == 4:
+                                try:
+                                    _fab_raw = [float(v) for v in _fab]
+                                except (TypeError, ValueError):
+                                    pass
+                            if _fab_raw is not None:
+                                _fabo = _crop_to_original(_fc_x, _fc_y, _fab_raw, image_width, image_height)
+                                _fqbl = list(_fq.bbox) if _fq.bbox else None
+                                _fv = _validate_answer_bbox(_fabo, _fqbl, image_width, image_height) if _fabo else None
+                                if _fv:
+                                    _fq.answer_bbox = _fv
+                                    _fsa = _fit.get("student_answer")
+                                    if (_fsa and str(_fsa).lower() not in ("null", "无", "none", "")
+                                            and not getattr(_fq, "student_answer", None)):
+                                        _fq.student_answer = str(_fsa)
+                                    _fq.source = "qwen_boost_fallback"
+                                    boosted_indices.add(_fidx)
+                                else:
+                                    _fpe = "validate_rejected"
+                                    debug(f"[diag] fallback_single validate_rejected q={_fqn} jid={jid}")
+                            else:
+                                _fpe = "bbox_parse_failed"
+                                debug(f"[diag] fallback_single bbox_parse_failed q={_fqn} jid={jid}")
+            except Exception as _fe2:
+                _fpe = str(_fe2)[:200]
+        try:
+            _fpricing = get_active_pricing("aliyun_dashscope", "qwen-vl-max")
+            _fu = (_fres or {}).get("usage", {}) or {}
+            _flog = make_log_entry(
+                task_id=jid, provider_name="aliyun_dashscope", model_name="qwen-vl-max",
+                feature_code="qwen_boost_group", trace_id=trace_id,
+                sub_stage="fallback_single",
+                latency_ms=_fl_ms, success=_fpe is None,
+                input_tokens=_fu.get("prompt_tokens", 0), output_tokens=_fu.get("completion_tokens", 0),
+                parent_user_id=parent_id, child_id=child_id,
+                billing_status="billed" if _fpe is None else "failed",
+                pricing=_fpricing, call_source=_get_call_source(), error_message=_fpe,
+            )
+            _model_calls.append(_flog); _db.save_model_call(_flog)
+        except Exception:
+            pass
 
     # 标记未boost的为skipped
     for idx, q, reason in boost_candidates:
@@ -1199,6 +1574,7 @@ async def _qwen_boost_group(
 async def _qwen_bbox_only_retry(
     jid: str,
     questions: list,
+    original_image_bytes: bytes,
     image_bytes: bytes,
     oss_signed_url,
     trace_id: str,
@@ -1207,102 +1583,117 @@ async def _qwen_bbox_only_retry(
     image_width=None,
     image_height=None,
 ) -> list:
-    """Single bbox-only retry per image for questions that have student_answer or is_correct but no answer_bbox.
-    Max 1 Qwen call per image. Returns updated questions list."""
+    """逐题 ROI bbox retry：对所有缺 answer_bbox 的题目（不管 student_answer 是否设置）
+    各自裁图调用 Qwen，独立成功/失败，不抛异常中断全图。"""
     retry_qs = [
         q for q in questions
-        if (getattr(q, "student_answer", None) or getattr(q, "is_correct", None) is not None)
-        and not getattr(q, "answer_bbox", None)
+        if getattr(q, "bbox", None) and not getattr(q, "answer_bbox", None)
+        and (getattr(q, "student_answer", None) or getattr(q, "is_correct", None) is not None)
     ]
     if not retry_qs:
         return questions
 
-    q_lines = [
-        f"题{q.question_number}: {str(q.question_text)[:40]} | 已知答案: {str(q.student_answer)[:30]}"
-        for q in retry_qs
-    ]
-    prompt = (
-        "请定位下列各题的学生作答区域（孩子手写答案所在位置）。\n"
-        "注意：只返回作答区域，禁止整题bbox、题干bbox、整页bbox。\n"
-        + "\n".join(q_lines)
-        + "\n\n输出JSON数组，每项格式：{\"question_number\":题号,\"answer_bbox\":{\"x\":数字,\"y\":数字,\"width\":数字,\"height\":数字}}"
-    )
-
     qwen_vl = QwenVLClient()
-    _t0 = time.time()
-    result = None
-    _exc_msg: str | None = None
-    try:
-        result = await asyncio.to_thread(
-            qwen_vl._call,
-            image_bytes=image_bytes if not oss_signed_url else None,
-            image_url=oss_signed_url,
-            prompt=prompt,
-            max_tokens=400,
-            timeout=15,
-        )
-    except Exception as e:
-        _exc_msg = str(e)[:200]
-
-    _latency_ms = int((time.time() - _t0) * 1000)
     _call_source = _get_call_source()
-    _result_ok = _exc_msg is None and result is not None and bool(result.get("success"))
-    _semantic_error: str | None = None
-    _usable_bbox_written_count = 0
 
-    if not _result_ok:
-        _semantic_error = _exc_msg or str((result or {}).get("error", "api_failed"))[:200]
-        debug(f"[diag] bbox_only_retry failed jid={jid} exc={_exc_msg}")
-    else:
+    for q in retry_qs:
+        # ── ROI crop from original image using q.bbox ──────────────────────
+        _q_bbox = list(q.bbox) if q.bbox else None
+        _crop_x: int = 0
+        _crop_y: int = 0
+        _call_image_bytes = original_image_bytes or image_bytes
+        if _q_bbox and len(_q_bbox) == 4 and (original_image_bytes or image_bytes):
+            try:
+                from PIL import Image as _PilImg2
+                import io as _io3
+                _src2 = original_image_bytes or image_bytes
+                _pil2 = _PilImg2.open(_io3.BytesIO(_src2))
+                _iw2, _ih2 = _pil2.size
+                _qx, _qy, _qw, _qh = int(_q_bbox[0]), int(_q_bbox[1]), int(_q_bbox[2]), int(_q_bbox[3])
+                _pad2 = 30
+                _cx2 = max(0, _qx - _pad2)
+                _cy2 = max(0, _qy - _pad2)
+                _cx2e = min(_iw2, _qx + _qw + _pad2)
+                _cy2e = min(_ih2, _qy + _qh + _pad2)
+                _roi2 = _pil2.crop((_cx2, _cy2, _cx2e, _cy2e))
+                _roi_buf2 = _io3.BytesIO()
+                _roi2.save(_roi_buf2, format="JPEG", quality=85)
+                _roi2.close()
+                _pil2.close()
+                _call_image_bytes = _roi_buf2.getvalue()
+                _crop_x, _crop_y = _cx2, _cy2
+            except Exception as _re:
+                debug(f"[diag] bbox_retry_crop_failed q={q.question_number} jid={jid}: {_re}")
+                _call_image_bytes = original_image_bytes or image_bytes
+                _crop_x, _crop_y = 0, 0
+
+        # D: few-shot strengthened single-question bbox retry prompt (P1-1: null example added)
+        prompt = (
+            f"这道题的作答区域bbox和答案是什么？\n"
+            f"题{q.question_number}: {str(q.question_text)[:60]}\n"
+            "bbox只包含学生手写答案位置，不要题干/整题/整页。\n"
+            "找不到手写答案时：student_answer 填 null，answer_bbox 填 null。\n"
+            "只输出一个 JSON 对象，禁止 markdown 代码块，禁止解释文字。\n"
+            f"【找到答案示例】{{\"question_number\":{q.question_number},"
+            "\"student_answer\":\"42\",\"answer_bbox\":{\"x\":120,\"y\":80,\"width\":90,\"height\":35}}}\n"
+            f"【找不到答案示例】{{\"question_number\":{q.question_number},"
+            "\"student_answer\":null,\"answer_bbox\":null}}\n"
+            "\n现在输出："
+        )
+
+        _t0 = time.time()
+        result = None
+        _exc_msg: str | None = None
         try:
-            content = result.get("content", "")
-            json_match = re.search(r'\[.*\]', content, re.DOTALL)
-            if not json_match:
-                _semantic_error = "no_json"
-                debug(f"[diag] bbox_only_retry no_json jid={jid}")
-            else:
-                try:
-                    retry_data = json.loads(json_match.group())
-                except json.JSONDecodeError:
-                    _semantic_error = "bad_json"
-                    retry_data = None
-                if _semantic_error is not None:
-                    pass
-                elif not isinstance(retry_data, list):
-                    _semantic_error = "json_not_array"
-                elif not retry_data:
-                    _semantic_error = "empty_json_array"
+            result = await asyncio.to_thread(
+                qwen_vl._call,
+                image_bytes=_call_image_bytes,
+                image_url=None,
+                prompt=prompt,
+                max_tokens=300,
+                timeout=20,
+            )
+        except Exception as e:
+            _exc_msg = str(e)[:200]
+
+        _latency_ms = int((time.time() - _t0) * 1000)
+        _semantic_error: str | None = None
+
+        if _exc_msg or not result or not result.get("success"):
+            _semantic_error = _exc_msg or str((result or {}).get("error", "api_failed"))[:200]
+            debug(f"[diag] bbox_only_retry api_failed q={q.question_number} jid={jid}: {_semantic_error}")
+        else:
+            try:
+                content = result.get("content", "")
+                # Accept single object: brace-counting JSON extraction
+                item = _extract_first_json_object(content)
+                # P1-2: reject multi-object / top-level array responses
+                _arr_wrap = _extract_first_json_array(content)
+                if isinstance(_arr_wrap, list) and len(_arr_wrap) > 1:
+                    _semantic_error = "unexpected_result_count"
+                    debug(f"[diag] bbox_only_retry unexpected_count q={q.question_number} n={len(_arr_wrap)} jid={jid}")
+                elif item is None:
+                    _semantic_error = "no_json"
+                    debug(f"[diag] bbox_only_retry no_json q={q.question_number} jid={jid}")
+                elif not isinstance(item, dict):
+                    _semantic_error = "json_not_object"
+                    debug(f"[diag] bbox_only_retry not_object q={q.question_number} jid={jid}")
                 else:
-                    retry_map: dict = {}
-                    _missing_question_number = False
-                    pending_bbox_updates = []
-                    for item in retry_data:
-                        if not isinstance(item, dict):
-                            _missing_question_number = True
-                            continue
-                        qn = item.get("question_number")
-                        if qn is None:
-                            _missing_question_number = True
-                            continue
-                        retry_map[qn] = item.get("answer_bbox")
-
-                    _matched_qnums: set = set()
-                    _bbox_rejected = False
-                    for q in retry_qs:
-                        if q.question_number not in retry_map:
-                            debug(f"[diag] bbox_only_retry no_bbox q={q.question_number} jid={jid}")
-                            continue
-                        _matched_qnums.add(q.question_number)
-                        ab = retry_map.get(q.question_number)
-                        if not ab:
-                            debug(f"[diag] bbox_only_retry no_bbox q={q.question_number} jid={jid}")
-                            _bbox_rejected = True
-                            continue
-
+                    # Semantic gate: question_number must match input
+                    if "question_number" not in item:
+                        _semantic_error = "missing_question_number"
+                        debug(f"[diag] bbox_only_retry missing_qn q={q.question_number} jid={jid}")
+                    elif item["question_number"] != q.question_number:
+                        _semantic_error = "question_number_mismatch"
+                        debug(f"[diag] bbox_only_retry qn_mismatch expected={q.question_number} got={item['question_number']} jid={jid}")
+                    else:
+                        ab = item.get("answer_bbox") if "answer_bbox" in item else item.get("answerbbox")
+                        sa = item.get("student_answer")
                         _ab_raw = None
                         if isinstance(ab, dict) and all(k in ab for k in ("x", "y", "width", "height")):
                             try:
-                                _ab_raw = [float(ab["x"]), float(ab["y"]), float(ab["width"]), float(ab["height"])]
+                                _ab_raw = [float(ab["x"]), float(ab["y"]),
+                                           float(ab["width"]), float(ab["height"])]
                             except (TypeError, ValueError):
                                 pass
                         elif isinstance(ab, list) and len(ab) == 4:
@@ -1311,56 +1702,59 @@ async def _qwen_bbox_only_retry(
                             except (TypeError, ValueError):
                                 pass
 
-                        if _ab_raw is None:
-                            debug(f"[diag] bbox_only_retry invalid_format q={q.question_number} jid={jid}")
-                            _bbox_rejected = True
-                            continue
-
-                        _q_bbox_list = list(q.bbox) if getattr(q, "bbox", None) else None
-                        validated = _validate_answer_bbox(_ab_raw, _q_bbox_list, image_width, image_height)
-                        if validated:
-                            pending_bbox_updates.append((q, validated))
-                            _usable_bbox_written_count += 1
-                            debug(f"[diag] bbox_only_retry placed q={q.question_number} jid={jid}")
+                        if ab is None:
+                            # Null answer_bbox is a valid contract response — no apply needed
+                            debug(f"[diag] bbox_only_retry null_bbox q={q.question_number} jid={jid}")
+                        elif _ab_raw is not None:
+                            # Rescale crop坐标→原图坐标 via _crop_to_original (clamp)
+                            _ab_orig = _crop_to_original(
+                                _crop_x, _crop_y, _ab_raw,
+                                image_width, image_height
+                            )
+                            if _ab_orig is None:
+                                _semantic_error = "bbox_parse_failed"
+                                debug(f"[diag] bbox_only_retry crop_failed q={q.question_number} jid={jid}")
+                                continue
+                            _q_bbox_list = list(q.bbox) if getattr(q, "bbox", None) else None
+                            validated = _validate_answer_bbox(_ab_orig, _q_bbox_list, image_width, image_height)
+                            if validated:
+                                q.answer_bbox = validated
+                                # Only fill student_answer if not already set
+                                if (sa and str(sa).lower() not in ("null", "无", "none", "")
+                                        and not getattr(q, "student_answer", None)):
+                                    q.student_answer = str(sa)
+                                debug(f"[diag] bbox_only_retry placed q={q.question_number} jid={jid}")
+                            else:
+                                _semantic_error = "validate_rejected"
+                                debug(f"[diag] bbox_only_retry validate_rejected q={q.question_number} jid={jid}")
                         else:
-                            debug(f"[diag] bbox_only_retry validate_rejected q={q.question_number} jid={jid}")
-                            _bbox_rejected = True
+                            _semantic_error = "bbox_parse_failed"
+                            debug(f"[diag] bbox_only_retry bbox_parse_failed q={q.question_number} jid={jid}")
+            except Exception as e:
+                _semantic_error = str(e)[:200]
+                debug(f"[diag] bbox_only_retry parse_error q={q.question_number} jid={jid}: {e}")
 
-                    if _missing_question_number:
-                        _semantic_error = "missing_question_number"
-                    elif not _matched_qnums:
-                        _semantic_error = "no_matching_questions"
-                    elif _bbox_rejected:
-                        _semantic_error = "invalid_answer_bbox"
-                    elif _usable_bbox_written_count == 0:
-                        _semantic_error = "no_usable_boost_result"
-                    if _semantic_error is None and _usable_bbox_written_count > 0:
-                        for q, validated in pending_bbox_updates:
-                            q.answer_bbox = validated
-        except Exception as e:
-            _semantic_error = str(e)[:200]
-            debug(f"[diag] bbox_only_retry parse_error jid={jid}: {e}")
-
-    try:
-        pricing = get_active_pricing("aliyun_dashscope", "qwen-vl-max")
-        usage_data = (result or {}).get("usage", {}) or {}
-        retry_log = make_log_entry(
-            task_id=jid, provider_name="aliyun_dashscope", model_name="qwen-vl-max",
-            feature_code="qwen_bbox_only_retry", trace_id=trace_id,
-            sub_stage="bbox_retry",
-            latency_ms=_latency_ms, success=_semantic_error is None,
-            input_tokens=usage_data.get("prompt_tokens", 0),
-            output_tokens=usage_data.get("completion_tokens", 0),
-            parent_user_id=parent_id, child_id=child_id,
-            billing_status="billed" if _semantic_error is None else "failed",
-            pricing=pricing,
-            call_source=_call_source,
-            error_message=_semantic_error,
-        )
-        _model_calls.append(retry_log)
-        _db.save_model_call(retry_log)
-    except Exception:
-        pass
+        # Log each question's retry call
+        try:
+            pricing = get_active_pricing("aliyun_dashscope", "qwen-vl-max")
+            usage_data = (result or {}).get("usage", {}) or {}
+            retry_log = make_log_entry(
+                task_id=jid, provider_name="aliyun_dashscope", model_name="qwen-vl-max",
+                feature_code="qwen_bbox_only_retry", trace_id=trace_id,
+                sub_stage="bbox_retry",
+                latency_ms=_latency_ms, success=_semantic_error is None,
+                input_tokens=usage_data.get("prompt_tokens", 0),
+                output_tokens=usage_data.get("completion_tokens", 0),
+                parent_user_id=parent_id, child_id=child_id,
+                billing_status="billed" if _semantic_error is None else "failed",
+                pricing=pricing,
+                call_source=_call_source,
+                error_message=_semantic_error,
+            )
+            _model_calls.append(retry_log)
+            _db.save_model_call(retry_log)
+        except Exception:
+            pass
 
     return questions
 
@@ -1998,31 +2392,35 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
                 info(f"[BG] OCR-first: {len(ocr_blocks)} blocks -> {len(questions)} questions, {len(boost_candidates)} boost candidates")
 
                 if boost_candidates:
+                    _boost_done_time = time.time()  # will be updated after boost completes
                     _jobs[jid]["job"].status = JobStatus.vision_reviewing
                     questions = await _qwen_boost_group(
                         jid, questions, boost_candidates, _img_bytes,
+                        contents,
                         oss_signed_url, document_classification,
                         trace_id, parent_id, child_id,
                         image_width, image_height,
                     )
                     info(f"[BG] Qwen boost completed for {jid}")
-                    # bbox-only retry: guarded — feature flag, deadline, candidate count, already-has-bbox
-                    # Eligible: student_answer or is_correct set (graded externally) but answer_bbox missing
-                    _retry_qs_count = sum(
-                        1 for q in questions
-                        if (getattr(q, "student_answer", None) or getattr(q, "is_correct", None) is not None)
-                        and not getattr(q, "answer_bbox", None)
+                    _boost_done_time = time.time()
+                else:
+                    _boost_done_time = t_start  # no boost needed; deadline still applies
+                # bbox-only retry: 触发条件——已有 student_answer 或 is_correct，但缺 answer_bbox
+                _retry_qs_count = sum(
+                    1 for q in questions
+                    if (getattr(q, "student_answer", None) or getattr(q, "is_correct", None) is not None)
+                    and not getattr(q, "answer_bbox", None)
+                )
+                if (QWEN_BBOX_ONLY_RETRY_ENABLED
+                        and 0 < _retry_qs_count <= QWEN_BBOX_ONLY_RETRY_MAX_CANDIDATES
+                        and (time.time() - _boost_done_time) < QWEN_BBOX_ONLY_RETRY_DEADLINE_S):
+                    questions = await _qwen_bbox_only_retry(
+                        jid, questions, contents, _img_bytes, oss_signed_url,
+                        trace_id, parent_id, child_id,
+                        image_width, image_height,
                     )
-                    if (QWEN_BBOX_ONLY_RETRY_ENABLED
-                            and 0 < _retry_qs_count <= QWEN_BBOX_ONLY_RETRY_MAX_CANDIDATES
-                            and (time.time() - t_start) < QWEN_BBOX_ONLY_RETRY_DEADLINE_S):
-                        questions = await _qwen_bbox_only_retry(
-                            jid, questions, _img_bytes, oss_signed_url,
-                            trace_id, parent_id, child_id,
-                            image_width, image_height,
-                        )
-                    else:
-                        debug(f"[diag] bbox_only_retry skipped jid={jid} enabled={QWEN_BBOX_ONLY_RETRY_ENABLED} retry_qs={_retry_qs_count} max={QWEN_BBOX_ONLY_RETRY_MAX_CANDIDATES}")
+                else:
+                    debug(f"[diag] bbox_only_retry skipped jid={jid} enabled={QWEN_BBOX_ONLY_RETRY_ENABLED} retry_qs={_retry_qs_count} max={QWEN_BBOX_ONLY_RETRY_MAX_CANDIDATES}")
             else:
                 info(f"[BG] OCR-first: 0 blocks, no questions")
                 questions = []
@@ -2094,6 +2492,8 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
             if len(questions) > 0 and _with_g == 0:
                 # P1-B: grading entirely absent (all is_correct None) — not safe to complete
                 # covers both _with_sa==0 and _with_sa>0 grading-failed cases
+                _jobs[jid]["error_code"] = "incomplete_grading_marks"
+                _jobs[jid]["document_classification"]["reason"] = "incomplete_grading_marks"
                 final_status = JobStatus.needs_review
 
             gated_status = _apply_document_support_gate(
@@ -2132,10 +2532,12 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
                 _missing = _needs_mark_count - len(overlay_marks)
                 info(f"[BG] ocr_first: partial_overlay_marks_missing {_missing}/{_needs_mark_count} → needs_review for {jid}")
                 _jobs[jid]["error_code"] = "partial_overlay_marks_missing"
+                _jobs[jid]["document_classification"]["reason"] = "partial_overlay_marks_missing"
                 final_status = JobStatus.needs_review
             elif final_status == JobStatus.completed and len(overlay_marks) == 0 and len(questions) > 0:
                 info(f"[BG] ocr_first: completed but overlay empty → needs_review for {jid}")
                 _jobs[jid]["error_code"] = "unsafe_overlay_marks"
+                _jobs[jid]["document_classification"]["reason"] = "unsafe_overlay_marks"
                 final_status = JobStatus.needs_review
 
             save_result(jid, questions, now, file, final_status)
