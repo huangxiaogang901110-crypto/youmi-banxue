@@ -933,6 +933,8 @@ async def _qwen_boost_group(
 
         # Parse JSON; model_call written after outcome known — no premature success=True
         _parse_error: str | None = None
+        _boost_summary: dict = {}
+        _candidate_reasons: dict = {}
         try:
             content = result.get("content", "")
             json_match = re.search(r'\[.*\]', content, re.DOTALL)
@@ -951,11 +953,41 @@ async def _qwen_boost_group(
                 elif not boost_data:
                     _parse_error = "empty_json_array"
                 else:
+                    # ── observability counters ──────────────────────────────
+                    _returned_items_count = len(boost_data)
+                    _items_with_answer_bbox_count = sum(
+                        1 for _it in boost_data
+                        if isinstance(_it, dict) and _it.get("answer_bbox") is not None
+                    )
+                    _items_with_answerbbox_count = sum(
+                        1 for _it in boost_data
+                        if isinstance(_it, dict) and _it.get("answerbbox") is not None
+                    )
+                    _items_with_bbox_object_count = sum(
+                        1 for _it in boost_data
+                        if isinstance(_it, dict) and isinstance(
+                            _it.get("answer_bbox") or _it.get("answerbbox"), dict
+                        )
+                    )
+                    _items_with_student_answer_count = sum(
+                        1 for _it in boost_data
+                        if isinstance(_it, dict) and _it.get("student_answer")
+                        and str(_it.get("student_answer", "")).lower()
+                        not in ("null", "无", "none", "")
+                    )
+                    _parsed_bbox_count = 0
+                    _validate_accepted_bbox_count = 0
+                    _validate_rejected_bbox_count = 0
+                    _no_bbox_count = 0
+                    _no_usable_boost_result_count = 0
+                    _candidate_reasons = {}  # question_number → reason string
+
                     _matched_qnums: set = set()
                     _usable_bbox_written_count = 0
                     _missing_question_number = False
                     _bbox_rejected = False
-                    pending_updates = []
+                    pending_sa_updates = []    # (idx, q, student_answer) — written even without valid bbox
+                    pending_bbox_updates = []  # (idx, q, student_answer, validated_bbox)
                     for item in boost_data:
                         if not isinstance(item, dict):
                             _missing_question_number = True
@@ -991,6 +1023,9 @@ async def _qwen_boost_group(
                             except (TypeError, ValueError):
                                 pass
 
+                        if _ab_raw is not None:
+                            _parsed_bbox_count += 1
+
                         for idx, q, reason in group:
                             if q.question_number == qn:
                                 _matched_qnums.add(qn)
@@ -999,10 +1034,19 @@ async def _qwen_boost_group(
                                     _candidate_student_answer = str(sa)
                                 if ab is None:
                                     debug(f"[diag] qwen_no_bbox jid={jid} q={qn}")
+                                    _no_bbox_count += 1
+                                    _candidate_reasons[qn] = "qwen_no_bbox_field"
                                     _bbox_rejected = True
+                                    # Preserve student_answer even when bbox is absent (partial_boost)
+                                    if _candidate_student_answer is not None:
+                                        pending_sa_updates.append((idx, q, _candidate_student_answer))
                                 elif _ab_raw is None:
                                     debug(f"[diag] qwen_bbox_invalid jid={jid} q={qn}")
+                                    _validate_rejected_bbox_count += 1
+                                    _candidate_reasons[qn] = "qwen_bbox_parse_failed"
                                     _bbox_rejected = True
+                                    if _candidate_student_answer is not None:
+                                        pending_sa_updates.append((idx, q, _candidate_student_answer))
                                 else:
                                     ax1, ay1, ax2, ay2 = _ab_raw
                                     _q_bbox_list = list(q.bbox) if q.bbox else None
@@ -1027,11 +1071,20 @@ async def _qwen_boost_group(
                                                 _q_bbox_list, image_width, image_height,
                                             )
                                     if _validated_bbox:
-                                        pending_updates.append((idx, q, _candidate_student_answer, _validated_bbox))
+                                        _validate_accepted_bbox_count += 1
+                                        pending_bbox_updates.append((idx, q, _candidate_student_answer, _validated_bbox))
                                         _usable_bbox_written_count += 1
+                                        _candidate_reasons[qn] = (
+                                            "bbox_written|student_answer_written"
+                                            if _candidate_student_answer else "bbox_written"
+                                        )
                                     else:
                                         debug(f"[diag] validate_rejected jid={jid} q={qn}")
+                                        _validate_rejected_bbox_count += 1
+                                        _candidate_reasons[qn] = "validate_rejected"
                                         _bbox_rejected = True
+                                        if _candidate_student_answer is not None:
+                                            pending_sa_updates.append((idx, q, _candidate_student_answer))
                                 break
 
                     if _parse_error is None:
@@ -1039,21 +1092,57 @@ async def _qwen_boost_group(
                             _parse_error = "missing_question_number"
                         elif not _matched_qnums:
                             _parse_error = "no_matching_questions"
-                        elif _bbox_rejected:
+                        elif _bbox_rejected and _usable_bbox_written_count == 0:
+                            # Only fail when NO bbox was accepted; partial success (some bbox written) is OK
                             _parse_error = "invalid_answer_bbox"
                         elif _usable_bbox_written_count == 0:
                             _parse_error = "no_usable_boost_result"
-                    if _parse_error is None and _usable_bbox_written_count > 0:
-                        for idx, q, _candidate_student_answer, _validated_bbox in pending_updates:
-                            if _candidate_student_answer is not None:
-                                q.student_answer = _candidate_student_answer
+                            _no_usable_boost_result_count = 1
+
+                    # Apply bbox updates (full boost: bbox + student_answer)
+                    if _usable_bbox_written_count > 0:
+                        for idx, q, _csa, _validated_bbox in pending_bbox_updates:
+                            if _csa is not None:
+                                q.student_answer = _csa
                             q.answer_bbox = _validated_bbox
                             q.source = "qwen_boost"
                             boosted_indices.add(idx)
-                    # Log questions in group with no matching item in Qwen response
+
+                    # Apply student_answer-only updates (partial_boost: API ok, bbox absent/rejected)
+                    for idx, q, _csa in pending_sa_updates:
+                        if idx not in boosted_indices:
+                            q.student_answer = _csa
+                            q.source = "partial_boost"
+                            boosted_indices.add(idx)
+
+                    # Count/log unmatched questions and record their reasons
+                    _no_matching_question_count = sum(
+                        1 for _, q, _ in group if q.question_number not in _matched_qnums
+                    )
                     for idx, q, reason in group:
                         if q.question_number not in _matched_qnums:
                             debug(f"[diag] parsed_no_answer_area jid={jid} q={q.question_number}")
+                            _candidate_reasons[q.question_number] = "qwen_no_item"
+
+                    # Assemble compact structured summary (no full payload, no images, no keys)
+                    _boost_summary = {
+                        "returned_items_count": _returned_items_count,
+                        "matched_question_count": len(_matched_qnums),
+                        "unmatched_question_numbers": [
+                            q.question_number for _, q, _ in group
+                            if q.question_number not in _matched_qnums
+                        ],
+                        "items_with_answer_bbox_count": _items_with_answer_bbox_count,
+                        "items_with_answerbbox_count": _items_with_answerbbox_count,
+                        "items_with_bbox_object_count": _items_with_bbox_object_count,
+                        "items_with_student_answer_count": _items_with_student_answer_count,
+                        "parsed_bbox_count": _parsed_bbox_count,
+                        "validate_accepted_bbox_count": _validate_accepted_bbox_count,
+                        "validate_rejected_bbox_count": _validate_rejected_bbox_count,
+                        "no_bbox_count": _no_bbox_count,
+                        "no_matching_question_count": _no_matching_question_count,
+                        "no_usable_boost_result_count": _no_usable_boost_result_count,
+                    }
         except Exception as e:
             _parse_error = str(e)[:200]
             info(f"[BG] Qwen boost parse error: {e}")
@@ -1074,6 +1163,8 @@ async def _qwen_boost_group(
                     parent_user_id=parent_id, child_id=child_id,
                     billing_status="billed", pricing=pricing,
                     call_source=_call_source,
+                    boost_summary=_boost_summary,
+                    question_reasons=_candidate_reasons,
                 )
             else:
                 boost_log = make_log_entry(
@@ -1086,6 +1177,8 @@ async def _qwen_boost_group(
                     billing_status="failed", pricing=pricing,
                     call_source=_call_source,
                     error_message=_parse_error,
+                    boost_summary=_boost_summary,
+                    question_reasons=_candidate_reasons,
                 )
             _model_calls.append(boost_log)
             _db.save_model_call(boost_log)
@@ -1114,11 +1207,11 @@ async def _qwen_bbox_only_retry(
     image_width=None,
     image_height=None,
 ) -> list:
-    """Single bbox-only retry per image for questions that have student_answer but no answer_bbox.
+    """Single bbox-only retry per image for questions that have student_answer or is_correct but no answer_bbox.
     Max 1 Qwen call per image. Returns updated questions list."""
     retry_qs = [
         q for q in questions
-        if getattr(q, "student_answer", None)
+        if (getattr(q, "student_answer", None) or getattr(q, "is_correct", None) is not None)
         and not getattr(q, "answer_bbox", None)
     ]
     if not retry_qs:
@@ -1914,9 +2007,11 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
                     )
                     info(f"[BG] Qwen boost completed for {jid}")
                     # bbox-only retry: guarded — feature flag, deadline, candidate count, already-has-bbox
+                    # Eligible: student_answer or is_correct set (graded externally) but answer_bbox missing
                     _retry_qs_count = sum(
                         1 for q in questions
-                        if getattr(q, "student_answer", None) and not getattr(q, "answer_bbox", None)
+                        if (getattr(q, "student_answer", None) or getattr(q, "is_correct", None) is not None)
+                        and not getattr(q, "answer_bbox", None)
                     )
                     if (QWEN_BBOX_ONLY_RETRY_ENABLED
                             and 0 < _retry_qs_count <= QWEN_BBOX_ONLY_RETRY_MAX_CANDIDATES

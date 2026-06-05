@@ -461,5 +461,234 @@ class TestQwenBoostXyxyConversion(unittest.TestCase):
         self.assertEqual(q.answer_bbox, [70.0, 10.0, 60.0, 20.0])
 
 
+# ── 9. _qwen_boost_group success observability ───────────────────────────────
+
+class TestQwenBoostSuccessObservability(unittest.TestCase):
+    """Verify that successful Qwen boost calls carry structured summary and per-question reasons."""
+
+    def _run_boost(self, response_items, q=None, image_width=1280, image_height=1280):
+        if q is None:
+            q = _make_question(1, bbox=[10.0, 10.0, 200.0, 50.0])
+        boost_candidates = [(0, q, "no_answer")]
+        captured: list = []
+        fake_client = MagicMock()
+        fake_client._call.return_value = _qwen_ok_response(response_items)
+
+        with patch("pipeline.QwenVLClient", return_value=fake_client), \
+             patch("pipeline.get_active_pricing", return_value={}), \
+             patch("pipeline._db"), \
+             patch("pipeline._model_calls", captured):
+            _run(_qwen_boost_group(
+                jid="jobObs", questions=[q], boost_candidates=boost_candidates,
+                image_bytes=b"fake", oss_signed_url=None, document_classification={},
+                trace_id="tObs", parent_id="pObs", child_id="cObs",
+                image_width=image_width, image_height=image_height,
+            ))
+        return q, captured
+
+    def test_no_bbox_field_records_qwen_no_bbox_field(self):
+        """When Qwen returns an item with no answer_bbox, question_reasons must record qwen_no_bbox_field."""
+        q, captured = self._run_boost([
+            {"question_number": 1, "student_answer": "46"}  # no answer_bbox key
+        ])
+        self.assertTrue(len(captured) >= 1)
+        entry = captured[-1]  # last entry is the parse-result model_call
+        reasons = entry.get("question_reasons", {})
+        self.assertEqual(reasons.get(1), "qwen_no_bbox_field",
+                         f"Expected qwen_no_bbox_field, got {reasons}")
+        summary = entry.get("boost_summary", {})
+        self.assertEqual(summary.get("no_bbox_count"), 1)
+
+    def test_validate_rejected_records_validate_rejected(self):
+        """When bbox fails _validate_answer_bbox, question_reasons must record validate_rejected."""
+        # bbox identical to question_bbox → rejected by safety gate
+        q = _make_question(1, bbox=[10.0, 10.0, 100.0, 40.0])
+        _, captured = self._run_boost(
+            [{"question_number": 1, "student_answer": "3",
+              "answer_bbox": {"x": 10, "y": 10, "width": 100, "height": 40}}],
+            q=q,
+        )
+        entry = captured[-1]
+        reasons = entry.get("question_reasons", {})
+        self.assertEqual(reasons.get(1), "validate_rejected",
+                         f"Expected validate_rejected, got {reasons}")
+        summary = entry.get("boost_summary", {})
+        self.assertGreaterEqual(summary.get("validate_rejected_bbox_count", 0), 1)
+
+    def test_student_answer_no_bbox_source_partial_boost(self):
+        """When student_answer is present but bbox is absent, source must become partial_boost."""
+        q, _ = self._run_boost([
+            {"question_number": 1, "student_answer": "46"}  # no answer_bbox
+        ])
+        self.assertEqual(q.student_answer, "46")
+        self.assertEqual(q.source, "partial_boost",
+                         f"Expected partial_boost, got {q.source!r}")
+        self.assertIsNone(q.answer_bbox)
+
+    def test_validate_rejected_with_student_answer_source_partial_boost(self):
+        """When bbox is rejected but student_answer present, source must become partial_boost."""
+        q = _make_question(1, bbox=[10.0, 10.0, 100.0, 40.0])
+        q, _ = self._run_boost(
+            [{"question_number": 1, "student_answer": "7",
+              "answer_bbox": {"x": 10, "y": 10, "width": 100, "height": 40}}],
+            q=q,
+        )
+        self.assertEqual(q.student_answer, "7")
+        self.assertEqual(q.source, "partial_boost")
+        self.assertIsNone(q.answer_bbox)
+
+    def test_success_model_call_contains_boost_summary(self):
+        """Successful boost (bbox written) must include boost_summary with correct counts."""
+        q, captured = self._run_boost([
+            {"question_number": 1, "student_answer": "46",
+             "answer_bbox": {"x": 70, "y": 10, "width": 60, "height": 20}}
+        ])
+        self.assertIsNotNone(q.answer_bbox)
+        success_entries = [e for e in captured if e.get("success")]
+        self.assertTrue(len(success_entries) >= 1, "Must have at least one success=True model_call")
+        entry = success_entries[-1]
+        summary = entry.get("boost_summary", {})
+        self.assertIn("returned_items_count", summary)
+        self.assertEqual(summary.get("returned_items_count"), 1)
+        self.assertEqual(summary.get("validate_accepted_bbox_count"), 1)
+        self.assertEqual(summary.get("validate_rejected_bbox_count"), 0)
+        self.assertEqual(summary.get("no_bbox_count"), 0)
+        reasons = entry.get("question_reasons", {})
+        self.assertIn(1, reasons)
+        self.assertIn("bbox_written", reasons[1])
+
+    def test_qwen_no_item_reason_for_unmatched_question(self):
+        """If Qwen response omits a question from the group, reason must be qwen_no_item."""
+        q = _make_question(1, bbox=[10.0, 10.0, 200.0, 50.0])
+        boost_candidates = [(0, q, "no_answer")]
+        captured: list = []
+        fake_client = MagicMock()
+        # Response has question_number=99 which doesn't match q (question_number=1)
+        fake_client._call.return_value = _qwen_ok_response([
+            {"question_number": 99, "student_answer": "x",
+             "answer_bbox": {"x": 70, "y": 10, "width": 60, "height": 20}}
+        ])
+
+        with patch("pipeline.QwenVLClient", return_value=fake_client), \
+             patch("pipeline.get_active_pricing", return_value={}), \
+             patch("pipeline._db"), \
+             patch("pipeline._model_calls", captured):
+            _run(_qwen_boost_group(
+                jid="jobNoItem", questions=[q], boost_candidates=boost_candidates,
+                image_bytes=b"fake", oss_signed_url=None, document_classification={},
+                trace_id="tNI", parent_id="pNI", child_id="cNI",
+                image_width=1280, image_height=1280,
+            ))
+
+        entry = captured[-1]
+        reasons = entry.get("question_reasons", {})
+        self.assertEqual(reasons.get(1), "qwen_no_item",
+                         f"Expected qwen_no_item for unmatched q=1, got {reasons}")
+        summary = entry.get("boost_summary", {})
+        self.assertEqual(summary.get("no_matching_question_count"), 1)
+        self.assertIn(1, summary.get("unmatched_question_numbers", []))
+
+
+# ── 10. bbox-only retry trigger conditions ────────────────────────────────────
+
+class TestBboxOnlyRetryTriggerConditions(unittest.TestCase):
+    """Verify that is_correct non-None also triggers bbox-only retry."""
+
+    def _run_retry(self, questions, qwen_return=None):
+        captured: list = []
+        fake_client = MagicMock()
+        if qwen_return is not None:
+            fake_client._call.return_value = qwen_return
+        else:
+            fake_client._call.return_value = {"success": False, "error": "test"}
+
+        with patch("pipeline.QwenVLClient", return_value=fake_client), \
+             patch("pipeline.get_active_pricing", return_value={}), \
+             patch("pipeline._db"), \
+             patch("pipeline._model_calls", captured):
+            _run(_qwen_bbox_only_retry(
+                jid="jobTrig", questions=questions, image_bytes=b"fake", oss_signed_url=None,
+                trace_id="tTrig", parent_id="pTrig", child_id="cTrig",
+                image_width=1280, image_height=1280,
+            ))
+        return fake_client, captured
+
+    def test_is_correct_true_triggers_retry(self):
+        """Question with is_correct=True but no answer_bbox must trigger exactly 1 Qwen call."""
+        q = _make_question(1, student_answer=None, answer_bbox=None)
+        q.is_correct = True  # graded externally, no bbox yet
+        client, _ = self._run_retry([q])
+        self.assertEqual(client._call.call_count, 1,
+                         "is_correct=True without answer_bbox must trigger retry")
+
+    def test_is_correct_false_triggers_retry(self):
+        """Question with is_correct=False (wrong answer) but no answer_bbox must trigger retry."""
+        q = _make_question(1, student_answer=None, answer_bbox=None)
+        q.is_correct = False
+        client, _ = self._run_retry([q])
+        self.assertEqual(client._call.call_count, 1)
+
+    def test_is_correct_none_and_no_student_answer_no_retry(self):
+        """Question with is_correct=None and no student_answer must NOT trigger retry."""
+        q = _make_question(1, student_answer=None, answer_bbox=None)
+        # q.is_correct is already None by default
+        client, _ = self._run_retry([q])
+        client._call.assert_not_called()
+
+    def test_is_correct_with_answer_bbox_no_retry(self):
+        """Question with is_correct set AND answer_bbox already present must NOT trigger retry."""
+        q = _make_question(1, student_answer=None, answer_bbox=[70.0, 10.0, 50.0, 20.0])
+        q.is_correct = True
+        client, _ = self._run_retry([q])
+        client._call.assert_not_called()
+
+    def test_is_correct_and_student_answer_batched_into_one_call(self):
+        """Multiple eligible questions (is_correct or student_answer) must use exactly 1 Qwen call."""
+        q1 = _make_question(1, student_answer="42", answer_bbox=None)
+        q2 = _make_question(2, student_answer=None, answer_bbox=None)
+        q2.is_correct = True
+        client, _ = self._run_retry([q1, q2])
+        self.assertEqual(client._call.call_count, 1,
+                         "All eligible questions must be batched into exactly 1 call")
+
+    def test_is_correct_retry_writes_bbox_on_success(self):
+        """is_correct-triggered retry must write answer_bbox when Qwen returns valid bbox."""
+        q = _make_question(1, student_answer=None, answer_bbox=None)
+        q.is_correct = True
+        response = _qwen_ok_response([
+            {"question_number": 1, "answer_bbox": {"x": 70, "y": 10, "width": 50, "height": 20}}
+        ])
+        _, _ = self._run_retry([q], qwen_return=response)
+        self.assertIsNotNone(q.answer_bbox,
+                             "Retry triggered by is_correct must write answer_bbox on success")
+        self.assertEqual(q.answer_bbox, [70.0, 10.0, 50.0, 20.0])
+
+
+# ── 11. call_source always dev_ocrfirst_real_test (no mixed spellings) ────────
+
+class TestCallSourceStandard(unittest.TestCase):
+    """call_source must always normalise to dev_ocrfirst_real_test via _get_call_source()."""
+
+    def test_YOMICALL_SOURCE_with_underscore_wins(self):
+        with patch.dict(os.environ, {"YOMICALL_SOURCE": "dev_ocrfirst_real_test"}, clear=False):
+            self.assertEqual(_get_call_source(), "dev_ocrfirst_real_test")
+
+    def test_legacy_YOMICALLSOURCE_no_underscore_fallback(self):
+        env = {"YOMICALLSOURCE": "dev_ocrfirst_real_test"}
+        with patch.dict(os.environ, env, clear=False):
+            os.environ.pop("YOMICALL_SOURCE", None)
+            self.assertEqual(_get_call_source(), "dev_ocrfirst_real_test")
+
+    def test_default_never_mixed_spelling(self):
+        """Default must be dev_ocrfirst_real_test — not devocrfirstrealtest or devocrfirstreal_test."""
+        env_clean = {k: v for k, v in os.environ.items()
+                     if k not in ("YOMICALL_SOURCE", "YOMICALLSOURCE")}
+        with patch.dict(os.environ, env_clean, clear=True):
+            result = _get_call_source()
+        self.assertEqual(result, "dev_ocrfirst_real_test")
+        self.assertNotIn("devocrfirstrealtest", result)
+        self.assertNotIn("devocrfirstreal_test", result)
+
+
 if __name__ == "__main__":
     unittest.main()
