@@ -75,8 +75,8 @@ def _get_qwen_full_timeout_seconds(default: int = 30) -> int:
 
 
 def _get_call_source() -> str:
-    """Read YOMICALL_SOURCE; fall back to legacy YOMICALLSOURCE (no underscore)."""
-    v = _os.environ.get("YOMICALL_SOURCE") or _os.environ.get("YOMICALLSOURCE")
+    """Read YOMI_CALL_SOURCE; fall back to YOMICALL_SOURCE, then YOMICALLSOURCE (no underscore)."""
+    v = _os.environ.get("YOMI_CALL_SOURCE") or _os.environ.get("YOMICALL_SOURCE") or _os.environ.get("YOMICALLSOURCE")
     return v.strip() if v and v.strip() else "dev_ocrfirst_real_test"
 
 
@@ -673,6 +673,14 @@ def _crop_to_original(crop_x: int, crop_y: int, bbox_in_crop, image_width=None, 
     return [x_orig, y_orig, w, h]
 
 
+
+def _repair_qwen_bbox_json(text: str) -> str:
+    """Repair Qwen-VL malformed bbox: {"x":58,124,136,159} → {"x":58,"y":124,"width":136,"height":159}"""
+    # Pattern: "x": number, number, number, number (comma-separated values without keys)
+    pattern = re.compile(r'"x"\s*:\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)')
+    return pattern.sub(r'"x":\1,"y":\2,"width":\3,"height":\4', text)
+
+
 def _extract_first_json_object(text: str):
     """用括号计数从文本中提取第一个完整JSON对象，支持嵌套。
 
@@ -707,7 +715,13 @@ def _extract_first_json_object(text: str):
                 try:
                     return json.loads(candidate)
                 except json.JSONDecodeError:
-                    pass
+                    # Qwen bbox repair: {"x":58,124,136,159} → {"x":58,"y":124,"width":136,"height":159}
+                    repaired = _repair_qwen_bbox_json(candidate)
+                    if repaired != candidate:
+                        try:
+                            return json.loads(repaired)
+                        except json.JSONDecodeError:
+                            pass
                 break
     # Fallback: try stripping ```json fence if present
     fm = re.search(r"```(?:json)?\s*(\{.*\})\s*```", text, re.DOTALL)
@@ -720,58 +734,74 @@ def _extract_first_json_object(text: str):
 
 
 def _extract_first_json_array(text: str):
-    """用括号计数从文本中提取第一个完整JSON数组，支持嵌套对象。
+    """Extract first complete JSON array using bracket counting.
 
-    支持：
-      1. 标准JSON数组：[{...},{...}]
-      2. Markdown fenced JSON：```json [...] ```
-      3. 前后有解释文字的JSON数组
-      4. 嵌套对象（如 answer_bbox 字段）
+    Supports:
+      1. Plain JSON array: [{...},{...}]
+      2. Markdown fenced: ```json [...] ``` or ``` [...] ```
+      3. Array embedded in surrounding explanation text
+      4. Nested objects (e.g. answer_bbox field)
 
-    返回解析后的 list，或 None。"""
+    Returns parsed list, or None."""
     if not text:
         return None
-    start = text.find("[")
-    if start == -1:
+
+    def _count_extract(s: str):
+        """Find and parse first JSON array in s via bracket counting."""
+        start = s.find("[")
+        if start == -1:
+            return None
+        depth = 0
+        in_string = False
+        escape = False
+        for i in range(start, len(s)):
+            ch = s[i]
+            if escape:
+                escape = False
+                continue
+            if ch == "\\":
+                escape = True
+                continue
+            if ch == '"':
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if ch == "[":
+                depth += 1
+            elif ch == "]":
+                depth -= 1
+                if depth == 0:
+                    candidate = s[start : i + 1]
+                    try:
+                        result = json.loads(candidate)
+                        if isinstance(result, list):
+                            return result
+                    except json.JSONDecodeError:
+                        # Qwen bbox repair: {"x":58,124,136,159} → {"x":58,"y":124,"width":136,"height":159}
+                        repaired = _repair_qwen_bbox_json(candidate)
+                        if repaired != candidate:
+                            try:
+                                result = json.loads(repaired)
+                                if isinstance(result, list):
+                                    return result
+                            except json.JSONDecodeError:
+                                pass
+                    break
         return None
-    depth = 0
-    in_string = False
-    escape = False
-    for i in range(start, len(text)):
-        ch = text[i]
-        if escape:
-            escape = False
-            continue
-        if ch == "\\":
-            escape = True
-            continue
-        if ch == '"':
-            in_string = not in_string
-            continue
-        if in_string:
-            continue
-        if ch == "[":
-            depth += 1
-        elif ch == "]":
-            depth -= 1
-            if depth == 0:
-                candidate = text[start : i + 1]
-                try:
-                    result = json.loads(candidate)
-                    if isinstance(result, list):
-                        return result
-                except json.JSONDecodeError:
-                    pass
-                break
-    # Fallback: try stripping ```json fence if present
-    fm = re.search(r"```(?:json)?\s*(\[.*\])\s*```", text, re.DOTALL)
+
+    # Primary: bracket counting on full text (handles plain + surrounding text + fenced)
+    result = _count_extract(text)
+    if result is not None:
+        return result
+
+    # Fallback: strip ``` fence (with or without json tag), then re-apply bracket counting
+    fm = re.search(r"```(?:json)?\s*([\s\S]*?)```", text)
     if fm:
-        try:
-            result = json.loads(fm.group(1))
-            if isinstance(result, list):
-                return result
-        except json.JSONDecodeError:
-            pass
+        result = _count_extract(fm.group(1))
+        if result is not None:
+            return result
+
     return None
 
 
@@ -1034,6 +1064,7 @@ async def _qwen_boost_group(
         _crop_x: int = 0
         _crop_y: int = 0
         _call_image_bytes = original_image_bytes or image_bytes
+        _skip_boost = False
         try:
             _valid_bboxes = [list(q.bbox) for _, q, _ in group if q.bbox and len(q.bbox) == 4]
             if _valid_bboxes and (original_image_bytes or image_bytes):
@@ -1052,51 +1083,55 @@ async def _qwen_boost_group(
                 _cx2 = min(_iw, int(_ux2 + _pad))
                 _cy2 = min(_ih, int(_uy2 + _pad))
                 _cw, _ch = _cx2 - _cx, _cy2 - _cy
-                _img_area = _iw * _ih
-                if _cw > 0 and _ch > 0 and _img_area > 0 and _cw * _ch >= _img_area * 0.05:
+                if _cw >= 20 and _ch >= 20:
                     _roi = _pil_src.crop((_cx, _cy, _cx2, _cy2))
                     _roi_buf = _io2.BytesIO()
                     _roi.save(_roi_buf, format="JPEG", quality=85)
                     _roi.close()
                     _call_image_bytes = _roi_buf.getvalue()
                     _crop_x, _crop_y = _cx, _cy
-                # else: crop too small → fallback to full original image, crop offset stays 0
+                else:
+                    # ROI too small (< 20px) → skip boost; do NOT fallback to full image
+                    debug(f"[diag] boost_roi_too_small gi={gi} jid={jid} cw={_cw} ch={_ch}")
+                    _skip_boost = True
                 _pil_src.close()
         except Exception as _crop_exc:
             debug(f"[diag] boost_crop_failed gi={gi} jid={jid}: {_crop_exc}")
-            _call_image_bytes = original_image_bytes or image_bytes
-            _crop_x, _crop_y = 0, 0
+            _skip_boost = True
+
+        if _skip_boost:
+            # ROI invalid or too small: skip boost entirely, queue for individual retry
+            for _fitem in group:
+                if _fitem[0] not in boosted_indices:
+                    _fallback_singles.append(_fitem)
+            continue
 
         # A: build few-shot example using actual input question numbers
         _input_qnums = [q.question_number for _, q, _ in group]
-        _fs_item0 = (
-            "{\"question_number\":" + str(_input_qnums[0]) + ","
-            "\"student_answer\":\"42\","
-            "\"answer_bbox\":{\"x\":80,\"y\":12,\"width\":55,\"height\":22}}"
+        _ex_qn0 = str(_input_qnums[0])
+        _ex_qn1 = str(_input_qnums[1]) if len(_input_qnums) > 1 else str(_input_qnums[0] + 1)
+        _fewshot_ex = (
+            "[{\"question_number\":" + _ex_qn0 + ","
+            "\"student_answer\":\"12\","
+            "\"answer_bbox\":{\"x\":420,\"y\":180,\"width\":48,\"height\":26}},"
+            "{\"question_number\":" + _ex_qn1 + ","
+            "\"student_answer\":\"\","
+            "\"answer_bbox\":null}]"
         )
-        _fs_item1 = (
-            (",{\"question_number\":" + str(_input_qnums[1]) + ","
-             "\"student_answer\":null,\"answer_bbox\":null}")
-            if len(_input_qnums) >= 2 else ""
-        )
-        _fewshot_ex = "[" + _fs_item0 + _fs_item1 + "]"
         prompt = (
-            "【强制格式】你必须且只能输出一个纯 JSON 数组。禁止 markdown 代码块、禁止任何解释文字、禁止任何非 JSON 内容。\n"
-            "违反此规则将导致整个结果被丢弃。\n\n"
-            f"这张裁剪图包含 {len(group)} 道题，识别每道题的学生作答内容和手写答案区域。\n"
-            "【输入题号列表】\n" +
+            "You are given a cropped image region containing math questions with handwritten student answers. "
+            "Return ONLY a JSON array. No markdown fences. No explanation text. Start with [ and end with ].\n"
+            "For EVERY listed question, return exactly one object in the array.\n"
+            "- If a handwritten answer is visible: "
+            "{\"question_number\": N, \"student_answer\": \"<text>\", "
+            "\"answer_bbox\": {\"x\": <int>, \"y\": <int>, \"width\": <int>, \"height\": <int>}}\n"
+            "  answer_bbox must tightly cover only the handwritten answer area; "
+            "coordinates are relative to the cropped image top-left corner.\n"
+            "- If no clear handwritten answer is visible: "
+            "{\"question_number\": N, \"student_answer\": \"\", \"answer_bbox\": null}\n"
+            "\nListed questions:\n" +
             "\n".join(q_texts) +
-            "\n\n"
-            "【规则】\n"
-            "1. 输入图片是相对于原图裁剪后的 ROI，坐标以本图左上角为原点，不是原图坐标。\n"
-            "2. answer_bbox 只包含学生手写答案位置，不包含题干、整题框或整页。\n"
-            "3. 输入有几道题，输出数组就必须有几个对象，不得多也不得少，不得省略任何题号。\n"
-            "4. 找不到手写答案时：student_answer 填 null，answer_bbox 填 null；但该题对象仍必须出现在数组中。\n"
-            "5. 只输出输入题号范围内的 question_number，禁止输出列表之外的题号。\n"
-            "6. 你的整个回复体必须是一个 JSON 数组，以 [ 开头、以 ] 结尾。禁止 markdown 代码块，禁止任何解释文字。\n"
-            "\n【answer_bbox 格式】{\"x\":数字,\"y\":数字,\"width\":数字,\"height\":数字}\n"
-            "\n【few-shot 示例】\n" + _fewshot_ex + "\n"
-            "\n现在输出输入题号列表中所有题的结果："
+            "\n\nExample output:\n" + _fewshot_ex
         )
 
         _t0 = time.time()
@@ -1110,6 +1145,7 @@ async def _qwen_boost_group(
                 prompt=prompt,
                 max_tokens=1200,
                 timeout=15,
+                temperature=0,
             )
         except Exception as e:
             _boost_exc = str(e)[:200]
@@ -1147,7 +1183,9 @@ async def _qwen_boost_group(
             content = result.get("content", "")
             boost_data = _extract_first_json_array(content)
             if boost_data is None:
-                _parse_error = "bad_json:raw=" + content[:500]
+                _hf = int(bool(re.search(r"```", content)))
+                _hb = int(bool(re.search(r"\[", content)))
+                _parse_error = f"bad_json:has_fence={_hf}:has_bracket={_hb}:raw=" + content[:500]
             elif not isinstance(boost_data, list):
                 _parse_error = "json_not_array"
             elif not boost_data:
@@ -1166,7 +1204,7 @@ async def _qwen_boost_group(
                     _items_with_bbox_object_count = sum(
                         1 for _it in boost_data
                         if isinstance(_it, dict) and isinstance(
-                            _it.get("answer_bbox") or _it.get("answerbbox"), dict
+                            _it.get("answer_bbox") if _it.get("answer_bbox") is not None else _it.get("answerbbox"), dict
                         )
                     )
                     _items_with_student_answer_count = sum(
@@ -1200,7 +1238,9 @@ async def _qwen_boost_group(
                         _all_returned_qnums.add(qn)
                         sa = item.get("student_answer")
                         # Contract-first bbox parsing: object format > bbox_format > pure list
-                        ab = item.get("answer_bbox") or item.get("answerbbox")
+                        ab = item.get("answer_bbox")
+                        if ab is None:
+                            ab = item.get("answerbbox")
                         _ab_raw = None
                         _ab_format = None  # "xywh" | "xyxy" | None (pure list, default xywh)
                         if isinstance(ab, dict):
@@ -1307,20 +1347,20 @@ async def _qwen_boost_group(
                                     break
 
                     if _parse_error is None:
-                        # P0: input cardinality check — all input question numbers must appear in response
+                        # P0: output cardinality check
                         _missing_input_qnums = set(_input_qnums) - _matched_qnums
                         _extra_output_qnums = _all_returned_qnums - set(_input_qnums)
-                        if _missing_input_qnums:
-                            _parse_error = (
-                                "partial_failure:missing_returned_questions:"
-                                + ",".join(str(n) for n in sorted(_missing_input_qnums))
-                            )
-                        elif _extra_output_qnums:
+                        # Missing questions: record per-item as qwen_no_item; do NOT fail the group
+                        for _mq in _missing_input_qnums:
+                            if _mq not in _candidate_reasons:
+                                _candidate_reasons[_mq] = "qwen_no_item"
+                        if _extra_output_qnums:
                             _parse_error = (
                                 "partial_failure:extra_returned_questions:"
                                 + ",".join(str(n) for n in sorted(_extra_output_qnums))
                             )
-                        elif _missing_question_number:
+                        elif _missing_question_number and not _matched_qnums:
+                            # Only fail if no questions matched at all
                             _parse_error = "missing_question_number"
                         elif not _matched_qnums:
                             _parse_error = "no_matching_questions"
@@ -1428,6 +1468,11 @@ async def _qwen_boost_group(
                     if _fitem[0] not in boosted_indices:
                         _fallback_singles.append(_fitem)
             continue
+
+        # Partial success: add questions not yet boosted to individual retry
+        for _fitem in group:
+            if _fitem[0] not in boosted_indices:
+                _fallback_singles.append(_fitem)
 
     # C: fallback retry — process failed group items individually (bounded)
     _C_FALLBACK_MAX = min(len(boost_candidates) * 2, 8)
@@ -1588,7 +1633,6 @@ async def _qwen_bbox_only_retry(
     retry_qs = [
         q for q in questions
         if getattr(q, "bbox", None) and not getattr(q, "answer_bbox", None)
-        and (getattr(q, "student_answer", None) or getattr(q, "is_correct", None) is not None)
     ]
     if not retry_qs:
         return questions
@@ -2405,11 +2449,11 @@ async def worker_process_job(jid: str, contents: bytes, file, now: str, parent_i
                     _boost_done_time = time.time()
                 else:
                     _boost_done_time = t_start  # no boost needed; deadline still applies
-                # bbox-only retry: 触发条件——已有 student_answer 或 is_correct，但缺 answer_bbox
+                # bbox-only retry: 候选 = boost_candidates 中仍缺 answer_bbox 的题
+                # （不依赖 student_answer/is_correct，OCR-first 全程 student_answer=None）
                 _retry_qs_count = sum(
-                    1 for q in questions
-                    if (getattr(q, "student_answer", None) or getattr(q, "is_correct", None) is not None)
-                    and not getattr(q, "answer_bbox", None)
+                    1 for _, q, _ in boost_candidates
+                    if not getattr(q, "answer_bbox", None)
                 )
                 if (QWEN_BBOX_ONLY_RETRY_ENABLED
                         and 0 < _retry_qs_count <= QWEN_BBOX_ONLY_RETRY_MAX_CANDIDATES

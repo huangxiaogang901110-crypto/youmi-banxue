@@ -20,7 +20,7 @@ class QwenVLClient:
     def _available(self) -> bool:
         return bool(self.api_key and len(self.api_key) > 10 and self.api_key.startswith("sk-"))
 
-    def _call(self, image_bytes: bytes = None, image_url: str = None, prompt: str = "", max_tokens: int = 2000, timeout: int = 30) -> dict:
+    def _call(self, image_bytes: bytes = None, image_url: str = None, prompt: str = "", max_tokens: int = 2000, timeout: int = 30, temperature: float = None) -> dict:
         """底层调用，返回原始 API 响应。
         image_url 优先（OSS 签名 URL），否则 image_bytes → base64 data URL。
         timeout: HTTP 超时秒数，默认 30s。
@@ -47,7 +47,7 @@ class QwenVLClient:
                 "latency_ms": 0,
             }
 
-        body = json.dumps({
+        body_dict = {
             "model": self.model,
             "messages": [{
                 "role": "user",
@@ -57,7 +57,10 @@ class QwenVLClient:
                 ],
             }],
             "max_tokens": max_tokens,
-        }).encode("utf-8")
+        }
+        if temperature is not None:
+            body_dict["temperature"] = temperature
+        body = json.dumps(body_dict).encode("utf-8")
 
         try:
             req = request.Request(
