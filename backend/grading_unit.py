@@ -4,6 +4,7 @@ import asyncio
 import io
 import json
 import itertools
+import os
 import re
 from typing import Any
 
@@ -15,6 +16,11 @@ from math_grader import _try_math_rule_grading
 from model_logger import make_log_entry
 from vision_client import QwenVLClient
 import db as _db
+
+
+def _get_call_source() -> str:
+    v = os.environ.get("YOMI_CALL_SOURCE") or os.environ.get("YOMICALL_SOURCE") or os.environ.get("YOMICALLSOURCE")
+    return v.strip() if v and v.strip() else "dev_ocrfirst_real_test"
 
 
 _JSON_ARRAY_RE = re.compile(r"\[.*\]", re.DOTALL)
@@ -626,6 +632,7 @@ async def run_grading_unit_review(
             pricing=pricing,
             question_count=len(member_questions),
             grading_unit_id=unit["id"],
+            call_source=_get_call_source(),
         )
         total_cost += float(vlog.get("cost_cny", 0.0) or 0.0)
         _db.save_model_call(vlog)
@@ -698,6 +705,7 @@ async def run_grading_unit_review(
                     pricing=pricing,
                     question_count=1,
                     grading_unit_id=unit["id"],
+                    call_source=_get_call_source(),
                 )
                 total_cost += float(strict_log.get("cost_cny", 0.0) or 0.0)
                 _db.save_model_call(strict_log)

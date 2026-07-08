@@ -7,6 +7,8 @@ import { Upload, ArrowRight, Clock, Loader2, X, Image, Camera, FileText } from "
 import ProcessingStatus from "@/components/processing/ProcessingStatus";
 import GradingOverlay from "@/components/GradingOverlay";
 import type { OverlayMark, GroupBox } from "@/components/GradingOverlay";
+import AnswerMarkOverlay from "@/components/question-list/AnswerMarkOverlay";
+import type { AnswerMark } from "@/components/question-list/AnswerMarkOverlay";
 import QuestionGroup, { calcGroupSize, groupQuestions } from "@/components/question-list/QuestionGroup";
 import { useParseJobPolling } from "@/hooks/useParseJobPolling";
 import { useJobHistory } from "@/hooks/useJobHistory";
@@ -181,7 +183,7 @@ function RecognitionHintCard({
 }
 
 function WorkspaceContent() {
-  const { job, questions, status, error, overlay, group_boxes } = useParseJobPolling();
+  const { job, questions, status, error, overlay, group_boxes, v2Marks, v2NeedsReview } = useParseJobPolling();
   const searchParams = useSearchParams();
   const [activeIndex, setActiveIndex] = useState(-1);
   const router = useRouter();
@@ -194,8 +196,10 @@ function WorkspaceContent() {
   const [uploadError, setUploadError] = useState("");
   const [uploadJobId, setUploadJobId] = useState<string | null>(null);  // 当前上传的 job_id，用于重试
   const [compressInfo, setCompressInfo] = useState("");
-  const galleryRef = useRef<HTMLInputElement>(null);
+  const albumRef = useRef<HTMLInputElement>(null);
   const cameraRef = useRef<HTMLInputElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [showUploadSheet, setShowUploadSheet] = useState(false);
 
   // ── 7 天滚动历史缓存 ──
   const { history, upsert, removeEntry, clearAll } = useJobHistory();
@@ -746,16 +750,53 @@ function WorkspaceContent() {
           <>
             <div
               className="bg-primary/5 border-2 border-dashed border-primary/30 rounded-2xl p-8 text-center space-y-3 hover:bg-primary/10 transition cursor-pointer"
-              onClick={() => galleryRef.current?.click()}
+              onClick={() => setShowUploadSheet(true)}
             >
               <Upload className="w-10 h-10 text-primary mx-auto" strokeWidth={1.5} />
               <div>
-                <p className="text-foreground font-semibold">拍整页作业 / 上传 PDF</p>
+                <p className="text-foreground font-semibold">拍摄整页作业 / 本地上传</p>
                 <p className="text-muted-foreground text-sm mt-1">
                   上传后 AI 将自动识别题目、判断对错并给出解析
                 </p>
               </div>
             </div>
+
+            {/* 上传方式底部弹层 */}
+            {showUploadSheet && (
+              <div className="fixed inset-0 z-50 flex items-end bg-black/40" onClick={() => setShowUploadSheet(false)}>
+                <div
+                  className="w-full bg-background rounded-t-2xl p-6 space-y-3 shadow-xl"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <p className="text-center text-sm font-semibold text-foreground pb-1">选择上传方式</p>
+                  <button
+                    onClick={() => { setShowUploadSheet(false); setTimeout(() => cameraRef.current?.click(), 300); }}
+                    className="w-full flex items-center gap-3 rounded-xl border border-border py-3.5 px-4 text-sm text-foreground hover:bg-muted transition"
+                  >
+                    <Camera className="w-5 h-5" /> 拍照
+                  </button>
+                  <button
+                    onClick={() => { setShowUploadSheet(false); setTimeout(() => fileRef.current?.click(), 300); }}
+                    className="w-full flex items-center gap-3 rounded-xl border border-border py-3.5 px-4 text-sm text-foreground hover:bg-muted transition"
+                  >
+                    <FileText className="w-5 h-5" /> 本地文件夹
+                  </button>
+                  <button
+                    onClick={() => { setShowUploadSheet(false); setTimeout(() => albumRef.current?.click(), 300); }}
+                    className="w-full flex items-center gap-3 rounded-xl border border-border py-3.5 px-4 text-sm text-foreground hover:bg-muted transition"
+                  >
+                    <Image className="w-5 h-5" /> 手机相册
+                  </button>
+                  <button
+                    onClick={() => setShowUploadSheet(false)}
+                    className="w-full rounded-xl bg-muted py-3 text-sm text-muted-foreground mt-1"
+                  >
+                    取消
+                  </button>
+                </div>
+              </div>
+            )}
+
             <div className="flex gap-3">
               <button
                 onClick={() => cameraRef.current?.click()}
@@ -764,14 +805,15 @@ function WorkspaceContent() {
                 <Camera className="w-4 h-4" /> 拍照
               </button>
               <button
-                onClick={() => galleryRef.current?.click()}
+                onClick={() => albumRef.current?.click()}
                 className="flex-1 flex items-center justify-center gap-2 rounded-xl border border-border py-3 text-sm text-foreground hover:bg-muted transition"
               >
-                <Image className="w-4 h-4" /> 从相册选择
+                <Image className="w-4 h-4" /> 手机相册
               </button>
             </div>
             <input ref={cameraRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => handleFile(e.target.files?.[0])} />
-            <input ref={galleryRef} type="file" accept="image/*,.pdf" className="hidden" onChange={(e) => handleFile(e.target.files?.[0])} />
+            <input ref={albumRef} type="file" accept="image/*" className="hidden" onChange={(e) => handleFile(e.target.files?.[0])} />
+            <input ref={fileRef} type="file" accept="image/*,application/pdf,.pdf" className="hidden" onChange={(e) => handleFile(e.target.files?.[0])} />
           </>
         )}
 
@@ -835,7 +877,7 @@ function WorkspaceContent() {
   }
 
   // ── needs_review ──
-  if (status === "needs_review") {
+  if (status === "needs_review" && (!questions || questions.length === 0)) {
     const jid = searchParams.get("job_id");
     const hint = getRecognitionHint(status, documentClassification, 0);
     return (
@@ -878,7 +920,39 @@ function WorkspaceContent() {
 
   // ── completed / low_confidence ──
   const qs = questions || [];
-  const groupSize = calcGroupSize(qs.length);
+  // 统一题目真源：过滤掉 meta/section/header 等非题目节点，保证
+  // header 题数、判对错统计、下方分组编号全部来自同一份列表
+  const _NON_Q_KINDS = new Set(["meta", "section", "ignored", "ignore", "header", "footer", "title", "summary", "instruction", "instructions", "note", "date", "teacher"]);
+  const _Q_KINDS = new Set(["question", "problem", "item", "exercise"]);
+
+  // ── isMetaText: short title-form text (Chinese/English headers, not real questions) ──
+  const _ZH_SECTION_RE = /^[一二三四五六七八九十]+[、.．]\s*(选择题|计算题|应用题|填空题|判断题|解决问题|看图列式|口算题|竖式计算|操作题|作图题|简答题)/;
+  const _ZH_SHORT_LABEL_RE = /^(口算题|竖式计算|解决问题|看图列式|脱式计算|列式计算|递等式计算)$/;
+  const _EN_TITLE_RE = /^(Name|Class|Date|Teacher|Page\s*\d+|Unit\s*\d+|Part\s+[IV]+|Section\s+[A-Z])\s*[:：]?\s*$/i;
+  const _EN_SHORT_NUMBER_RE = /^(Page\s*\d+|Unit\s*\d+)\s*$/i;
+  function isMetaText(text: string): boolean {
+    if (!text) return false;
+    const t = text.trim();
+    if (_ZH_SECTION_RE.test(t)) return true;
+    if (_ZH_SHORT_LABEL_RE.test(t)) return true;
+    // English: only short standalone labels, not full question sentences
+    if (t.length <= 12 && _EN_TITLE_RE.test(t)) return true;
+    if (t.length <= 10 && _EN_SHORT_NUMBER_RE.test(t)) return true;
+    // Date/time-only patterns
+    if (/^(\d{4}[年\-/]\d{1,2}[月\-/]\d{1,2}日?)\s*$/.test(t)) return true;
+    return false;
+  }
+
+  // ── filteredQs: exclude meta/header nodes ──
+  const filteredQs = qs.filter(q => {
+    if (!q.kind) {
+      if (typeof q.question_number !== "number") return false;
+      const text = (q.question_text ?? "") as string;
+      return !isMetaText(text);
+    }
+    return !_NON_Q_KINDS.has(q.kind.toLowerCase());
+  });
+  const groupSize = calcGroupSize(filteredQs.length);
   const isRenderableBbox = (bbox?: number[] | null): bbox is [number, number, number, number] => {
     if (!bbox || bbox.length !== 4) return false;
     const [x, y, w, h] = bbox;
@@ -886,11 +960,71 @@ function WorkspaceContent() {
   };
   const overlayImageUrl = resolveImageUrl(job?.image_url || qs.find((q) => q.image_url)?.image_url || undefined);
 
-  // 诊断：渲染前检查 grading 字段
-  const _render_wg = qs.filter(q => q.is_correct !== null && q.is_correct !== undefined).length;
-  const _render_wsa = qs.filter(q => q.student_answer).length;
+  // P0-3: Build set of question IDs already covered by v2Marks / overlay to avoid double-marking
+  const _gradedQIds = new Set<string>();
+  for (const m of (v2Marks || [])) {
+    if (m.target_question_id && (m.type === "green_tick" || m.type === "red_circle")) {
+      _gradedQIds.add(m.target_question_id);
+    }
+  }
+  for (const m of (overlay || [])) {
+    _gradedQIds.add(m.question_id);
+  }
 
-  if (qs.length === 0) {
+  // P0-2: Build answerMarks from filteredQs (not raw qs) with field-alias support and dedup
+  const answerMarks: AnswerMark[] = filteredQs
+    .filter((q) => {
+      const raw = q as unknown as Record<string, unknown>;
+      const isCorrect = q.is_correct ?? raw.iscorrect;
+      const bbox = q.answer_bbox ?? raw.answerbbox;
+      const qid = q.question_id ?? raw.questionid ?? raw.id;
+      if (isCorrect === null || isCorrect === undefined) return false;
+      if (!isRenderableBbox(bbox as number[] | null)) return false;
+      if (_gradedQIds.has(qid as string)) return false;
+      // Kind guard: only explicit question-type items enter answerMarks
+      if (q.kind) {
+        if (!_Q_KINDS.has(q.kind.toLowerCase())) return false;
+      } else {
+        // No kind: require strong question signals, not just question_number
+        const raw = q as unknown as Record<string, unknown>;
+        const qText = (q.question_text ?? raw.question_text ?? "") as string;
+        const qNum = typeof q.question_number === "number" ? q.question_number : null;
+        // Must NOT be meta/header text
+        if (isMetaText(qText)) return false;
+        // Strong question signals (any one is enough):
+        // - Has student/child answer
+        const hasAnswer = typeof raw.student_answer === "string" || typeof raw.child_answer === "string";
+        // - Text contains math operators, question marks, blanks, or option markers
+        const _Q_SIGNAL_RE = /[+\-×÷=？?＿_（）()□]|\b[A-D][.、．]|A\.|B\.|C\.|D\.|以上|正确|错误|判断|选择|填空|计算|求|解|答/;
+        const hasSignal = qText.trim().length > 2 && _Q_SIGNAL_RE.test(qText);
+        // - Has options
+        const hasOptions = raw.options != null && (Array.isArray(raw.options) ? raw.options.length > 0 : true);
+        if (!hasAnswer && !hasSignal && !hasOptions && qNum === null) return false;
+      }
+      return true;
+    })
+    .map((q) => {
+      const raw = q as unknown as Record<string, unknown>;
+      const isCorrect = q.is_correct ?? raw.iscorrect;
+      const answerBbox = q.answer_bbox ?? raw.answerbbox;
+      const questionBbox = q.bbox ?? raw.question_bbox ?? raw.questionbbox;
+      const qid = (q.question_id ?? raw.questionid ?? raw.id) as string;
+      return {
+        question_id: qid,
+        is_correct: isCorrect as boolean,
+        answer_bbox: answerBbox as [number, number, number, number],
+        question_number: q.question_number,
+        question_bbox: isRenderableBbox(questionBbox as number[] | null)
+          ? (questionBbox as [number, number, number, number])
+          : undefined,
+      };
+    });
+
+  // 诊断：渲染前检查 grading 字段（使用 filteredQs 与下方分组保持一致）
+  const _render_wg = filteredQs.filter(q => q.is_correct !== null && q.is_correct !== undefined).length;
+  const _render_wsa = filteredQs.filter(q => q.student_answer).length;
+
+  if (filteredQs.length === 0) {
     const jid = searchParams.get("job_id");
     const hint = getRecognitionHint(status, documentClassification, 0);
     return (
@@ -932,12 +1066,12 @@ function WorkspaceContent() {
     );
   }
 
-  // 按 section_title 预分组（如果有分组信息）
-  const hasSections = qs.some(q => q.section_title);
+  // 按 section_title 预分组（如果有分组信息；均来自 filteredQs）
+  const hasSections = filteredQs.some(q => q.section_title);
   let sectionedGroups: { title: string; questions: Question[]; startNumber: number }[] = [];
   if (hasSections) {
     const sections = new Map<string, Question[]>();
-    for (const q of qs) {
+    for (const q of filteredQs) {
       const key = q.section_title || 'default';
       if (!sections.has(key)) sections.set(key, []);
       sections.get(key)!.push(q);
@@ -951,7 +1085,7 @@ function WorkspaceContent() {
 
   const groups = hasSections
     ? []  // 按 section 内部再分组
-    : groupQuestions(qs, groupSize);
+    : groupQuestions(filteredQs, groupSize);
 
   if (hasSections) {
     for (const sec of sectionedGroups) {
@@ -976,14 +1110,14 @@ function WorkspaceContent() {
   return (
     <div className="space-y-4 pb-4">
       {showDebug && <DiagPanel events={diagEvents} expanded={diagExpanded} onToggle={() => setDiagExpanded(!diagExpanded)} />}
-      {status === "low_confidence" && (
+      {(status === "low_confidence" || status === "needs_review") && (
         <RecognitionHintCard status={status} classification={documentClassification} compact questionCount={qs.length} />
       )}
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-semibold text-foreground">
-          共 {job?.questions_count || qs.length} 题
+          共 {filteredQs.length} 题
           <span className="text-xs text-muted-foreground ml-2 font-normal">
-            (判对错:{_render_wg}/{qs.length} 答案:{_render_wsa}/{qs.length})
+            (判对错:{_render_wg}/{filteredQs.length} 答案:{_render_wsa}/{filteredQs.length})
           </span>
         </h2>
         <div className="flex items-center gap-2">
@@ -999,35 +1133,42 @@ function WorkspaceContent() {
         </div>
       </div>
 
-      <GradingOverlay marks={overlay || []} groups={group_boxes || []} imageUrl={overlayImageUrl} />
+      <GradingOverlay marks={overlay || []} groups={group_boxes || []} imageUrl={overlayImageUrl} v2Marks={v2Marks} v2NeedsReview={v2NeedsReview} />
+      <AnswerMarkOverlay marks={answerMarks} imageUrl={overlayImageUrl} />
 
       <div className="space-y-3">
-        {groups.map((g, gi) => {
-          let sectionLabel = "";
-          if (hasSections && g.length > 0) {
-            const firstQ = g[0];
-            if (firstQ.section_title) {
-              const prevFirstQ = gi > 0 ? groups[gi - 1]?.[0] : null;
-              if (!prevFirstQ || prevFirstQ.section_title !== firstQ.section_title) {
-                sectionLabel = firstQ.section_title;
+        {(() => {
+          let questionOffset = 0;
+          return groups.map((g, gi) => {
+            let sectionLabel = "";
+            if (hasSections && g.length > 0) {
+              const firstQ = g[0];
+              if (firstQ.section_title) {
+                const prevFirstQ = gi > 0 ? groups[gi - 1]?.[0] : null;
+                if (!prevFirstQ || prevFirstQ.section_title !== firstQ.section_title) {
+                  sectionLabel = firstQ.section_title;
+                }
               }
             }
-          }
-          return (
-            <div key={gi}>
-              {sectionLabel && (
-                <h3 className="text-sm font-semibold text-foreground mb-2 mt-4 first:mt-0">{sectionLabel}</h3>
-              )}
-              <QuestionGroup
-                groupIndex={gi}
-                startNumber={gi * groupSize + 1}
-                endNumber={gi * groupSize + g.length}
-                questions={g}
-                defaultOpen={gi === 0}
-              />
-            </div>
-          );
-        })}
+            const startNumber = questionOffset + 1;
+            const endNumber = questionOffset + g.length;
+            questionOffset += g.length;
+            return (
+              <div key={gi}>
+                {sectionLabel && (
+                  <h3 className="text-sm font-semibold text-foreground mb-2 mt-4 first:mt-0">{sectionLabel}</h3>
+                )}
+                <QuestionGroup
+                  groupIndex={gi}
+                  startNumber={startNumber}
+                  endNumber={endNumber}
+                  questions={g}
+                  defaultOpen={gi === 0}
+                />
+              </div>
+            );
+          });
+        })()}
       </div>
 
       {/* 拍下一张作业 — 直接触发相机 */}
@@ -1041,7 +1182,8 @@ function WorkspaceContent() {
 
       {/* 隐藏的文件输入 — 始终渲染在 completed 视图 */}
       <input ref={cameraRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => handleFile(e.target.files?.[0])} />
-      <input ref={galleryRef} type="file" accept="image/*,.pdf" className="hidden" onChange={(e) => handleFile(e.target.files?.[0])} />
+      <input ref={albumRef} type="file" accept="image/*" className="hidden" onChange={(e) => handleFile(e.target.files?.[0])} />
+      <input ref={fileRef} type="file" accept="image/*,application/pdf,.pdf" className="hidden" onChange={(e) => handleFile(e.target.files?.[0])} />
     </div>
   );
 }

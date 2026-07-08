@@ -1,0 +1,27 @@
+{
+  "version": "v1",
+  "_comment": "Mock Qwen grading intent for V2 prototype smoke tests. question_id values are placeholders — replace with real IDs for integration tests. Load via YOMI_GRADING_V2_INTENT_PATH or fuse_grading_document(use_sample_intent=True).",
+  "questions": [
+    {
+      "question_id": "SAMPLE_Q_CORRECT",
+      "is_correct": true,
+      "confidence": 0.95,
+      "student_answer": "12",
+      "standard_answer": "12"
+    },
+    {
+      "question_id": "SAMPLE_Q_WRONG",
+      "is_correct": false,
+      "confidence": 0.88,
+      "student_answer": "5",
+      "standard_answer": "6"
+    },
+    {
+      "question_id": "SAMPLE_Q_LOW_CONF",
+      "is_correct": false,
+      "confidence": 0.51,
+      "student_answer": "7",
+      "standard_answer": "8"
+    }
+  ]
+}

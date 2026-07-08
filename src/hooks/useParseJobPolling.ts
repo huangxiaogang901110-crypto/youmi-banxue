@@ -5,13 +5,13 @@ import { useQuery } from "@tanstack/react-query";
 import { useSearchParams } from "next/navigation";
 import { parseJobApi } from "@/lib/api";
 import type { ApiResponse, ParseJob, Question } from "@/lib/types";
-import type { OverlayMark, GroupBox } from "@/components/GradingOverlay";
+import type { OverlayMark, GroupBox, GradingMark } from "@/components/GradingOverlay";
 
 /** 终态集合：停止轮询 */
 const TERMINAL_STATUSES = new Set(["completed", "failed", "low_confidence", "needs_review"]);
 
 /** 可展示结果的终态（有 questions 可读） */
-const RESULT_STATUSES = new Set(["completed", "low_confidence"]);
+const RESULT_STATUSES = new Set(["completed", "low_confidence", "needs_review"]);
 
 /** 前端轮询状态 */
 type PollStatus = "idle" | "loading" | "polling" | "completed" | "failed" | "low_confidence" | "needs_review";
@@ -21,6 +21,8 @@ interface PollingResult {
   questions: Question[] | null;
   overlay: OverlayMark[];
   group_boxes: GroupBox[];
+  v2Marks: GradingMark[];
+  v2NeedsReview: boolean;
   status: PollStatus;
   error: string;
 }
@@ -67,19 +69,21 @@ export function useParseJobPolling(): PollingResult {
     retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 8000),
   });
 
-  if (!jobId) return { overlay: [], group_boxes: [], job: null, questions: null, status: "idle", error: "" };
+  const EMPTY: PollingResult = { overlay: [], group_boxes: [], v2Marks: [], v2NeedsReview: false, job: null, questions: null, status: "idle", error: "" };
 
-  if (jobQuery.isLoading) return { overlay: [], group_boxes: [], job: null, questions: null, status: "loading", error: "" };
-  if (jobQuery.isError) return { overlay: [], group_boxes: [], job: null, questions: null, status: "polling", error: "" };
+  if (!jobId) return EMPTY;
+
+  if (jobQuery.isLoading) return { ...EMPTY, status: "loading" };
+  if (jobQuery.isError) return { ...EMPTY, status: "polling" };
 
   if (!jobQuery.data?.ok) {
-    return { overlay: [], group_boxes: [], job: null, questions: null, status: "polling", error: "" };
+    return { ...EMPTY, status: "polling" };
   }
 
   const job = jobQuery.data?.ok ? (jobQuery.data.data ?? null) : null;
   const s = normalizeJobStatus(job?.status ?? "");
 
-  if (s === "failed") return { overlay: [], group_boxes: [], job, questions: null, status: "failed", error: "解析失败，请重新上传" };
+  if (s === "failed") return { ...EMPTY, job, status: "failed", error: "解析失败，请重新上传" };
 
   if (RESULT_STATUSES.has(s)) {
     const qs = questionsQuery.data?.ok ? (questionsQuery.data.data ?? null) : null;
@@ -87,7 +91,7 @@ export function useParseJobPolling(): PollingResult {
     if (!qs || qs.length === 0) {
       emptyCompletedRef.current += 1;
       if (emptyCompletedRef.current < 5) {
-        return { overlay: [], group_boxes: [], job, questions: null, status: "polling", error: "" };
+        return { ...EMPTY, job, status: "polling" };
       }
     } else {
       emptyCompletedRef.current = 0;
@@ -96,12 +100,10 @@ export function useParseJobPolling(): PollingResult {
     const raw_overlay = questionsQuery.data as any;
     const overlay: OverlayMark[] = raw_overlay?.overlay || [];
     const group_boxes: GroupBox[] = raw_overlay?.group_boxes || [];
-    return { overlay, group_boxes, job, questions: qs, status: s as PollStatus, error: "" };
+    const v2Marks: GradingMark[] = raw_overlay?.v2_marks || [];
+    const v2NeedsReview: boolean = raw_overlay?.v2_needs_review ?? false;
+    return { overlay, group_boxes, v2Marks, v2NeedsReview, job, questions: qs, status: s as PollStatus, error: "" };
   }
 
-  if (s === "needs_review") {
-    return { overlay: [], group_boxes: [], job, questions: null, status: "needs_review", error: "识别不确定，请重拍或稍后重试" };
-  }
-
-  return { overlay: [], group_boxes: [], job, questions: null, status: "polling", error: "" };
+  return { ...EMPTY, job, status: "polling" };
 }

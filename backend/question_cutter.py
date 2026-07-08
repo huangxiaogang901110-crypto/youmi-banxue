@@ -91,6 +91,25 @@ def _parse_question_number(text: str) -> Tuple[Optional[int], str]:
     return None, ""
 
 
+def _y_overlap_ratio(block_a: "OCRBlock", block_b: "OCRBlock") -> float:
+    """
+    计算两个 block 在 y 方向的重叠比例，用较矮 block 的高度归一化。
+
+    含 OCR 抖动容差：将 min_h 的 50% 加入 overlap 计算，
+    使 gap 为小正数（OCR y 坐标轻微抖动）的同行 block 也能正确判定。
+
+    返回值 >= 0.3 视为同行；gap 超过 50% min_h 时返回 0。
+    """
+    min_h = min(block_a.h, block_b.h)
+    if min_h <= 0:
+        return 0.0
+    tol = min_h * 0.5  # 容差：较矮块高度的 50%，覆盖 OCR 轻微 y 抖动
+    overlap = min(block_a.bottom, block_b.bottom) - max(block_a.y, block_b.y) + tol
+    if overlap <= 0:
+        return 0.0
+    return overlap / min_h
+
+
 # ─── 主入口 ────────────────────────────────────────────────
 
 def cut_questions(ocr_blocks: List[dict], gap_threshold: int = 40) -> List[QuestionGroup]:
@@ -138,15 +157,25 @@ def cut_questions(ocr_blocks: List[dict], gap_threshold: int = 40) -> List[Quest
             num_val, num_text = _parse_question_number(group_blocks[0].text)
             groups.append(QuestionGroup(group_blocks, numbers[ai], num_text))
     else:
-        # 4. 无题号：按 y 间距 fallback 分组
+        # 4. 无题号：按 y 间距 fallback 分组；同行(y 重叠)且 x 间距大也拆（Repair-2B）
         current: List[OCRBlock] = [blocks[0]]
         for i in range(1, len(blocks)):
-            gap = blocks[i].y - blocks[i - 1].bottom
+            prev = blocks[i - 1]
+            cur = blocks[i]
+            gap = cur.y - prev.bottom
             if gap > gap_threshold:
                 groups.append(QuestionGroup(current, len(groups) + 1, ""))
-                current = [blocks[i]]
+                current = [cur]
+            elif _y_overlap_ratio(prev, cur) >= 0.3:
+                # y 方向有明显重叠 → 同行（对 OCR 轻微 y 抖动稳健），检测水平列间距
+                x_gap = cur.x - prev.right
+                if x_gap > gap_threshold * 2:
+                    groups.append(QuestionGroup(current, len(groups) + 1, ""))
+                    current = [cur]
+                else:
+                    current.append(cur)
             else:
-                current.append(blocks[i])
+                current.append(cur)
         if current:
             groups.append(QuestionGroup(current, len(groups) + 1, ""))
 
@@ -179,27 +208,45 @@ def _is_arithmetic_block(text: str) -> bool:
     return bool(_RE_ARITH.search(text))
 
 
+def _expand_multi_arith_block(b: OCRBlock) -> List[OCRBlock]:
+    """将单 block 内多个算式按空白拆为伪子块（Repair-2B）"""
+    matches = list(_RE_ARITH.finditer(b.text))
+    if len(matches) < 2:
+        return [b]
+    parts = [p.strip() for p in re.split(r'\s{2,}', b.text) if p.strip()]
+    if len(parts) < 2:
+        parts = [m.group(0) for m in matches]
+    n = len(parts)
+    sub_w = max(1, b.w // n)
+    result: List[OCRBlock] = []
+    for i, part in enumerate(parts):
+        result.append(OCRBlock(part, [b.x + i * sub_w, b.y, sub_w, b.h]))
+    return result
+
+
 def _split_arithmetic_groups(groups: List[QuestionGroup]) -> List[QuestionGroup]:
-    """对 y-gap fallback 产生的大组，按算术行二次拆分为独立题目"""
+    """对 y-gap / x-gap fallback 产生的大组，按算术行二次拆分为独立题目（Repair-2B）"""
     result: List[QuestionGroup] = []
     for g in groups:
-        blocks = g.blocks
-        # 只有 ≥3 个 block 且 ≥2 个含算术才拆分
+        # 先展开单 block 内多算式
+        expanded: List[OCRBlock] = []
+        for b in g.blocks:
+            expanded.extend(_expand_multi_arith_block(b))
+        blocks = expanded
+
         arith_blocks = [b for b in blocks if _is_arithmetic_block(b.text)]
-        if len(blocks) < 3 or len(arith_blocks) < 2:
+        # 无算术块则不拆分（降低阈值：≥1 block 且 ≥1 算术即拆）
+        if not arith_blocks:
             result.append(g)
             continue
 
         # 拆分：以每个算术 block 为中心，往前吞非算术邻居
         sub_groups: List[List[OCRBlock]] = []
         pending_non_arith: List[OCRBlock] = []
-        qn = 1
         for b in blocks:
             if _is_arithmetic_block(b.text):
-                merged = pending_non_arith + [b]
-                sub_groups.append(merged)
+                sub_groups.append(pending_non_arith + [b])
                 pending_non_arith = []
-                qn += 1
             else:
                 if sub_groups:
                     sub_groups[-1].append(b)
